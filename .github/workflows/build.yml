@@ -26,7 +26,7 @@ jobs:
           clang-18 --version | head -n 1
           llvm-objcopy-18 --version | head -n 1
 
-      - name: Build sync-safe and zero-vector images
+      - name: Build v0.5 sensorless matrix
         run: |
           make -C firmware clean all \
             CC=clang-18 \
@@ -42,9 +42,10 @@ jobs:
       - name: Upload bench binaries
         uses: actions/upload-artifact@v4
         with:
-          name: DeltaESC-G30D-v0.4-bench
+          name: DeltaESC-G30D-v0.5-sensorless
           if-no-files-found: error
           retention-days: 30
           path: |
-            firmware/build/DeltaESC_G30D_v0_4_pwm_syncsafe.bin
-            firmware/build/DeltaESC_G30D_v0_4_zero_vector_active.bin
+            firmware/build/DeltaESC_G30D_v0_5_sensorless_syncsafe.bin
+            firmware/build/DeltaESC_G30D_v0_5_observer_zero_vector.bin
+            firmware/build/DeltaESC_G30D_v0_5_sensorless_bench.bin

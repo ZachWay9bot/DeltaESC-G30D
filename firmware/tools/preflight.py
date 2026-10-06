@@ -4,25 +4,32 @@ import hashlib, struct, sys
 
 ROOT = Path(__file__).resolve().parents[1]
 items = [
-    (ROOT/'build/DeltaESC_G30D_v0_4_pwm_syncsafe.bin', False),
-    (ROOT/'build/DeltaESC_G30D_v0_4_zero_vector_active.bin', True),
+    (ROOT/'build/DeltaESC_G30D_v0_5_sensorless_syncsafe.bin', False, False),
+    (ROOT/'build/DeltaESC_G30D_v0_5_observer_zero_vector.bin', True, False),
+    (ROOT/'build/DeltaESC_G30D_v0_5_sensorless_bench.bin', True, True),
 ]
 
 ok = True
-for path, active in items:
+for path, arm_capable, run_capable in items:
     b = path.read_bytes()
     sp, reset = struct.unpack_from('<II', b, 0)
     adc_vec = struct.unpack_from('<I', b, (16+18)*4)[0]
     within = len(b) <= 50*1024
     arm_msg = b'ARM: ZERO-VECTOR PWM ACTIVE' in b
     disabled_msg = b'ARM: disabled in SYNC-SAFE build' in b
+    run_msg = b'RUN: low-energy sensorless startup requested' in b
+    run_disabled = b'RUN: compiled out in this build' in b
+    state_path = b'STOP -> ALIGN -> OPEN -> HANDOVER -> CLOSED' in b
     checks = {
         'SP': sp == 0x20005000,
         'reset_in_app': 0x08001001 <= reset < 0x0800D800,
         'adc_irq_in_app': 0x08001001 <= adc_vec < 0x0800D800,
         'size_50KiB': within,
-        'arm_string_expected': arm_msg == active,
-        'safe_string_expected': disabled_msg == (not active),
+        'arm_string_expected': arm_msg == arm_capable,
+        'safe_string_expected': disabled_msg == (not arm_capable),
+        'run_string_expected': run_msg == run_capable,
+        'run_disabled_expected': run_disabled == (not run_capable),
+        'sensorless_state_path': state_path,
     }
     print(path.name)
     print(f'  size={len(b)} sha256={hashlib.sha256(b).hexdigest()}')
