@@ -1,0 +1,44 @@
+name: Build DeltaESC G30D
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'firmware/**'
+      - '.github/workflows/build.yml'
+  pull_request:
+    paths:
+      - 'firmware/**'
+      - '.github/workflows/build.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install LLVM toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm
+
+      - name: Build sync-safe and zero-vector images
+        run: make -C firmware clean all
+
+      - name: Run static preflight
+        run: python3 firmware/tools/preflight.py
+
+      - name: Show hashes
+        run: sha256sum firmware/build/*.bin
+
+      - name: Upload bench binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-G30D-v0.4-bench
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            firmware/build/DeltaESC_G30D_v0_4_pwm_syncsafe.bin
+            firmware/build/DeltaESC_G30D_v0_4_zero_vector_active.bin
