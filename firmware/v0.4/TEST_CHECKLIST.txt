@@ -1,0 +1,32 @@
+DeltaESC G30D clean v0.4 — bench sequence
+
+PHASE 1 — SYNC-SAFE ONLY
+1. Keep the wheel off the ground. Use the 10s test pack/current-limited supply; 14s work remains deferred.
+2. Keep a verified complete 128 KiB ST-Link backup.
+3. Flash `DeltaESC_G30D_v0_4_pwm_syncsafe.bin` at application address 0x08001000 only.
+4. Connect UART1 PB6(TX)/PB7(RX), 115200 8N1.
+5. Scope PB1 and PA8/PA9/PA10 + PB13/PB14/PB15. PB1 must stay LOW and all six bridge pins must remain inactive.
+6. Confirm UART reports increasing `samples` and `dt(min/max/exp)` clustered around 4000 CPU cycles.
+7. Confirm 4 kHz control timing remains well below 12000 cycles and `hard=0`, `safe=0`, `oc=0`.
+8. Rotate the wheel by hand for part of the test. This is only a noise/timing test; v0.4 does not use Hall feedback.
+9. If ADC samples stop or `safe` becomes nonzero, do not proceed.
+
+PHASE 2 — ACTIVE-CAPABLE ZERO-VECTOR
+10. Flash `DeltaESC_G30D_v0_4_zero_vector_active.bin` at 0x08001000.
+11. It must boot DISARMED. Confirm PB1 LOW before sending any command.
+12. First test preferably with motor phase leads disconnected. Send `A` over UART only while watching the scope.
+13. Verify PA8/PB13, PA9/PB14 and PA10/PB15 are complementary pairs with approximately 1 us non-overlap/dead-time.
+14. Verify all three phase pairs have the same ~50% duty. No rotating vector is commanded.
+15. Send `D`; PB1 must go LOW first and all six PWM outputs must become inactive.
+16. Repeat with motor connected only after the gate-input test is clean. Wheel remains free.
+17. When armed with the motor connected, there must be no intended torque. Watch current residual and immediately disarm if noise/current is abnormal.
+18. PASS v0.4 only when ADC sync, complementary PWM, dead-time, arm/disarm and zero-vector behavior are all confirmed.
+
+STOP CONDITIONS
+- unexpected motor torque or movement;
+- missing/non-complementary gate waveform;
+- shoot-through symptoms or supply current jump;
+- `safe != 0`, `oc != 0`, stale ADC trigger;
+- PB1 fails to go LOW on D/disarm.
+
+Do not attempt rotating-vector/sensorless torque operation with v0.4.
