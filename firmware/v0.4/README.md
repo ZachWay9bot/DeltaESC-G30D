@@ -19,7 +19,7 @@ STM32F103 RM0008 defines TIM1_CC4 as a valid injected ADC trigger for ADC1/ADC2.
 
 ## Two binaries
 
-### 1. `DeltaESC_G30D_v0_4_pwm_syncsafe.bin`
+### `DeltaESC_G30D_v0_4_pwm_syncsafe.bin`
 
 This is the first binary to flash.
 
@@ -30,7 +30,7 @@ This is the first binary to flash.
 - CH1/2/3 gate-channel enable bits remain clear;
 - no physical bridge PWM can be produced.
 
-### 2. `DeltaESC_G30D_v0_4_zero_vector_active.bin`
+### `DeltaESC_G30D_v0_4_zero_vector_active.bin`
 
 This is only for the scope/bench step after the sync-safe build passes.
 
@@ -54,7 +54,7 @@ The firmware will refuse ARM until:
 
 Once armed, an instantaneous phase-current residual above 700 ADC counts forces PB1 LOW and removes all six TIM1 bridge channel enables. This is a raw-count emergency guard, not the final calibrated ampere current limit.
 
-## Important separation from the sensorless control work
+## Sensorless control status
 
 The fixed-point sensorless observer/current-control/SVPWM path still runs for timing and data-path validation, but **its calculated CCR values are not applied to the bridge in v0.4**. R/L/flux and current scaling are still placeholders.
 
@@ -78,13 +78,21 @@ No Hall input is required by this path.
 
 These `.bin` files are relocated application images, not full-flash images.
 
-## Build
+## Canonical build
 
-Requires clang/LLVM with ARM target support:
+The canonical CI toolchain is pinned to **Ubuntu 24.04 + clang/LLVM 18.1.3**. GitHub Actions builds both binaries, runs the static preflight, prints SHA-256 hashes and uploads the binaries as the `DeltaESC-G30D-v0.4-bench` artifact.
+
+Canonical v0.4 CI output:
+
+- sync-safe: 4328 bytes, SHA-256 `856763bd4e3da477404365ca1fdf097712292be6aea3d431280bbaed2954831c`
+- zero-vector active: 4648 bytes, SHA-256 `66e13c2c18709f4277c95c00b716cfc25fc351673627ca0c115b8e4f34634767`
+
+Build locally with LLVM 18:
 
 ```sh
-make clean
-make
+cd firmware
+make clean all CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+python3 tools/preflight.py
 ```
 
-Both binaries are produced in `build/`.
+The current source tree intentionally does **not** store flashable v0.4 binaries directly in Git. Use a hash-verified CI artifact or rebuild with the pinned toolchain. This prevents accidental publication of a truncated or otherwise altered firmware image.
