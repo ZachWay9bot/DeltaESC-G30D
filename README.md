@@ -29,8 +29,14 @@ Current rules:
 - **v0.4**: TIM1 complementary-PWM and ADC synchronization bring-up.
   - `syncsafe` build cannot arm the bridge.
   - `zero_vector_active` build can be manually armed for oscilloscope validation only and commands equal phase duty, not a rotating torque vector.
+- **v0.5 development**: EBiCS/VESC-style nonlinear flux observer plus guarded
+  `STOP -> ALIGN -> OPEN -> HANDOVER -> CLOSED` sensorless state machine.
+  Three build variants separate sync-safe diagnostics, zero-vector arming and
+  the explicit low-energy sensorless bench candidate.
 
-The next planned stage is calibrated current sensing, phase mapping, low-energy motor parameter work and a controlled sensorless open-loop-to-observer transition.
+v0.5 still requires real G30 motor R/L/flux identification, current sign/phase
+verification and bus-voltage calibration before sensorless handover is considered
+hardware-validated. See `docs/V0_5_SENSORLESS_BRINGUP.md`.
 
 ## Flash layout
 
