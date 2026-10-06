@@ -13,19 +13,25 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install LLVM toolchain
+      - name: Install pinned LLVM toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang llvm
+          sudo apt-get install -y clang-18 llvm-18
+          clang-18 --version | head -n 1
+          llvm-objcopy-18 --version | head -n 1
 
       - name: Build sync-safe and zero-vector images
-        run: make -C firmware clean all
+        run: |
+          make -C firmware clean all \
+            CC=clang-18 \
+            OBJCOPY=llvm-objcopy-18 \
+            OBJDUMP=llvm-objdump-18
 
       - name: Run static preflight
         run: python3 firmware/tools/preflight.py
