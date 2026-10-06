@@ -80,10 +80,18 @@ static uint16_t fast_atan2_u16(int32_t y, int32_t x) {
     uint32_t base;
 
     if (ax >= ay) {
-        uint32_t r = ax ? (uint32_t)(((uint64_t)ay << 14) / ax) : 0u;
+        while (ax > 0x3FFFFu) {
+            ax >>= 1;
+            ay >>= 1;
+        }
+        uint32_t r = ax ? ((ay << 14) / ax) : 0u;
         base = (r * 8192u) >> 14;
     } else {
-        uint32_t r = ay ? (uint32_t)(((uint64_t)ax << 14) / ay) : 0u;
+        while (ay > 0x3FFFFu) {
+            ax >>= 1;
+            ay >>= 1;
+        }
+        uint32_t r = ay ? ((ax << 14) / ay) : 0u;
         base = 16384u - ((r * 8192u) >> 14);
     }
 
@@ -350,7 +358,7 @@ void sensorless_control_step(sensorless_control_t *s,
         uint32_t blend = s->state_ticks;
         if (blend > HANDOVER_TICKS) blend = HANDOVER_TICKS;
         s->control_phase = (uint16_t)(s->openloop_phase +
-            (int32_t)(((int64_t)d * blend) / HANDOVER_TICKS));
+            ((int32_t)d * (int32_t)blend) / (int32_t)HANDOVER_TICKS);
 
         if (!s->observer_valid) {
             if (s->lost_ticks < 0xFFFFu) s->lost_ticks++;
