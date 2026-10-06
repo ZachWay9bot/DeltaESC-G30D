@@ -1,9 +1,13 @@
 #include <stdint.h>
 #include "stm32f103_min.h"
-#include "control_diag.h"
+#include "sensorless_control.h"
 
 #ifndef POWER_STAGE_ARM_ALLOWED
 #define POWER_STAGE_ARM_ALLOWED 0
+#endif
+
+#ifndef SENSORLESS_RUN_ALLOWED
+#define SENSORLESS_RUN_ALLOWED 0
 #endif
 
 #define SYSCLK_HZ                  64000000u
@@ -51,7 +55,7 @@ volatile uint16_t g_peak_abs_current;
 volatile uint8_t  g_power_armed;
 volatile uint8_t  g_control_div4;
 
-static control_diag_state_t ctrl;
+static sensorless_control_t ctrl;
 
 extern uint32_t _estack, _sidata, _sdata, _edata, _sbss, _ebss;
 int main(void);
@@ -172,6 +176,7 @@ static void power_stage_force_disarm(void) {
     TIM_CCER(TIM1_BASE) &= ~GATE_CCER_MASK;       /* retain CH4 ADC trigger */
     gate_pins_to_safe_inputs();
     g_power_armed = 0;
+    sensorless_control_stop(&ctrl);
 }
 
 static uint32_t gate_safety_check(void) {
@@ -219,6 +224,15 @@ static void uart_u32(uint32_t v) {
     if (!v) { uart_putc('0'); return; }
     while (v && n < sizeof b) { b[n++] = (char)('0' + (v % 10u)); v /= 10u; }
     while (n) uart_putc(b[--n]);
+}
+
+static void uart_i32(int32_t v) {
+    if (v < 0) {
+        uart_putc('-');
+        uart_u32((uint32_t)(-v));
+    } else {
+        uart_u32((uint32_t)v);
+    }
 }
 
 static void uart_hex16(uint16_t v) {
@@ -404,20 +418,30 @@ void ADC1_2_IRQHandler(void) {
         phase_current_counts_t i;
         i.ia=(int16_t)ia; i.ib=(int16_t)ib; i.ic=(int16_t)ic;
         uint32_t c0=DWT_CYCCNT;
-        control_diag_step(&ctrl,i,PWM_ARR);
+        sensorless_control_step(&ctrl,i,s3,PWM_ARR,g_power_armed);
         uint32_t cc=DWT_CYCCNT-c0;
         g_last_control_cycles=cc;
         if (cc>g_max_control_cycles) g_max_control_cycles=cc;
         if (cc>CONTROL_HARD_CYCLES) g_control_hard_overruns++;
         g_control_ticks++;
 
-        /* v0.4 never applies observer/current-control CCRs to the bridge.
-           Armed mode is deliberately equal-duty ZERO VECTOR only. */
+#if SENSORLESS_RUN_ALLOWED
+        if (g_power_armed && ctrl.drive_request && ctrl.state != SENSORLESS_FAULT) {
+            TIM_CCR1(TIM1_BASE)=ctrl.ccr1;
+            TIM_CCR2(TIM1_BASE)=ctrl.ccr2;
+            TIM_CCR3(TIM1_BASE)=ctrl.ccr3;
+        } else {
+            TIM_CCR1(TIM1_BASE)=PWM_ZERO_CCR;
+            TIM_CCR2(TIM1_BASE)=PWM_ZERO_CCR;
+            TIM_CCR3(TIM1_BASE)=PWM_ZERO_CCR;
+        }
+#else
         if (g_power_armed) {
             TIM_CCR1(TIM1_BASE)=PWM_ZERO_CCR;
             TIM_CCR2(TIM1_BASE)=PWM_ZERO_CCR;
             TIM_CCR3(TIM1_BASE)=PWM_ZERO_CCR;
         }
+#endif
     }
 
     g_adc_samples++;
@@ -437,7 +461,7 @@ static void reset_stats(void) {
 }
 
 static void report(void) {
-    uart_puts("v0.4 PWM-SYNC ");
+    uart_puts("v0.5 SENSORLESS ");
 #if POWER_STAGE_ARM_ALLOWED
     uart_puts("ACTIVE-CAPABLE");
 #else
@@ -454,6 +478,13 @@ static void report(void) {
     uart_puts(" hard="); uart_u32(g_control_hard_overruns);
     uart_puts(" oc="); uart_u32(g_overcurrent_trips);
     uart_puts(" safe="); uart_u32(g_safety_latched);
+    uart_puts(" state="); uart_puts(sensorless_state_name(ctrl.state));
+    uart_puts(" obs="); uart_u32(ctrl.observer_valid);
+    uart_puts(" ph="); uart_u32(ctrl.control_phase); uart_putc('/'); uart_u32(ctrl.observer_phase);
+    uart_puts(" pe="); uart_i32(ctrl.phase_error);
+    uart_puts(" iq/id="); uart_i32(ctrl.iq); uart_putc('/'); uart_i32(ctrl.id);
+    uart_puts(" flux2="); uart_u32(ctrl.flux_sq);
+    uart_puts(" fault="); uart_u32(ctrl.fault);
     uart_puts(" raw="); uart_hex16(g_adc_raw[0]); uart_putc(','); uart_hex16(g_adc_raw[1]); uart_putc(','); uart_hex16(g_adc_raw[2]); uart_putc(','); uart_hex16(g_adc_raw[3]);
     uart_puts("\r\n");
 }
@@ -467,6 +498,22 @@ static void handle_command(int ch) {
 #else
         uart_puts("ARM: disabled in SYNC-SAFE build\r\n");
 #endif
+    } else if (ch=='r' || ch=='R') {
+#if SENSORLESS_RUN_ALLOWED
+        if (!g_power_armed) uart_puts("RUN: refused, arm first\r\n");
+        else {
+            sensorless_control_set_drive(&ctrl,1);
+            uart_puts("RUN: low-energy sensorless startup requested\r\n");
+        }
+#else
+        uart_puts("RUN: compiled out in this build\r\n");
+#endif
+    } else if (ch=='s' || ch=='S') {
+        sensorless_control_stop(&ctrl);
+        TIM_CCR1(TIM1_BASE)=PWM_ZERO_CCR;
+        TIM_CCR2(TIM1_BASE)=PWM_ZERO_CCR;
+        TIM_CCR3(TIM1_BASE)=PWM_ZERO_CCR;
+        uart_puts("RUN: stopped, zero vector retained\r\n");
     } else if (ch=='d' || ch=='D') {
         power_stage_force_disarm();
         uart_puts("DISARMED\r\n");
@@ -474,7 +521,7 @@ static void handle_command(int ch) {
         reset_stats();
         uart_puts("stats cleared\r\n");
     } else if (ch=='?' || ch=='h' || ch=='H') {
-        uart_puts("commands: ? status/help, A arm zero-vector (active build only), D disarm, C clear stats\r\n");
+        uart_puts("commands: ? status, A arm, R run sensorless (bench only), S stop, D disarm, C clear stats\r\n");
         report();
     }
 }
@@ -487,19 +534,24 @@ int main(void) {
     gate_enable_gpio_init();
     gate_pins_to_safe_inputs();
     uart1_debug_init();
-    control_diag_init(&ctrl);
+    sensorless_control_init(&ctrl);
     adc1_injected_init();
     tim1_pwm_and_adc_trigger_init();
     systick_init();
     irq_enable();
 
-    uart_puts("DeltaESC G30D clean v0.4 PWM/ADC sync bring-up\r\n");
+    uart_puts("DeltaESC G30D v0.5 EBiCS/VESC sensorless bring-up\r\n");
 #if POWER_STAGE_ARM_ALLOWED
-    uart_puts("BUILD: ACTIVE-CAPABLE, but boots DISARMED. Send A only after scope checks.\r\n");
+  #if SENSORLESS_RUN_ALLOWED
+    uart_puts("BUILD: SENSORLESS BENCH. Boots DISARMED; A arms zero-vector, R starts low-energy sequence.\r\n");
+  #else
+    uart_puts("BUILD: OBSERVER/ARM. Boots DISARMED; torque-producing run is compiled out.\r\n");
+  #endif
 #else
-    uart_puts("BUILD: SYNC-SAFE. Power-stage arming compiled out.\r\n");
+    uart_puts("BUILD: SYNC-SAFE. Power-stage arming and motor run compiled out.\r\n");
 #endif
     uart_puts("TIM1 center 16kHz, ~1us deadtime, ADC1 injected IA/IB/IC/VBUS on TIM1_CH4, control every 4th sample = 4kHz\r\n");
+    uart_puts("State path: STOP -> ALIGN -> OPEN -> HANDOVER -> CLOSED; failed observer lock -> FAULT.\r\n");
     uart_puts("PA11 remains GPIO HIGH power-hold; CH4 is internal trigger only.\r\n");
 
     uint32_t next=1000u;
