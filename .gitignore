@@ -1,0 +1,5 @@
+firmware/**/build/*.elf
+firmware/**/build/*.map
+firmware/**/build/*disassembly*.txt
+firmware/**/build/*sections*.txt
+.DS_Store
