@@ -1,0 +1,39 @@
+name: Build DeltaESC G30D v0.6 BLE
+
+on:
+  push:
+    branches: [ "dev/v0.6-stock-dash-ble" ]
+    paths:
+      - 'v0.6/**'
+      - '.github/workflows/build-v06-ble.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install LLVM 18
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18 llvm-18 xz-utils
+      - name: Extract source
+        run: |
+          mkdir -p /tmp/deltaesc-v06
+          tar -xJf v0.6/DeltaESC_G30D_v0_6_source.tar.xz -C /tmp/deltaesc-v06
+      - name: Build matrix
+        working-directory: /tmp/deltaesc-v06
+        run: |
+          make clean all CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+      - name: Preflight
+        working-directory: /tmp/deltaesc-v06
+        run: python3 tools/preflight.py
+      - name: Hashes
+        run: sha256sum /tmp/deltaesc-v06/build/*.bin
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-G30D-v0.6-stock-dash-ble
+          retention-days: 30
+          if-no-files-found: error
+          path: /tmp/deltaesc-v06/build/*.bin
