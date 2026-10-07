@@ -1,0 +1,55 @@
+name: Build DeltaESC G30D v0.6.1 SHU
+
+on:
+  push:
+    branches: [ "dev/v0.6.1-shu-reflash-safe" ]
+    paths:
+      - 'v0.6.1/**'
+      - '.github/workflows/build-v061-shu.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18 llvm-18 xz-utils patch
+      - name: Reconstruct v0.6.1 source
+        run: |
+          mkdir -p /tmp/v061
+          tar -xJf v0.6/DeltaESC_G30D_v0_6_source.tar.xz -C /tmp/v061
+          xz -dc v0.6.1/v0611.patch.xz | patch -d /tmp/v061 -p1
+      - name: Build firmware matrix
+        working-directory: /tmp/v061
+        run: make clean all CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+      - name: Firmware preflight
+        working-directory: /tmp/v061
+        run: python3 tools/preflight.py
+      - name: SHU ZIPv3 and NinebotTEA preflight
+        working-directory: /tmp/v061
+        run: python3 tools/test_shu_package.py
+      - name: Build SHU packages
+        working-directory: /tmp/v061
+        run: |
+          mkdir -p shu
+          python3 tools/make_shu_zip.py build/DeltaESC_G30D_v0_6_1_ble_syncsafe.bin shu/DeltaESC_G30D_v0_6_1_SHU_SYNC_SAFE.zip --name "DeltaESC G30D v0.6.1 SAFE" --variant syncsafe
+          python3 tools/make_shu_zip.py build/DeltaESC_G30D_v0_6_1_ble_observer_zero_vector.bin shu/DeltaESC_G30D_v0_6_1_SHU_ZERO_VECTOR.zip --name "DeltaESC G30D v0.6.1 ZERO VECTOR" --variant zero-vector
+          python3 tools/make_shu_zip.py build/DeltaESC_G30D_v0_6_1_ble_sensorless_bench.bin shu/DeltaESC_G30D_v0_6_1_SHU_SENSORLESS_BENCH.zip --name "DeltaESC G30D v0.6.1 SENSORLESS BENCH" --variant sensorless-bench
+          tar --exclude=build --exclude=shu -cJf DeltaESC_G30D_v0_6_1_source.tar.xz .
+      - name: Hashes
+        working-directory: /tmp/v061
+        run: sha256sum build/*.bin shu/*.zip DeltaESC_G30D_v0_6_1_source.tar.xz
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-G30D-v0.6.1-SHU
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            /tmp/v061/build/*.bin
+            /tmp/v061/shu/*.zip
+            /tmp/v061/DeltaESC_G30D_v0_6_1_source.tar.xz
+            /tmp/v061/README.md
