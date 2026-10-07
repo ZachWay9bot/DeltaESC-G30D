@@ -1,0 +1,57 @@
+name: Build DeltaESC G30D v0.6.2 staged IAP
+on:
+  push:
+    branches: [ "dev/v0.6.2-staged-iap" ]
+    paths: [ "v0.6.2/**", ".github/workflows/build-v062-iap.yml" ]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18 llvm-18 xz-utils patch
+      - name: Reconstruct v0.6.2 source
+        run: |
+          mkdir -p /tmp/v062
+          unzip -q DeltaESC_G30D_v0_6_1_source_CI.zip -d /tmp/v062 || true
+          if [ ! -f /tmp/v062/Makefile ]; then
+            mkdir -p /tmp/v061
+            tar -xJf v0.6/DeltaESC_G30D_v0_6_source.tar.xz -C /tmp/v061
+            xz -dc v0.6.1/v0611.patch.xz | patch -d /tmp/v061 -p1
+            cp -a /tmp/v061/. /tmp/v062/
+          fi
+          xz -dc v0.6.2/v062.patch.xz | patch -d /tmp/v062 -p2
+      - name: Build matrix
+        working-directory: /tmp/v062
+        run: make clean all CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+      - name: Staged-IAP preflight
+        working-directory: /tmp/v062
+        run: python3 tools/preflight_v062.py
+      - name: IAP crypto regression
+        working-directory: /tmp/v062
+        run: python3 tools/test_iap_crypto.py
+      - name: SHU ZIPv3 preflight
+        working-directory: /tmp/v062
+        run: python3 tools/test_shu_package.py
+      - name: Build SHU packages
+        working-directory: /tmp/v062
+        run: |
+          mkdir -p shu
+          python3 tools/make_shu_zip.py build/DeltaESC_G30D_v0_6_2_ble_syncsafe.bin shu/DeltaESC_G30D_v0_6_2_SHU_SYNC_SAFE.zip --name "DeltaESC G30D v0.6.2 SAFE" --variant syncsafe
+          python3 tools/make_shu_zip.py build/DeltaESC_G30D_v0_6_2_ble_observer_zero_vector.bin shu/DeltaESC_G30D_v0_6_2_SHU_ZERO_VECTOR.zip --name "DeltaESC G30D v0.6.2 ZERO VECTOR" --variant zero-vector
+          python3 tools/make_shu_zip.py build/DeltaESC_G30D_v0_6_2_ble_sensorless_bench.bin shu/DeltaESC_G30D_v0_6_2_SHU_SENSORLESS_BENCH.zip --name "DeltaESC G30D v0.6.2 SENSORLESS BENCH" --variant sensorless-bench
+          tar --exclude=build --exclude=shu -C /tmp/v062 -cJf /tmp/DeltaESC_G30D_v0_6_2_source.tar.xz .
+          sha256sum build/*.bin shu/*.zip /tmp/DeltaESC_G30D_v0_6_2_source.tar.xz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-G30D-v0.6.2-staged-IAP
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            /tmp/v062/build/*.bin
+            /tmp/v062/shu/*.zip
+            /tmp/DeltaESC_G30D_v0_6_2_source.tar.xz
+            /tmp/v062/README.md
