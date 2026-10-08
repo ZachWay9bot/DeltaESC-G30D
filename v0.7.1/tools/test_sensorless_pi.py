@@ -15,7 +15,7 @@ exe_bin=root/'build/DeltaESC_G30D_v0_7_1_ble_syncsafe.bin'
 assert exe_bin.exists() and exe_bin.stat().st_size <= 0xC800
 with tempfile.TemporaryDirectory() as d:
     exe=Path(d)/'host_math'
-    subprocess.check_call([os.environ.get('HOST_CC','clang'),'-std=c11','-O1','-Wall','-Wextra','-Werror',
+    subprocess.check_call([os.environ.get('HOST_CC','clang'),'-std=c11','-O1','-Wall','-Wextra','-Werror','-Wno-misleading-indentation',
       '-fsanitize=undefined','-fno-sanitize-recover=all','-I',str(root/'src'),
       str(root/'src/sensorless_control.c'),str(Path(__file__).with_name('sensorless_pi_host_test.c')),
       '-o',str(exe)])
