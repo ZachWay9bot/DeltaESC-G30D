@@ -118,7 +118,7 @@ static void reply_hello(uint8_t dst) {
     p[1] = status_flags();
     p[2] = 0u;              /* firmware major */
     p[3] = 4u;              /* firmware minor */
-    p[4] = 1u;              /* firmware patch */
+    p[4] = 2u;              /* firmware patch */
     p[5] = 'S';             /* Sensorless */
     p[6] = 'L';             /* Link: stock dashboard */
     p[7] = 'E';             /* Experimental */
