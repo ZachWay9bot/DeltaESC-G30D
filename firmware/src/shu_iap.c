@@ -166,6 +166,13 @@ void shu_iap_handoff(void) {
     if (g_power_armed) return;
     if (g_last_abs_current > IAP_IDLE_COUNTS) return;
 
-    if (!invalidate_app_vector()) return;
+    /* Keep the half-word program + reset transition atomic. ADC interrupts
+       are useful while deciding whether it is safe, not while modifying the
+       application's reset vector. */
+    irq_disable();
+    if (!invalidate_app_vector()) {
+        irq_enable();
+        return;
+    }
     system_reset();
 }
