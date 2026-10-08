@@ -1,0 +1,210 @@
++    s->i_beta_prev = i_beta;
++
++    int64_t fs = s->x_alpha * s->x_alpha + s->x_beta * s->x_beta;
++    int64_t lt = (int64_t)s->flux_target_raw;
++    int64_t target_sq = lt * lt;
++    if (fs > (target_sq << 2)) {
++        /* Gentle radial leak instead of hard angle-disturbing clipping. */
++        s->x_alpha -= s->x_alpha >> 3;
++        s->x_beta  -= s->x_beta  >> 3;
++        fs = s->x_alpha * s->x_alpha + s->x_beta * s->x_beta;
++    }
++    s->e_alpha = (int32_t)s->x_alpha;
++    s->e_beta  = (int32_t)s->x_beta;
++    s->flux_sq = fs > 0xFFFFFFFFLL ? 0xFFFFFFFFu : (uint32_t)fs;
++    s->observer_valid = (fs >= (target_sq >> 4) && fs <= (target_sq << 2)) ? 1u : 0u;
++
++    uint16_t phase = (uint16_t)(fast_atan2_u16(s->e_beta, s->e_alpha) + s->phase_offset_u16);
++    int16_t dp = phase_delta(phase, s->observer_phase_prev);
++    s->observer_phase_prev = phase;
++    s->observer_phase = phase;
++    /* 1/8 IIR. Signed u16/tick electrical speed. */
++    s->observer_speed += ((int32_t)dp - s->observer_speed) >> 3;
+ }
+ 
+-static void current_control(sensorless_control_t *s, int32_t i_alpha, int32_t i_beta, uint16_t phase, int32_t iq_ref, uint16_t pwm_arr) {
++static void current_control(sensorless_control_t *s, int32_t i_alpha, int32_t i_beta,
++                            uint16_t phase, int32_t id_ref, int32_t iq_ref, uint16_t pwm_arr) {
+     int32_t sn = sin_q15(phase), cs = cos_q15(phase);
+     s->id = (int32_t)(((int64_t)i_alpha * cs + (int64_t)i_beta * sn) >> 15);
+     s->iq = (int32_t)((-(int64_t)i_alpha * sn + (int64_t)i_beta * cs) >> 15);
++    id_ref = clamp32(id_ref, -MAX_CURRENT_REF_COUNTS, MAX_CURRENT_REF_COUNTS);
+     iq_ref = clamp32(iq_ref, -MAX_CURRENT_REF_COUNTS, MAX_CURRENT_REF_COUNTS);
+-    int32_t ed = -s->id, eq = iq_ref - s->iq;
+-    s->id_int = clamp32(s->id_int + ((ed * PI_KI_Q15) >> 15), -PI_INT_LIMIT, PI_INT_LIMIT);
+-    s->iq_int = clamp32(s->iq_int + ((eq * PI_KI_Q15) >> 15), -PI_INT_LIMIT, PI_INT_LIMIT);
+-    int32_t vd = clamp32(((ed * PI_KP_Q15) >> 15) + s->id_int, -MOD_LIMIT, MOD_LIMIT);
+-    int32_t vq = clamp32(((eq * PI_KP_Q15) >> 15) + s->iq_int, -MOD_LIMIT, MOD_LIMIT);
++    s->id_ref_counts = (int16_t)id_ref;
++    s->iq_ref_counts = (int16_t)iq_ref;
++
++    int32_t ed = id_ref - s->id, eq = iq_ref - s->iq;
++    s->id_int = clamp32(s->id_int + ed * PI_KI_COUNTS, -PI_INT_LIMIT, PI_INT_LIMIT);
++    s->iq_int = clamp32(s->iq_int + eq * PI_KI_COUNTS, -PI_INT_LIMIT, PI_INT_LIMIT);
++    int32_t vd = clamp32(ed * PI_KP_COUNTS + s->id_int, -MOD_LIMIT, MOD_LIMIT);
++    int32_t vq = clamp32(eq * PI_KP_COUNTS + s->iq_int, -MOD_LIMIT, MOD_LIMIT);
++
+     int32_t v_alpha = (int32_t)(((int64_t)vd * cs - (int64_t)vq * sn) >> 15);
+-    int32_t v_beta = (int32_t)(((int64_t)vd * sn + (int64_t)vq * cs) >> 15);
++    int32_t v_beta  = (int32_t)(((int64_t)vd * sn + (int64_t)vq * cs) >> 15);
+     s->v_alpha_prev = v_alpha; s->v_beta_prev = v_beta;
++
+     const int32_t sqrt3_2_q15 = 28378;
+     int32_t pa = v_alpha;
+     int32_t pb = -(v_alpha >> 1) + (int32_t)(((int64_t)v_beta * sqrt3_2_q15) >> 15);
+     int32_t pc = -(v_alpha >> 1) - (int32_t)(((int64_t)v_beta * sqrt3_2_q15) >> 15);
+     int32_t vmax = pa, vmin = pa;
+-    if (pb > vmax) vmax = pb; if (pc > vmax) vmax = pc;
+-    if (pb < vmin) vmin = pb; if (pc < vmin) vmin = pc;
++    if (pb > vmax) vmax = pb;
++    if (pc > vmax) vmax = pc;
++    if (pb < vmin) vmin = pb;
++    if (pc < vmin) vmin = pc;
+     int32_t center = -((vmax + vmin) >> 1);
+     pa = clamp32(pa + center, -MOD_LIMIT, MOD_LIMIT);
+     pb = clamp32(pb + center, -MOD_LIMIT, MOD_LIMIT);
+@@ -165,18 +198,47 @@
+     s->ccr3 = (uint16_t)(((uint32_t)dc * pwm_arr) >> 15);
+ }
+ 
++uint8_t sensorless_control_set_motor_params(sensorless_control_t *s,
++                                            uint32_t resistance_uohm,
++                                            uint32_t inductance_nh,
++                                            uint32_t flux_uwb) {
++    if (resistance_uohm < 20000u || resistance_uohm > 500000u) return 0u;
++    if (inductance_nh < 20000u || inductance_nh > 500000u) return 0u;
++    if (flux_uwb < 2000u || flux_uwb > 50000u) return 0u;
++
++    /* At the provisional G30 scales and 4 kHz control rate:
++       0.100 ohm -> Rq8 ~= 92, 100 uH -> Lq8 ~= 368,
++       0.012 Wb -> flux radius ~= 3429. */
++    uint32_t rq8 = (resistance_uohm * 92u + 50000u) / 100000u;
++    uint32_t lq8 = (inductance_nh * 368u + 50000u) / 100000u;
++    uint32_t fr  = (flux_uwb * 3429u + 6000u) / 12000u;
++    if (rq8 < 1u || rq8 > 4095u || lq8 < 1u || lq8 > 8191u || fr < 128u || fr > 20000u) return 0u;
++
++    s->motor_r_uohm = resistance_uohm;
++    s->motor_l_nh = inductance_nh;
++    s->flux_uwb = flux_uwb;
++    s->observer_r_q8 = (uint16_t)rq8;
++    s->observer_l_q8 = (uint16_t)lq8;
++    s->flux_target_raw = fr;
++    observer_reset(s);
++    return 1u;
++}
++
+ void sensorless_control_init(sensorless_control_t *s) {
+     s->drive_request = 0; s->state = SENSORLESS_STOP; s->fault = 0; s->state_ticks = 0;
+     s->openloop_step = OPENLOOP_STEP_START; s->openloop_phase = 0; s->control_phase = 0;
+-    s->id = 0; s->iq = 0; s->id_int = 0; s->iq_int = 0;
++    s->id = 0; s->iq = 0; s->id_int = 0; s->iq_int = 0; s->id_ref_counts=0; s->iq_ref_counts=0;
+     s->phase_offset_u16 = 0u; s->run_current_ma = DEFAULT_RUN_CURRENT_MA; s->run_iq_counts = ma_to_counts(DEFAULT_RUN_CURRENT_MA);
+-    observer_reset(s); s->ccr1 = s->ccr2 = s->ccr3 = 0;
++    s->ccr1 = s->ccr2 = s->ccr3 = 0;
++    s->motor_r_uohm=DEFAULT_MOTOR_R_UOHM; s->motor_l_nh=DEFAULT_MOTOR_L_NH; s->flux_uwb=DEFAULT_FLUX_UWB;
++    s->observer_r_q8=92u; s->observer_l_q8=368u; s->flux_target_raw=3429u;
++    observer_reset(s);
+ }
+ 
+ void sensorless_control_set_phase_offset(sensorless_control_t *s, int16_t offset) { s->phase_offset_u16 = (uint16_t)offset; }
+ 
+ uint8_t sensorless_control_set_run_current_ma(sensorless_control_t *s, uint16_t current_ma) {
+-    if (current_ma < 100u || current_ma > 2000u) return 0u;
++    if (current_ma < 300u || current_ma > 1500u) return 0u;
+     s->run_current_ma = current_ma;
+     s->run_iq_counts = ma_to_counts(current_ma);
+     return 1u;
+@@ -185,73 +247,103 @@
+ void sensorless_control_set_drive(sensorless_control_t *s, uint8_t enable) {
+     if (!enable) { sensorless_control_stop(s); return; }
+     if (!s->drive_request) {
+-        s->drive_request = 1; s->fault = 0; s->state = SENSORLESS_ALIGN; s->state_ticks = 0;
+-        s->openloop_step = OPENLOOP_STEP_START; s->openloop_phase = 0; s->control_phase = 0;
+-        s->id_int = 0; s->iq_int = 0; observer_reset(s);
++        s->drive_request = 1u; s->fault = 0u; s->state = SENSORLESS_ALIGN; s->state_ticks = 0u;
++        s->openloop_step = OPENLOOP_STEP_START; s->openloop_phase = 0u; s->control_phase = 0u;
++        s->id_int = 0; s->iq_int = 0; s->lock_ticks=0u; s->lost_ticks=0u;
++        observer_reset(s);
+     }
+ }
+ 
+ void sensorless_control_stop(sensorless_control_t *s) {
+-    s->drive_request = 0; s->state = SENSORLESS_STOP; s->state_ticks = 0;
+-    s->lock_ticks = 0; s->lost_ticks = 0; s->id_int = 0; s->iq_int = 0;
++    s->drive_request = 0u; s->state = SENSORLESS_STOP; s->state_ticks = 0u;
++    s->lock_ticks = 0u; s->lost_ticks = 0u; s->id_int = 0; s->iq_int = 0;
++    s->id_ref_counts=0; s->iq_ref_counts=0;
+ }
+ 
+-void sensorless_control_step(sensorless_control_t *s, phase_current_counts_t current, uint16_t vbus_adc, uint16_t pwm_arr, uint8_t power_armed) {
++void sensorless_control_step(sensorless_control_t *s, phase_current_counts_t current,
++                             uint16_t vbus_adc, uint16_t pwm_arr, uint8_t power_armed) {
+     int32_t i_alpha = current.ia;
+     int32_t i_beta = (int32_t)(((int64_t)(current.ia + 2 * (int32_t)current.ib) * 18919) >> 15);
+-    observer_update(s, i_alpha, i_beta, vbus_adc);
+-    s->phase_error = phase_delta(s->observer_phase, s->openloop_phase);
++
+     if (!power_armed || !s->drive_request) {
+-        s->state = SENSORLESS_STOP; s->state_ticks = 0; s->id_int = 0; s->iq_int = 0;
+-        zero_vector(s, pwm_arr); return;
++        s->state = SENSORLESS_STOP; s->state_ticks = 0u; s->id_int = 0; s->iq_int = 0;
++        observer_reset(s); zero_vector(s, pwm_arr); return;
+     }
++
++    /* ALIGN owns observer initialization. All other states run it from the
++       voltage/current history of the previous control interval. */
++    if (s->state != SENSORLESS_ALIGN) observer_update(s, i_alpha, i_beta, vbus_adc);
++    s->phase_error = phase_delta(s->observer_phase, s->openloop_phase);
+     s->state_ticks++;
++
+     switch ((sensorless_state_id_t)s->state) {
+     case SENSORLESS_STOP:
+-        s->state = SENSORLESS_ALIGN; s->state_ticks = 0; s->openloop_phase = 0; s->control_phase = 0; break;
++        s->state = SENSORLESS_ALIGN; s->state_ticks = 0u; s->openloop_phase = 0u; s->control_phase = 0u;
++        break;
++
+     case SENSORLESS_ALIGN:
+         s->control_phase = s->openloop_phase;
+-        if (s->state_ticks >= ALIGN_TICKS) { s->state = SENSORLESS_OPEN_LOOP; s->state_ticks = 0; s->lock_ticks = 0; }
++        /* Rotor is held on d-axis. Continuously seed magnet flux to that known
++           angle so the observer does not have to bootstrap from zero. */
++        observer_seed_phase(s, s->control_phase);
++        if (s->state_ticks >= ALIGN_TICKS) {
++            s->state = SENSORLESS_OPEN_LOOP; s->state_ticks = 0u; s->lock_ticks = 0u;
++            s->observer_speed = (int32_t)OPENLOOP_STEP_START;
++        }
+         break;
++
+     case SENSORLESS_OPEN_LOOP: {
+-        uint32_t ramp = s->state_ticks; if (ramp > CONTROL_HZ) ramp = CONTROL_HZ;
+-        s->openloop_step = (uint16_t)(OPENLOOP_STEP_START + ((OPENLOOP_STEP_END - OPENLOOP_STEP_START) * ramp) / CONTROL_HZ);
+-        s->openloop_phase = (uint16_t)(s->openloop_phase + s->openloop_step); s->control_phase = s->openloop_phase;
+-        int32_t pe = s->phase_error; if (pe < 0) pe = -pe;
+-        if (s->observer_valid && pe < PHASE_LOCK_LIMIT_U16 && s->state_ticks > OPEN_LOOP_MIN_TICKS) {
+-            if (s->lock_ticks < 0xFFFFu) s->lock_ticks++;
+-        } else s->lock_ticks = 0;
+-        if (s->lock_ticks >= LOCK_REQUIRED_TICKS) { s->state = SENSORLESS_HANDOVER; s->state_ticks = 0; }
+-        else if (s->state_ticks >= OPEN_LOOP_TIMEOUT_TICKS) { s->fault = 1; s->state = SENSORLESS_FAULT; }
++        uint32_t ramp=s->state_ticks; if(ramp>OPENLOOP_RAMP_TICKS)ramp=OPENLOOP_RAMP_TICKS;
++        s->openloop_step=(uint16_t)(OPENLOOP_STEP_START+((OPENLOOP_STEP_END-OPENLOOP_STEP_START)*ramp)/OPENLOOP_RAMP_TICKS);
++        s->openloop_phase=(uint16_t)(s->openloop_phase+s->openloop_step);
++        s->control_phase=s->openloop_phase;
++        int32_t pe=abs32((int32_t)s->phase_error);
++        int32_t se=abs32(s->observer_speed-(int32_t)s->openloop_step);
++        if(s->observer_valid && pe<PHASE_LOCK_LIMIT_U16 && se<SPEED_LOCK_LIMIT_STEP && s->state_ticks>OPEN_LOOP_MIN_TICKS){
++            if(s->lock_ticks<0xFFFFu)s->lock_ticks++;
++        } else s->lock_ticks=0u;
++        if(s->lock_ticks>=LOCK_REQUIRED_TICKS){s->state=SENSORLESS_HANDOVER;s->state_ticks=0u;s->lost_ticks=0u;}
++        else if(s->state_ticks>=OPEN_LOOP_TIMEOUT_TICKS){s->fault=1u;s->state=SENSORLESS_FAULT;}
+         break;
+     }
++
+     case SENSORLESS_HANDOVER: {
+-        s->openloop_phase = (uint16_t)(s->openloop_phase + s->openloop_step);
+-        int16_t d = phase_delta(s->observer_phase, s->openloop_phase);
+-        uint32_t blend = s->state_ticks; if (blend > HANDOVER_TICKS) blend = HANDOVER_TICKS;
+-        s->control_phase = (uint16_t)(s->openloop_phase + ((int32_t)d * (int32_t)blend) / (int32_t)HANDOVER_TICKS);
+-        if (!s->observer_valid) { if (s->lost_ticks < 0xFFFFu) s->lost_ticks++; } else s->lost_ticks = 0;
+-        if (s->lost_ticks >= OBS_LOST_TICKS) { s->fault = 2; s->state = SENSORLESS_FAULT; }
+-        else if (s->state_ticks >= HANDOVER_TICKS) { s->state = SENSORLESS_CLOSED_LOOP; s->state_ticks = 0; s->lost_ticks = 0; }
++        s->openloop_phase=(uint16_t)(s->openloop_phase+s->openloop_step);
