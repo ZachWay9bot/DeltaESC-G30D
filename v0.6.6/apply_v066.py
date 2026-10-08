@@ -184,6 +184,10 @@ for name in ['DeltaESC_G30D_v0_6_6_ble_syncsafe.bin','DeltaESC_G30D_v0_6_6_ble_o
     b=(root/'build'/name).read_bytes(); assert len(b)<=0xD000,(name,len(b))
 print('v0.6.6 power/identity preflight: PASS')
 ''')
+p=root/'tools/make_shu_zip.py'
+s=p.read_text().replace('v0_6_5','v0_6_6').replace('v0.6.5','v0.6.6')
+p.write_text(s)
+
 p=root/'tools/test_shu_package.py'
 s=p.read_text().replace('v0_6_5','v0_6_6').replace('v0.6.5','v0.6.6')
 p.write_text(s)
