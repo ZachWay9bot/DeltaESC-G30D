@@ -6,7 +6,7 @@ import android.bluetooth.BluetoothDevice;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
-import android.content.pm.PackageManager;
+import android.content.pm.PackageManager;\nimport android.content.pm.ApplicationInfo;\nimport dalvik.system.DexClassLoader;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -23,7 +23,7 @@ import java.util.*;
 public final class DeltaReadActivity extends Activity {
   private static final String PK="de.ebics.g30bench.";
   private final Handler main=new Handler(Looper.getMainLooper());
-  private Class<?> bc,sc,pc,replyType,failType;
+  private Class<?> bc,sc,pc,replyType,failType;\n  private ClassLoader originalLoader;
   private Object ble,session;
   private LinearLayout devices,layout;
   private TextView status,log;
@@ -88,7 +88,7 @@ public final class DeltaReadActivity extends Activity {
       }
     });
     ble=bc.getConstructor(Context.class,listener).newInstance(this,cb);
-    line("Originale BleClient/Session eingebunden, unverändert.");
+    line("Installierte G30 Bench BLE 0.1.0 geladen; BleClient/Session laufen als Original-Bytecode.");
   }
   boolean permissions(){
     ArrayList<String> need=new ArrayList<>();
@@ -116,7 +116,7 @@ public final class DeltaReadActivity extends Activity {
     if(!linked||busy)return;if(reg!=0xD0&&!identified)return;
     busy=true;refresh();
     try{
-      Object reply=Proxy.newProxyInstance(getClassLoader(),new Class[]{replyType},(p,m,a)->{
+      Object reply=Proxy.newProxyInstance(originalLoader,new Class[]{replyType},(p,m,a)->{
         if(m.getName().equals("accept")){
           Object pkt=a[0];int src=(Integer)field(pkt,"src"),cmd=(Integer)field(pkt,"cmd"),arg=(Integer)field(pkt,"arg");
           byte[] data=(byte[])field(pkt,"data");
@@ -124,7 +124,7 @@ public final class DeltaReadActivity extends Activity {
           registers.put(reg,hex(data));
           if(reg==0xD0){
             identified=data.length==16&&data[0]=='D'&&data[1]=='E'&&data[2]=='S'&&data[3]=='C';
-            if(identified){build=(data[6]&255)|((data[7]&255)<<8);identified=build>=0x0603;}
+            if(identified){build=(data[6]&255)|((data[7]&255)<<8);identified=build==0x0606;}
             line(identified?String.format(java.util.Locale.US,"DeltaESC-Signatur bestätigt (Build %04X)",build):
                 "Stock oder unbekannte Firmware: D1-D9 gesperrt.");
           }else line(String.format(java.util.Locale.US,"READ %02X: %s",reg,hex(data)));
@@ -132,7 +132,7 @@ public final class DeltaReadActivity extends Activity {
           if(identified&&nextReg==reg&&reg<0xD9){nextReg=reg+1;main.postDelayed(()->read(nextReg),180);}
         }return objectMethod(p,m,a);
       });
-      Object failure=Proxy.newProxyInstance(getClassLoader(),new Class[]{failType},(p,m,a)->{
+      Object failure=Proxy.newProxyInstance(originalLoader,new Class[]{failType},(p,m,a)->{
         if(m.getName().equals("run")){busy=false;line(String.format(java.util.Locale.US,"Timeout bei %02X",reg));refresh();}
         return objectMethod(p,m,a);
       });
@@ -156,16 +156,16 @@ public final class DeltaReadActivity extends Activity {
   Button button(String txt){Button b=new Button(this);b.setText(txt);b.setAllCaps(false);return b;}
   void makeUi(){
     ScrollView scroll=new ScrollView(this);LinearLayout col=new LinearLayout(this);col.setOrientation(LinearLayout.VERTICAL);col.setPadding(20,20,20,40);col.setBackgroundColor(0xff111a27);scroll.addView(col);
-    TextView h=new TextView(this);h.setText("G30 Bench 0.1.0  •  DeltaESC");h.setTextColor(-1);h.setTextSize(22);col.addView(h);
+    TextView h=new TextView(this);h.setText("DeltaESC 0.6.6  •  G30 Original-Transport");h.setTextColor(-1);h.setTextSize(22);col.addView(h);
     status=new TextView(this);status.setTextColor(-1);status.setTextSize(16);col.addView(status);
     Button scan=button("Scooter suchen");scan.setOnClickListener(v->scan());col.addView(scan);
     Button dis=button("Trennen");dis.setOnClickListener(v->disconnect());col.addView(dis);
     devices=new LinearLayout(this);devices.setOrientation(LinearLayout.VERTICAL);col.addView(devices);
     Button id=button("DeltaESC D0 identifizieren");id.setOnClickListener(v->readD0());col.addView(id);
-    readAll=button("D1–D9 nur bei bestätigtem DESC");readAll.setEnabled(false);readAll.setOnClickListener(v->readAll());col.addView(readAll);
+    readAll=button("D1–D9 nur bei bestätigtem DESC/0606");readAll.setEnabled(false);readAll.setOnClickListener(v->readAll());col.addView(readAll);
     Button cp=button("Bericht kopieren");cp.setOnClickListener(v->copy());col.addView(cp);
     log=new TextView(this);log.setTextColor(-1);log.setTextSize(12);log.setTypeface(android.graphics.Typeface.MONOSPACE);col.addView(log);
-    TextView footer=new TextView(this);footer.setText("READ-ONLY. Keine ESC-Writes, kein Flashen, keine Motorfreigabe.");footer.setTextColor(0xffff9d7a);col.addView(footer);
+    TextView footer=new TextView(this);footer.setText("READ-ONLY Companion. Original G30 Bench BLE 0.1.0 muss installiert bleiben. Kein eigener BLE/Crypto-Code.");footer.setTextColor(0xffff9d7a);col.addView(footer);
     setContentView(scroll);refresh();
   }
 }
