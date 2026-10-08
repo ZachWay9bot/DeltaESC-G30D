@@ -1,61 +1,53 @@
 # DeltaESC-G30D
 
 > [!CAUTION]
-> ## EXPERIMENTAL / UNVALIDATED MOTOR-CONTROL FIRMWARE
+> ## DEVELOPMENT ONLY — NO HARDWARE FLASH RELEASE
 >
-> This repository contains hardware bring-up firmware for the Ninebot G30D Gen1 STM32F103 ESC.
-> It is **not validated for road use**. Use only with ST-Link/SWD recovery available and a verified
-> full 128 KiB controller backup.
->
-> Current builds are intended for bench diagnostics and staged power-stage validation only.
+> This is an experimental sensorless FOC firmware for the original Ninebot G30D Gen1 STM32F103 3-cap ESC.
+> **Do not flash a development SHU ZIP to the valuable stock controller yet.**
+> No end-to-end Bluetooth installation + confirmed Bluetooth rollback or torque-producing motor run has been proven on this exact controller. CI success is software verification, not hardware validation.
 
-## Project direction
+## Canonical development references (2026-10-08)
 
-DeltaESC-G30D is a clean sensorless FOC bring-up for the stock G30D Gen1 STM32F103 controller.
-It is intentionally separated from the older SmartESC/DeltaESC development tree.
+The default `main` branch is a **repository index**, not the latest firmware. Do not select firmware by looking at the default branch or by choosing the highest version number alone.
 
-Current rules:
+| Version / branch | State | Purpose |
+|---|---|---|
+| [v0.6.7 v0.1.x app compatibility](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.6.7-v01-app-compat-ci-green-2026-10-08) | **CI green, hardware unvalidated** | Preferred **SYNC-SAFE** development baseline, adds explicit 14-byte `0x10` ESC identity for the hardware-proven G30 Bench BLE v0.1.x app |
+| [v0.6.6 dashboard runtime](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.6.6-dashboard-runtime-ci-green-2026-10-08) | CI green, hardware unvalidated | Native G30 `0x64/0x65` dashboard traffic on PA2, read-only throttle/brake, fixed 50% battery status placeholder |
+| [v0.6.6 dashboard-drive RC](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.6.6-dashboard-rc-ci-green-2026-10-08) | CI green, **NOT for first flash or road use** | Optional low-current torque-capable laboratory experiment; hardware current/phase measurements are still missing |
+| v0.6.5 | CI green, superseded by v0.6.7 | 128-byte staged-IAP, final-block padding and VTOR |
+| v0.4.2 | **RETRACTED — DO NOT FLASH** | Obsolete vector-invalidation handoff based on an unproven recovery assumption |
 
-- sensorless control, no Hall sensors required;
-- ST-Link/SWD only during bring-up;
-- SHU/OTA packaging is deferred until motor control is proven;
-- first tests use a 10S battery;
-- 14S bus-voltage scaling is deferred;
-- every stage must pass before torque-producing operation is enabled.
+### Stable BLE tool
 
-## Current milestones
+The G30 Bench BLE **v0.1.0 and v0.1.1** application family has been physically tested on stock G30D BLE dashboard `NBScooter2088` with MIC-verified legacy NinebotCrypto authentication and a working ESC read route:
+- `CMD 0x01 / reg 0x1A`: stock version word `0x0420`;
+- `CMD 0x01 / reg 0x10`: stock 14-byte controller serial;
+- `CMD 0x01 / reg 0xD0`: stock/unknown response **not** recognized as DeltaESC.
 
-- **v0.3**: passive 4 kHz diagnostic/control-path benchmark, physical bridge disabled.
-- **v0.4**: TIM1 complementary-PWM and ADC synchronization bring-up.
-- **v0.4.1**: stock-dashboard Bluetooth diagnostic path.
-- **v0.4.2**: Bluetooth-first SHU candidate.
-  - SYNC-SAFE image keeps power-stage arming compiled out;
-  - ZIPv3/NinebotTEA package is built for SHU;
-  - stock IAP bootloader at `0x08000000..0x08000FFF` remains untouched;
-  - an exact checksum-valid IAP-start request can hand a running DeltaESC back to the stock bootloader;
-  - ST-Link remains recovery-only.
+The latest v0.6.7 firmware intentionally replies to `0x10` with 14-byte ASCII `DELTAESC-G30D0`, and to `0xD0` with `DESC`, protocol 0.2, build `0x0607`. This provides an application identity without changing the known-good Android BLE/GATT/NinebotCrypto stack.
 
-The next planned stage is calibrated current sensing, phase mapping, low-energy motor parameter work and a controlled sensorless open-loop-to-observer transition.
+The older v0.2ci/link-probe app connection regression must **not** be used as a reason to replace the proven v0.1.x transport again.
 
-## Flash layout
+## Safety and update policy
 
-- Bootloader/IAP remains at `0x08000000..0x08000FFF`
-- DeltaESC application base: `0x08001000`
-- Current executable ceiling: `0x0800D800`
-- Stock OTA/config areas are intentionally left outside the active development image
+- **Bluetooth-first**: intended normal installation and return-to-stock path uses SHU/stock dashboard/Ninebot IAP. ST-Link is emergency recovery only, not the routine test procedure.
+- **SYNC-SAFE only for a first hardware communication test**: the power-stage arming and sensorless run are compiled out.
+- Stock 4 KiB bootloader remains `0x08000000..0x08000FFF`; app base `0x08001000`.
+- The v0.6.7 staged-IAP path uses the upper-flash staging area, an update control block, 128-byte packet handling, stock IAP ACK, external checksum and NinebotTEA checksum.
+- Its **actual** rollback operation through the preserved bootloader has **not** yet been physically validated on this specific ESC. Do not mistake implementation plus CI for proof of recovery.
+- First electrical tests are on **10S** only. Battery-divider mapping, BMS data, phase-current channel polarity/order, R/L/flux, observer handover, current-loop tuning and 14S operation remain unqualified.
+- Dashboard drive RC is a lab experiment, not a road firmware. Its nominal current cap is not a verified current limit until ADC/shunt calibration succeeds.
 
-## License and references
+## Relevant successful CI runs
 
-This project is released under GPL-3.0. Sensorless observer architecture is informed by the open-source VESC firmware; hardware mapping is cross-checked against public G30 reverse-engineering work. See the version documentation for specific references.
+- [v0.6.7 v0.1.x app compatible, success](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37802381173)
+- [v0.6.6 stock dashboard runtime, success](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37801003694)
+- [v0.6.6 dashboard drive RC after patch repair, success](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37803370548)
 
-**Do not treat a successful build as hardware validation.**
+**Next release gate**: verify the physical stock BLE/SHU/IAP installation and reversible reflash/rollback sequence without requiring ST-Link as a planned step. The 3-cap ESC remains on stock until the operator explicitly accepts the residual recovery risk.
 
-## Flash / recovery policy
+## License
 
-**Bluetooth-first is the project default.** Normal installation and later firmware updates are intended to use the stock G30 BLE/dashboard path with ScooterHacking Utility and the preserved Ninebot IAP bootloader. ST-Link is recovery-only and is not part of the normal test procedure.
-
-The preferred first-test artifact is the **v0.4.2 SYNC-SAFE SHU ZIP**, not a raw BIN. Its power-stage arming code is compiled out.
-
-The stock-IAP handoff is deliberately strict: only an exact checksum-valid ESC update-start frame with a plausible firmware size is accepted. It then forces the bridge disarmed, requires low phase-current residual, invalidates only the upper half-word of the application stack-vector, and resets so the preserved stock bootloader remains in recovery/update mode.
-
-**Hardware status:** packaging and static preflight are validated in CI; the IAP handoff itself is not yet proven on this exact G30D controller. ST-Link is therefore an emergency recovery option, not a normal flashing step.
+GPL-3.0. Experimental source and CI artifacts are published for inspection; none imply approval for road use.
