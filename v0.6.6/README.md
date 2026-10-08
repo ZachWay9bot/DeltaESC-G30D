@@ -14,6 +14,7 @@ Based on the CI-green v0.6.5 staged-IAP/128-byte/VTOR candidate.
 - Dashboard throttle/brake values are diagnostic only in this step. They do not request torque.
 - D0-D9 diagnostics and E0-E6/F0-F5 protocol remain present; build identity is `0x0606`.
 - App-originated reads no longer falsely count as dashboard-runtime traffic; the dashboard-seen flag now requires native source `0x21`.
+- The proven G30 Bench BLE startup sequence is preserved: ESC `0x1A` returns build `0x0606`, ESC `0x10` returns the controller's own 14-byte stock serial scanned read-only from preserved configuration flash, then D0 exposes the `DESC` identity. No user-specific serial is hard-coded.
 
 ## Safety boundary
 
