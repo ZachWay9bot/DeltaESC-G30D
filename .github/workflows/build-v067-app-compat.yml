@@ -1,0 +1,122 @@
+name: Build DeltaESC G30D v0.6.7 v0.1.x App Compat
+on:
+  push:
+    branches: [ "dev/v0.6.7-v01-app-compat" ]
+    paths:
+      - "v0.6.7/**"
+      - ".github/workflows/build-v067-app-compat.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18 llvm-18 xz-utils patch
+          clang-18 --version | head -n 1
+
+      - name: Reconstruct v0.6.6 and apply v0.6.7
+        run: |
+          set -eux
+          mkdir -p /tmp/v061 /tmp/v067
+          tar -xJf v0.6/DeltaESC_G30D_v0_6_source.tar.xz -C /tmp/v061
+          xz -dc v0.6.1/v0611.patch.xz | patch -d /tmp/v061 -p1
+          cp -a /tmp/v061/. /tmp/v067/
+          xz -dc v0.6.2/v062.patch.xz | patch -d /tmp/v067 -p4
+          xz -dc v0.6.3/v063.patch.xz | patch -d /tmp/v067 -p4
+          xz -dc v0.6.4/v064.patch.xz | patch -d /tmp/v067 -p4
+          xz -dc v0.6.5/v065.patch.xz | patch -d /tmp/v067 -p1
+          cat v0.6.6/v066.patch.part-* > /tmp/v066.patch
+          echo "dfab72dc0bf7869d595e041cb1a797a4ac5f50e2118c5011f99a5d7fc33abd0a  /tmp/v066.patch" | sha256sum -c -
+          patch -d /tmp/v067 -p1 < /tmp/v066.patch
+          cat v0.6.7/v067.patch.part-* > /tmp/v067.patch
+          echo "430666ee2c9967973c5aaec1560385010ab531cc04d5e790ec28cf495a6c18a4  /tmp/v067.patch" | sha256sum -c -
+          patch -d /tmp/v067 -p1 < /tmp/v067.patch
+          test ! -n "$(find /tmp/v067 -name '*.rej' -print -quit)"
+
+      - name: Build matrix
+        working-directory: /tmp/v067
+        run: make clean all CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+
+      - name: Legacy IAP regressions
+        working-directory: /tmp/v067
+        env:
+          HOST_CC: clang-18
+        run: |
+          python3 tools/test_iap_ack.py
+          python3 tools/test_iap_transport.py
+          python3 tools/test_iap_crypto.py
+
+      - name: SHU package regression
+        working-directory: /tmp/v067
+        run: python3 tools/test_shu_package.py
+
+      - name: Dashboard runtime regression
+        working-directory: /tmp/v067
+        env:
+          HOST_CC: clang-18
+        run: python3 tools/test_dashboard_runtime.py
+
+      - name: v0.1.x app contract preflight
+        working-directory: /tmp/v067
+        run: |
+          python3 tools/preflight_v067.py
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('src/main.c').read_text()
+          assert "case 0x10u:" in s
+          assert "g_esc_identity[14]" in s
+          assert "case 0xD0u:" in s and "n=16u;break;" in s
+          for reg,n in [('D1',14),('D2',5),('D3',4),('D4',4),('D5',4),('D6',14),('D7',8),('D8',12),('D9',6)]:
+              needle=f"case 0x{reg}u:"
+              assert needle in s, needle
+          print('v0.1.1 route/identity contract: PASS')
+          PY
+
+      - name: Build encrypted-only SYNC-SAFE SHU
+        working-directory: /tmp/v067
+        run: |
+          mkdir -p shu
+          python3 tools/make_shu_zip.py \
+            build/DeltaESC_G30D_v0_6_7_ble_syncsafe.bin \
+            shu/DeltaESC_G30D_v0_6_7_SHU_SYNC_SAFE.zip \
+            --name "DeltaESC G30D v0.6.7 SAFE" --variant syncsafe
+          python3 - <<'PY'
+          import hashlib,json,zipfile
+          p='shu/DeltaESC_G30D_v0_6_7_SHU_SYNC_SAFE.zip'
+          with zipfile.ZipFile(p) as z:
+              assert set(z.namelist()) == {'FIRM.bin.enc','info.json','params.txt'}
+              info=json.loads(z.read('info.json'))['firmware']
+              assert info['encryption']=='encrypted'
+              assert info['model']=='max' and info['type']=='DRV'
+              assert info['compatible']==['max_DRV_STM32F103CxT6']
+              enc=z.read('FIRM.bin.enc')
+              assert hashlib.md5(enc).hexdigest()==info['md5']['enc']
+          print('v0.6.7 encrypted-only SHU: PASS')
+          PY
+
+      - name: Package source and hashes
+        run: |
+          tar --exclude=build --exclude=shu --exclude='__pycache__' --exclude='*.pyc' \
+            -C /tmp/v067 -cJf /tmp/DeltaESC_G30D_v0_6_7_source.tar.xz .
+          cd /tmp/v067
+          sha256sum build/*.bin
+          sha256sum shu/DeltaESC_G30D_v0_6_7_SHU_SYNC_SAFE.zip
+          sha256sum /tmp/DeltaESC_G30D_v0_6_7_source.tar.xz
+          unzip -l shu/DeltaESC_G30D_v0_6_7_SHU_SYNC_SAFE.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-G30D-v0.6.7-v01-App-Compat
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            /tmp/v067/build/*.bin
+            /tmp/v067/shu/DeltaESC_G30D_v0_6_7_SHU_SYNC_SAFE.zip
+            /tmp/DeltaESC_G30D_v0_6_7_source.tar.xz
+            /tmp/v067/README.md
