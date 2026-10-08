@@ -15,9 +15,9 @@ diff -ruN '--exclude=build' '--exclude=shu' '--exclude=__pycache__' '--exclude=*
 +++ v066_serial/README.md	2026-10-08 15:31:42.919755694 +0000
 @@ -14,6 +14,7 @@
  - Dashboard throttle/brake values are diagnostic only in this step. They do not request torque.
- - D0-D9 diagnostics and E0-E6/F0-F5 protocol remain present; build identity is \`0x0606\`.
- - App-originated reads no longer falsely count as dashboard-runtime traffic; the dashboard-seen flag now requires native source \`0x21\`.
-+- Preserves the working G30 Bench BLE connection sequence by answering stock ESC register \`0x10\` with the controller's own 14-byte serial, scanned read-only from preserved stock configuration pages. If no valid \`N4G...\` serial is found, the diagnostic flags expose that condition rather than treating the fallback as verified.
+ - D0-D9 diagnostics and E0-E6/F0-F5 protocol remain present; build identity is `0x0606`.
+ - App-originated reads no longer falsely count as dashboard-runtime traffic; the dashboard-seen flag now requires native source `0x21`.
++- Preserves the working G30 Bench BLE connection sequence by answering stock ESC register `0x10` with the controller's own 14-byte serial, scanned read-only from preserved stock configuration pages. If no valid `N4G...` serial is found, the diagnostic flags expose that condition rather than treating the fallback as verified.
  
  ## Safety boundary
  
