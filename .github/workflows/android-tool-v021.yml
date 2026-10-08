@@ -1,0 +1,60 @@
+name: Android Link Probe v0.2.1
+on:
+  push:
+    branches: [ "dev/android-tool-v0.2.1" ]
+    paths:
+      - "android/v0.2/source/**"
+      - ".github/workflows/android-tool-v021.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: GATT regression guard
+        run: |
+          set -eux
+          F=android/v0.2/source/app/src/main/java/de/deltaesc/tool/BleUartClient.java
+          ! grep -q "requestMtu" "$F"
+          grep -q "startServiceDiscovery" "$F"
+          grep -q "discoverServices()" "$F"
+          grep -q "CCCD write gestartet" "$F"
+          grep -q "NUS Notifications aktiv" "$F"
+          grep -q "GATT Service Discovery Timeout" "$F"
+
+      - name: READ-ONLY safety guard
+        run: |
+          set -eux
+          grep -q "BLOCK WRITE: v0.2 ist absichtlich READ-ONLY" android/v0.2/source/app/src/main/java/de/deltaesc/tool/BleUartClient.java
+          grep -q "isEscWrite" android/v0.2/source/app/src/main/java/de/deltaesc/tool/BleUartClient.java
+          grep -q "CMD 0x02 write" android/v0.2/source/README.md
+
+      - name: Build debug APK
+        working-directory: android/v0.2/source
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Package source and hashes
+        run: |
+          set -eux
+          mkdir -p /tmp/out
+          cp android/v0.2/source/app/build/outputs/apk/debug/app-debug.apk /tmp/out/DeltaESC_Link_Probe_v0_2_1_CI.apk
+          tar -C android/v0.2 -cJf /tmp/out/DeltaESC_Android_v0_2_1_source.tar.xz source
+          sha256sum /tmp/out/* | tee /tmp/out/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-Link-Probe-v0.2.1
+          retention-days: 30
+          if-no-files-found: error
+          path: /tmp/out/*
