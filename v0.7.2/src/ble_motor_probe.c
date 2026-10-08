@@ -52,10 +52,12 @@ uint8_t ble_motor_probe_read(uint8_t reg,uint8_t out[16]) {
         le32(out+8,p.windows);le32(out+12,p.stamp_ms);break;
     case 0xDBu:
         for(unsigned i=0u;i<4u;i++)le16(out+i*2u,p.mean_adc[i]);
-        for(unsigned i=0u;i<4u;i++)le16(out+8u+i*2u,p.min_adc[i]);break;
+        for(unsigned i=0u;i<4u;i++)le16(out+8u+i*2u,p.min_adc[i]);
+        break;
     case 0xDCu:
         for(unsigned i=0u;i<4u;i++)le16(out+i*2u,p.max_adc[i]);
-        for(unsigned i=0u;i<4u;i++)le16(out+8u+i*2u,p.last_adc[i]);break;
+        for(unsigned i=0u;i<4u;i++)le16(out+8u+i*2u,p.last_adc[i]);
+        break;
     case 0xDDu:
         for(unsigned i=0u;i<3u;i++)le16(out+i*2u,p.offset_adc[i]);
         le16(out+6,p.window_size);
