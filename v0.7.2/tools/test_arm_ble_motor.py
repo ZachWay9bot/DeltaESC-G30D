@@ -20,5 +20,5 @@ for reg in range(0xDA,0xE0):
 out=t.packet(2,b'\0\0',arg=0xDA)
 assert out[5]==5 and out[7]==4,('read-only register write unexpectedly accepted',out.hex())
 out=t.packet(1,b'\x10',arg=0xD0)
-assert out[2]==16 and out[7:11]==b'DESC' and out[15:17]==b'\x02\x07',out.hex()
+assert out[2]==16 and out[7:11]==b'DESC' and out[13:15]==b'\x02\x07',out.hex()
 print('PASS actual ARM/Ninebot UART: DA-DF 16B reads; writes rejected; D0 unchanged')
