@@ -1,0 +1,5 @@
+_vector.bin','DeltaESC G30D v0.6.6 ZERO','zero-vector'),
++ ('DeltaESC_G30D_v0_6_6_ble_sensorless_bench.bin','DeltaESC G30D v0.6.6 BENCH','sensorless-bench')]:
+     b=(ROOT/'build'/fn).read_bytes(); pack.validate_app_image(b)
+     with tempfile.TemporaryDirectory() as td:
+         out=Path(td)/'x.zip'; p,e=pack.build_package(ROOT/'build'/fn,out,name,var)
