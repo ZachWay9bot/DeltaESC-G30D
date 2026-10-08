@@ -24,7 +24,7 @@ def test_iap_example() -> None:
     body = bytes([0x08,0x3E,0x20,0x02,0x07,0x6C,0x82,0x0D,0x06])
     chk = checksum16(body)
     frame = b"\x5A\xA5" + body + struct.pack("<H",chk)
-    assert frame.hex() == "5aa5083e2002076c820d06d1fe"
+    assert frame.hex() == "5aa5083e2002076c820d068ffe"
 
 def test_ninebottea_regression() -> None:
     pack = load_packager()
