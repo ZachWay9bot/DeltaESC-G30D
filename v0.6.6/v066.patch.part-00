@@ -1,0 +1,91 @@
+diff -ruN '--exclude=build' '--exclude=shu' '--exclude=__pycache__' '--exclude=*.pyc' v065_src/Makefile v066_work/Makefile
+--- v065_src/Makefile	2026-10-08 13:38:12.000000000 +0000
++++ v066_work/Makefile	2026-10-08 15:20:22.933416019 +0000
+@@ -3,31 +3,31 @@
+ OBJDUMP ?= llvm-objdump
+ CFLAGS_COMMON = --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Oz -Wall -Wextra -Werror -Isrc
+ LDFLAGS_COMMON = --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -nostdlib -Wl,-T,linker.ld,--gc-sections
+-SRC = src/main.c src/sensorless_control.c src/ninebot_link.c src/iap_update.c src/iap_proto.c
+-SAFE_ELF = build/DeltaESC_G30D_v0_6_5_ble_syncsafe.elf
+-SAFE_BIN = build/DeltaESC_G30D_v0_6_5_ble_syncsafe.bin
+-ACTIVE_ELF = build/DeltaESC_G30D_v0_6_5_ble_observer_zero_vector.elf
+-ACTIVE_BIN = build/DeltaESC_G30D_v0_6_5_ble_observer_zero_vector.bin
+-BENCH_ELF = build/DeltaESC_G30D_v0_6_5_ble_sensorless_bench.elf
+-BENCH_BIN = build/DeltaESC_G30D_v0_6_5_ble_sensorless_bench.bin
++SRC = src/main.c src/sensorless_control.c src/ninebot_link.c src/iap_update.c src/iap_proto.c src/dashboard_runtime.c
++SAFE_ELF = build/DeltaESC_G30D_v0_6_6_ble_syncsafe.elf
++SAFE_BIN = build/DeltaESC_G30D_v0_6_6_ble_syncsafe.bin
++ACTIVE_ELF = build/DeltaESC_G30D_v0_6_6_ble_observer_zero_vector.elf
++ACTIVE_BIN = build/DeltaESC_G30D_v0_6_6_ble_observer_zero_vector.bin
++BENCH_ELF = build/DeltaESC_G30D_v0_6_6_ble_sensorless_bench.elf
++BENCH_BIN = build/DeltaESC_G30D_v0_6_6_ble_sensorless_bench.bin
+ all: safe active bench
+ safe: $(SAFE_BIN)
+ active: $(ACTIVE_BIN)
+ bench: $(BENCH_BIN)
+ build: ; mkdir -p build
+ $(SAFE_ELF): $(SRC) linker.ld | build
+-	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 $(SRC) $(LDFLAGS_COMMON) -Wl,-Map=build/v0_6_5_syncsafe.map -o $@
++	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 $(SRC) $(LDFLAGS_COMMON) -Wl,-Map=build/v0_6_6_syncsafe.map -o $@
+ $(SAFE_BIN): $(SAFE_ELF)
+ 	$(OBJCOPY) -O binary $< $@
+-	$(OBJDUMP) -h $< > build/v0_6_5_syncsafe_sections.txt
++	$(OBJDUMP) -h $< > build/v0_6_6_syncsafe_sections.txt
+ $(ACTIVE_ELF): $(SRC) linker.ld | build
+-	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=1 -DSENSORLESS_RUN_ALLOWED=0 $(SRC) $(LDFLAGS_COMMON) -Wl,-Map=build/v0_6_5_observer.map -o $@
++	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=1 -DSENSORLESS_RUN_ALLOWED=0 $(SRC) $(LDFLAGS_COMMON) -Wl,-Map=build/v0_6_6_observer.map -o $@
+ $(ACTIVE_BIN): $(ACTIVE_ELF)
+ 	$(OBJCOPY) -O binary $< $@
+-	$(OBJDUMP) -h $< > build/v0_6_5_observer_sections.txt
++	$(OBJDUMP) -h $< > build/v0_6_6_observer_sections.txt
+ $(BENCH_ELF): $(SRC) linker.ld | build
+-	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=1 -DSENSORLESS_RUN_ALLOWED=1 $(SRC) $(LDFLAGS_COMMON) -Wl,-Map=build/v0_6_5_bench.map -o $@
++	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=1 -DSENSORLESS_RUN_ALLOWED=1 $(SRC) $(LDFLAGS_COMMON) -Wl,-Map=build/v0_6_6_bench.map -o $@
+ $(BENCH_BIN): $(BENCH_ELF)
+ 	$(OBJCOPY) -O binary $< $@
+-	$(OBJDUMP) -h $< > build/v0_6_5_bench_sections.txt
++	$(OBJDUMP) -h $< > build/v0_6_6_bench_sections.txt
+ clean: ; rm -rf build
+diff -ruN '--exclude=build' '--exclude=shu' '--exclude=__pycache__' '--exclude=*.pyc' v065_src/README.md v066_work/README.md
+--- v065_src/README.md	2026-10-08 15:16:48.991241995 +0000
++++ v066_work/README.md	2026-10-08 15:22:02.846412887 +0000
+@@ -1,25 +1,20 @@
+-# DeltaESC G30D v0.6.5 - G30 framing + stock-compatible IAP ACK
++# DeltaESC G30D v0.6.6 - stock dashboard runtime + staged IAP
+ 
+-**UNVALIDATED ON REAL DELTAESC HARDWARE. DO NOT FLASH UNTIL THE READ-ONLY LINK PROBE IS VERIFIED AND THE FIRST-FLASH CHECKLIST IS explicitly approved.**
++Status: **CI/development candidate. Do not flash until the v0.1.0 BLE app compatibility check and first-controller SHU procedure are explicitly approved.**
+ 
+-This supersedes v0.6.4 before first hardware flash.
++Based on the CI-green v0.6.5 staged-IAP/128-byte/VTOR candidate.
+ 
+-Changes vs v0.6.2:
+-- G30/Ninebot `5A A5 LEN SRC DST CMD ARG PAYLOAD CK` parser on PA2 USART2.
+-- Keeps `55 AA` parser only as a conservative compatibility fallback.
+-- Replies in the same framing family received.
+-- D0 read has an explicit `DESC` magic signature, protocol 0.2 and build `0x0605`.
+-- Read response command on 5A A5 is stock-style `0x04`.
+-- Stock-compatible staged IAP `07/08/09/0A` retained; no application-vector invalidation.
+-- SAFE build still compiles out bridge arming and motor run.
++## v0.6.6 delta
+ 
+-First hardware goal is deliberately read-only: Android v0.2 pairs through stock dashboard using NinebotCrypto, proves ESC read route, then differentiates stock D0 from DeltaESC D0 by the `DESC` signature. Motor commands are not part of that test.
++- Keeps the v0.6.5 staged IAP implementation, 128-byte data blocks, encrypted-only SHU packaging and explicit VTOR relocation.
++- Adds the native G30 dashboard runtime on PA2 without changing the Android/NinebotCrypto transport.
++- Native `5A A5` dashboard `0x65` frames from `0x21 -> 0x20` are decoded read-only. Throttle is payload byte 1, brake payload byte 2, matching the established G30 VESC/SmartESC integrations.
++- Native dashboard `0x64` requests receive a stock-shaped `0x64` ESC status frame with six bytes: mode, battery, light, beep, speed, fault.
++- The first-test SYNC-SAFE payload deliberately reports Drive, 50% placeholder battery, light off, beep off, speed 0, fault 0. The 50% value is a bench placeholder because bus-voltage calibration remains deferred.
++- Dashboard throttle/brake values are diagnostic only in this step. They do not request torque.
++- D0-D9 diagnostics and E0-E6/F0-F5 protocol remain present; build identity is `0x0606`.
++- App-originated reads no longer falsely count as dashboard-runtime traffic; the dashboard-seen flag now requires native source `0x21`.
+ 
++## Safety boundary
+ 
+-## v0.6.5 safety delta
+-- IAP ACK now matches the user's exact stock DRV126 disassembly: `5A A5 00 20 <dst> 0B <result> CK0 CK1`.
+-- ACK `LEN` is 0, command is always `0x0B`, and result is carried in INDEX/ARG.
+-- This fixes the v0.6.3 ACK framing blocker; v0.6.3 remains NOT APPROVED for flashing.
+-
+-
+-v0.6.5 hardens the stock IAP transport for 128-byte BLE/PC write frames, accepts only zero padding beyond the advertised final length, tests 8-bit block-index wrap, explicitly relocates VTOR to 0x08001000, and quarantines IAP bytes from the normal app-frame parser while an update is active.
++The intended first ha
