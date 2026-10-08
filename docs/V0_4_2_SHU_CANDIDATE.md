@@ -11,14 +11,14 @@ The first-test package contains the **SYNC-SAFE** firmware only. Power-stage arm
 Pinned build environment: Ubuntu 24.04 + clang/LLVM 18.1.3.
 
 - `DeltaESC_G30D_v0_4_2_shu_ble_syncsafe.bin`
-  - 4360 bytes
-  - SHA-256 `47b7b58f4a897a241392ac752111b008d7e9b2d820b28b482fc02599206ee305`
-  - MD5 `098df3e75aaf86d5d8a721abcb920357`
+  - 4364 bytes
+  - SHA-256 `7c6c891712d00de4e1012d8964672e5b3bceda276201eeb8bde39b08a27e01f1`
+  - MD5 `7891491e5a12dc589c1f7b70dd259cb2`
 - `FIRM.bin.enc`
   - 4368 bytes
-  - MD5 `20cd05dfb64a2281f79380bb82c60895`
+  - MD5 `ca85350f155ae40ffd927ba3436fab73`
 - `DeltaESC_G30D_v0.4.2_SYNC_SAFE_SHU.zip`
-  - SHA-256 `edf9a0910319e916ed3bbc1c6f8ddb989f205c1cef6ec82592722d151fb44567`
+  - SHA-256 `252680391b5072d2616715232aab4fb2bde2e8bf65971b6edc7ddec25aaec12c`
 
 ## SHU ZIPv3
 
