@@ -18,7 +18,7 @@ jobs:
           mkdir -p /tmp/v01 /tmp/v02
           tar -xJf android/DeltaESC_Android_v0_1_source.tar.xz -C /tmp/v01
           cp -a /tmp/v01/. /tmp/v02/
-          xz -dc android/v0.2/android_v02.patch.xz | patch -d /tmp/v02 -p2
+          xz -dc android/v0.2/android_v02.patch.xz | patch -d /tmp/v02 -p1
       - name: Core protocol self-test
         run: |
           mkdir -p /tmp/core/de/deltaesc/tool /tmp/core-out
