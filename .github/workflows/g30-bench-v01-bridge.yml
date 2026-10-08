@@ -1,4 +1,4 @@
-name: Compile original G30 Bench v0.1.0 diagnostic overlay
+name: Build DeltaESC companion using original G30 Bench v0.1.0 bytecode
 on:
   push:
     branches: ["dev/g30bench-v01-bytecode-bridge"]
@@ -18,7 +18,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
-      - name: Prepare separate overlay-only APK
+      - name: Prepare installable companion APK
         run: |
           set -eux
           cp -a android/v0.2/source /tmp/g30bridge
@@ -35,7 +35,7 @@ jobs:
                   minSdk 26
                   targetSdk 28
                   versionCode 102
-                  versionName '0.1.0-OriginalBridge-rc1'
+                  versionName '0.1.0-OriginalTransport-0.6.6'
               }
               buildTypes { debug { minifyEnabled false } }
               compileOptions {
@@ -62,7 +62,7 @@ jobs:
               </application>
           </manifest>
           EOF
-      - name: Check overlay has no new transport implementation
+      - name: Check companion delegates transport to original APK
         run: |
           set -eux
           SRC=android/v0.1-bridge/DeltaReadActivity.java
@@ -70,20 +70,20 @@ jobs:
           grep -q 'Session.isKnown' "$SRC"
           grep -q '"readRegister"' "$SRC"
           ! grep -q 'requestMtu\|discoverServices\|Cipher.getInstance\|MessageDigest.getInstance' "$SRC"
-      - name: Compile overlay
+      - name: Compile companion
         working-directory: /tmp/g30bridge
         run: gradle :app:assembleDebug --stacktrace
-      - name: Inspect Android overlay APK
+      - name: Inspect installable companion APK
         run: |
           set -eux
           mkdir -p /tmp/out
-          cp /tmp/g30bridge/app/build/outputs/apk/debug/app-debug.apk /tmp/out/g30-bridge-overlay-only.apk
-          unzip -l /tmp/out/g30-bridge-overlay-only.apk | tee /tmp/out/package-list.txt
+          cp /tmp/g30bridge/app/build/outputs/apk/debug/app-debug.apk /tmp/out/DeltaESC_G30_OriginalTransport_Companion_v0.6.6.apk
+          unzip -l /tmp/out/DeltaESC_G30_OriginalTransport_Companion_v0.6.6.apk | tee /tmp/out/package-list.txt
           echo "OVERLAY ONLY - original v0.1.0 classes.dex must still be injected and signed; DO NOT INSTALL this artifact" >/tmp/out/NOT_INSTALLABLE_README.txt
-          sha256sum /tmp/out/g30-bridge-overlay-only.apk
+          sha256sum /tmp/out/DeltaESC_G30_OriginalTransport_Companion_v0.6.6.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: g30-original-ble-readonly-overlay-compile
+          name: DeltaESC-G30-original-transport-companion-v066
           if-no-files-found: error
           retention-days: 30
           path: /tmp/out/*
