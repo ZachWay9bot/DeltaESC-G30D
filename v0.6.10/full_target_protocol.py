@@ -103,6 +103,10 @@ def main():
     assert bytes.fromhex(captures['d0'])[16]&7==0,'motor permitted/armed in SAFE identity'
     out=t.packet(2,b'\xde\xc0\xf4\x01',arg=0xe5);assert out[5]==5 and out[7]==4,'SAFE accepted arming or ACK type wrong'
     out=t.packet(2,b'',arg=0xe6);assert out[7]==0
+    # Confirm power register read and stock write ACK/no-reply semantics.
+    out=t.packet(1,b'\x02',arg=0x79);assert out[2]==2 and out[7:9]==b'\x00\x00'
+    out=t.packet(2,b'\x00\x00',arg=0x79);assert out[5]==5 and out[7]==0,('bad power ACK',out.hex())
+    assert t.packet(3,b'\x00\x00',arg=0x79)==b'', 'no-reply power write incorrectly ACKed'
     out=t.packet(0x64,b'',src=0x21);assert out[2]==6 and out[3:7]==b'\x20\x21\x64\x00'
     corrupt=bytearray(frame(1,b'\x10',arg=0xd0));corrupt[-1]^=1;assert t.exchange(corrupt)==b''
     assert t.packet(1,b'\x10',arg=0xd0)[7:11]==b'DESC'
