@@ -1,0 +1,44 @@
+ staging @ 0x0800E800 -> validate -> control @ 0x0801F800 -> reset -> preserved stock bootloader copies image\n'
+@@ -87,7 +87,7 @@
+ 
+ def main():
+     ap=argparse.ArgumentParser(); ap.add_argument('firmware',type=Path); ap.add_argument('output',type=Path)
+-    ap.add_argument('--name',default='DeltaESC G30D v0.6.6'); ap.add_argument('--variant',default='syncsafe')
++    ap.add_argument('--name',default='DeltaESC G30D v0.6.7'); ap.add_argument('--variant',default='syncsafe')
+     a=ap.parse_args(); plain,enc=build_package(a.firmware,a.output,a.name,a.variant)
+     print(f'Wrote {a.output}'); print(f'FIRM.bin {len(plain)} md5={md5hex(plain)}'); print(f'FIRM.bin.enc {len(enc)} md5={md5hex(enc)}')
+     return 0
+diff -ruN '--exclude=build' '--exclude=shu' '--exclude=__pycache__' '--exclude=*.pyc' v066_work/tools/preflight_v067.py v067_work/tools/preflight_v067.py
+--- v066_work/tools/preflight_v067.py	1970-01-01 00:00:00.000000000 +0000
++++ v067_work/tools/preflight_v067.py	2026-10-08 15:35:07.803395226 +0000
+@@ -0,0 +1,14 @@
++#!/usr/bin/env python3
++from pathlib import Path
++root=Path(__file__).resolve().parents[1]
++main=(root/'src/main.c').read_text(); dash=(root/'src/dashboard_runtime.c').read_text(); iap=(root/'src/iap_update.c').read_text(); mk=(root/'Makefile').read_text()
++assert '#define FW_BUILD 0x0607u' in main
++assert "g_esc_identity[14]={'D','E','L','T','A','E','S','C','-','G','3','0','D','0'}" in main
++assert 'case 0x10u:' in main and 'n=14u;break;' in main
++assert 'dashboard_decode_adc' in main and 'dashboard_is_status_request' in main
++assert 'f->src==G30_DASH_ADDR&&f->dst==G30_ESC_ADDR' in main
++assert '0x08001002' not in iap
++assert 'src/dashboard_runtime.c' in mk
++for name in ['DeltaESC_G30D_v0_6_7_ble_syncsafe.bin','DeltaESC_G30D_v0_6_7_ble_observer_zero_vector.bin','DeltaESC_G30D_v0_6_7_ble_sensorless_bench.bin']:
++    b=(root/'build'/name).read_bytes(); assert len(b)<=0xD000,(name,len(b))
++print('v0.6.7 v0.1.x-app compatibility preflight: PASS')
+diff -ruN '--exclude=build' '--exclude=shu' '--exclude=__pycache__' '--exclude=*.pyc' v066_work/tools/test_shu_package.py v067_work/tools/test_shu_package.py
+--- v066_work/tools/test_shu_package.py	2026-10-08 15:21:34.451431972 +0000
++++ v067_work/tools/test_shu_package.py	2026-10-08 15:35:07.803345761 +0000
+@@ -9,9 +9,9 @@
+ assert enc[:16].hex()=='e442260569d928a71e88a4f51b0b75d3'
+ assert hashlib.md5(enc).hexdigest()=='481406633bae0c36720d6201207c44d4'
+ for fn,name,var in [
+- ('DeltaESC_G30D_v0_6_6_ble_syncsafe.bin','DeltaESC G30D v0.6.6 SAFE','syncsafe'),
+- ('DeltaESC_G30D_v0_6_6_ble_observer_zero_vector.bin','DeltaESC G30D v0.6.6 ZERO','zero-vector'),
+- ('DeltaESC_G30D_v0_6_6_ble_sensorless_bench.bin','DeltaESC G30D v0.6.6 BENCH','sensorless-bench')]:
++ ('DeltaESC_G30D_v0_6_7_ble_syncsafe.bin','DeltaESC G30D v0.6.7 SAFE','syncsafe'),
++ ('DeltaESC_G30D_v0_6_7_ble_observer_zero_vector.bin','DeltaESC G30D v0.6.7 ZERO','zero-vector'),
++ ('DeltaESC_G30D_v0_6_7_ble_sensorless_bench.bin','DeltaESC G30D v0.6.7 BENCH','sensorless-bench')]:
+     b=(ROOT/'build'/fn).read_bytes(); pack.validate_app_image(b)
+     with tempfile.TemporaryDirectory() as td:
+         out=Path(td)/'x.zip'; p,e=pack.build_package(ROOT/'build'/fn,out,name,var)
