@@ -30,6 +30,8 @@ final class MotorTxn {
         }catch(NumberFormatException ex){throw new IllegalArgumentException("Teststrom: 100 bis 2000 mA (keine Motorfreigabe)");}
         return out;
     }
+    private static int u16(byte[] p,int at){return (p[at]&255)|((p[at+1]&255)<<8);}
+    private static long u32(byte[] p,int at){return (u16(p,at)&65535L)|((long)u16(p,at+2)<<16);}
     private static void le16(byte[] p,int at,int n){p[at]=(byte)n;p[at+1]=(byte)(n>>>8);}
     static byte[] frame(int reg,int value){
         if(reg<0xF0||reg>0xF4)throw new IllegalArgumentException("Nur F0 bis F4 erlaubt");
@@ -63,8 +65,8 @@ final class MotorTxn {
         Status(byte[] p){
             if(p==null||p.length!=16)throw new IllegalArgumentException("E7 benötigt 16 Byte");
             pendingMask=p[0]&255;activeValid=p[1]&255;modelValid=p[2]&255;gates=p[3]&255;
-            currentMa=MotorConfig.u16(p,4);guard=MotorConfig.u16(p,6);
-            r=MotorConfig.value4(p,8);l=MotorConfig.value4(p,12);
+            currentMa=u16(p,4);guard=u16(p,6);
+            r=u32(p,8);l=u32(p,12);
         }
         boolean readyForCommit(){return pendingMask==0x1f&&gates==0;}
         boolean committed(int[] intended){
