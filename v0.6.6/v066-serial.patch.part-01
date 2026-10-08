@@ -1,0 +1,91 @@
+ = 0u; j < STOCK_SERIAL_LEN; ++j) out[j] = region[i + j];
++        return 1u;
++    }
++    return 0u;
++}
+diff -ruN '--exclude=build' '--exclude=shu' '--exclude=__pycache__' '--exclude=*.pyc' v066_base/src/stock_identity.h v066_serial/src/stock_identity.h
+--- v066_base/src/stock_identity.h	1970-01-01 00:00:00.000000000 +0000
++++ v066_serial/src/stock_identity.h	2026-10-08 15:30:56.611300438 +0000
+@@ -0,0 +1,11 @@
++#pragma once
++#include <stdint.h>
++
++#define STOCK_SERIAL_LEN 14u
++#define STOCK_IDENTITY_SCAN_BASE 0x0801F000u
++#define STOCK_IDENTITY_SCAN_BYTES 4096u
++
++/* Find the controller's own N4G... 14-byte serial inside preserved stock
++ * configuration pages. Pure buffer scanner so the policy can be host-tested. */
++uint8_t stock_identity_find_serial(const uint8_t *region, uint32_t length,
++                                   uint8_t out[STOCK_SERIAL_LEN]);
+diff -ruN '--exclude=build' '--exclude=shu' '--exclude=__pycache__' '--exclude=*.pyc' v066_base/tools/preflight_v066.py v066_serial/tools/preflight_v066.py
+--- v066_base/tools/preflight_v066.py	2026-10-08 15:28:19.000000000 +0000
++++ v066_serial/tools/preflight_v066.py	2026-10-08 15:30:57.311985495 +0000
+@@ -1,15 +1,26 @@
+ #!/usr/bin/env python3
+ from pathlib import Path
+ root=Path(__file__).resolve().parents[1]
+-main=(root/'src/main.c').read_text(); dash=(root/'src/dashboard_runtime.c').read_text(); iap=(root/'src/iap_update.c').read_text(); mk=(root/'Makefile').read_text()
++main=(root/'src/main.c').read_text(); dash=(root/'src/dashboard_runtime.c').read_text(); ident=(root/'src/stock_identity.c').read_text(); iap=(root/'src/iap_update.c').read_text(); link=(root/'src/ninebot_link.c').read_text(); hdr=(root/'src/stm32f103_min.h').read_text(); mk=(root/'Makefile').read_text()
+ assert '#define FW_BUILD 0x0606u' in main
++# inherited v0.6.5 update hardening
++assert 'SCB_VTOR=0x08001000u' in main and '#define SCB_VTOR' in hdr
++assert '#define MAX_RX_DATA 128u' in iap
++assert '#define RX_RING_SIZE 256u' in link
++assert 'iap_proto_effective_write_len' in iap and 'iap_proto_next_index' in iap
++assert 'wire_sum=iap_proto_sum32_update' in iap and 'iap_proto_sum32_finish(wire_sum)==supplied' in iap
++assert 'ninebot_link_discard_rx()' in main and '0x08001002' not in iap
++# native dashboard runtime
+ assert 'dashboard_decode_adc' in main and 'dashboard_is_status_request' in main
+ assert 'ninebot_send_app_response(f,G30_DASH_CMD_STATUS,0x00u,p,G30_DASH_STATUS_BYTES)' in main
+ assert 'f->src==G30_DASH_ADDR&&f->dst==G30_ESC_ADDR' in main
+ assert 'f->payload[1]' in dash and 'f->payload[2]' in dash
+ assert 'out[0] = 0x01u' in dash and 'out[1] = 50u' in dash
+-assert '0x08001002' not in iap
+-assert 'src/dashboard_runtime.c' in mk
++# preserve the proven Android stock-read sequence: 0x1A version, 0x10 serial, then D0 identity
++assert 'case 0x10u:' in main and 'n=STOCK_SERIAL_LEN' in main
++assert 'STOCK_IDENTITY_SCAN_BASE' in main and 'g_stock_serial_found=stock_identity_find_serial' in main
++assert "region[i] != (uint8_t)'N'" in ident and "region[i + 2u] != (uint8_t)'G'" in ident
++assert 'src/dashboard_runtime.c' in mk and 'src/stock_identity.c' in mk
+ for name in ['DeltaESC_G30D_v0_6_6_ble_syncsafe.bin','DeltaESC_G30D_v0_6_6_ble_observer_zero_vector.bin','DeltaESC_G30D_v0_6_6_ble_sensorless_bench.bin']:
+     b=(root/'build'/name).read_bytes(); assert len(b)<=0xD000,(name,len(b))
+-print('v0.6.6 dashboard-runtime preflight: PASS')
++print('v0.6.6 IAP/VTOR + dashboard runtime + stock identity preflight: PASS')
+diff -ruN '--exclude=build' '--exclude=shu' '--exclude=__pycache__' '--exclude=*.pyc' v066_base/tools/serial_identity_host_test.c v066_serial/tools/serial_identity_host_test.c
+--- v066_base/tools/serial_identity_host_test.c	1970-01-01 00:00:00.000000000 +0000
++++ v066_serial/tools/serial_identity_host_test.c	2026-10-08 15:30:56.612649323 +0000
+@@ -0,0 +1,20 @@
++#include <stdint.h>
++#include <stdio.h>
++#include <string.h>
++#include "stock_identity.h"
++
++int main(void) {
++    uint8_t region[256], out[STOCK_SERIAL_LEN];
++    memset(region, 0xFF, sizeof region); memset(out, 0, sizeof out);
++    const uint8_t serial[STOCK_SERIAL_LEN] = {'N','4','G','S','D','1','1','1','1','C','5','4','8','7'};
++    memcpy(region + 73, serial, sizeof serial);
++    if (!stock_identity_find_serial(region, sizeof region, out)) return 1;
++    if (memcmp(out, serial, sizeof serial) != 0) return 2;
++    region[73 + 9] = (uint8_t)'_';
++    memset(out, 0, sizeof out);
++    if (stock_identity_find_serial(region, sizeof region, out)) return 3;
++    if (stock_identity_find_serial(NULL, sizeof region, out)) return 4;
++    if (stock_identity_find_serial(region, 13u, out)) return 5;
++    puts("stock serial identity scan: PASS");
++    return 0;
++}
+diff -ruN '--exclude=build' '--exclude=shu' '--exclude=__pycache__' '--exclude=*.pyc' v066_base/tools/test_serial_identity.py v066_serial/tools/test_serial_identity.py
+--- v066_base/tools/test_serial_identity.py	1970-01-01 00:00:00.000000000 +0000
++++ v066_serial/tools/test_serial_identity.py	2026-10-08 15:30:56.615489118 +0000
+@@ -0,0 +1,9 @@
++#!/usr/bin/env python3
++import os, subprocess, tempfile
++from pathlib import Path
++r=Path(__file__).resolve().parents[1]; cc=os.environ.get('HOST_CC','clang')
++with tempfile.TemporaryDirectory() as d:
++    o=Path(d)/'serialtest'
++    subprocess.run([cc,'-std=c11','-Wall','-Wextra','-Werror','-Isrc',
++                    'tools/serial_identity_host_test.c','src/stock_identity.c','-o',str(o)],cwd=r,check=True)
++    subprocess.run([str(o)],check=True)
