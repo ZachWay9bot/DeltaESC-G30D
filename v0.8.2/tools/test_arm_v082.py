@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compiled ARM USART2/Ninebot ABI for v0.8.1 commissioning guard, synthetic MMIO only."""
+"""Compiled ARM USART2/Ninebot ABI for v0.8.2 current frontend, synthetic MMIO only."""
 import importlib.util,struct,sys
 from pathlib import Path
 path=Path(__file__).resolve().parents[2]/'v0.6.10'/'full_target_protocol.py'
@@ -7,7 +7,7 @@ spec=importlib.util.spec_from_file_location('deltaesc_arm_path',path)
 mod=importlib.util.module_from_spec(spec);spec.loader.exec_module(mod)
 t=mod.Target(Path(sys.argv[1]).resolve())
 out=t.packet(1,b'\x10',arg=0xD0)
-assert out[2]==16 and out[7:11]==b'DESC' and out[13:15]==b'\x01\x08',out.hex()
+assert out[2]==16 and out[7:11]==b'DESC' and out[13:15]==b'\x02\x08',out.hex()
 for reg in range(0xDA,0xE0):
     out=t.packet(1,b'\x10',arg=reg)
     assert out[:2]==b'\x5a\xa5' and out[2]==16 and out[5]==4 and out[6]==reg,out.hex()
