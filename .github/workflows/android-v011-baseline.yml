@@ -1,0 +1,24 @@
+name: Extract v0.1 Android baseline
+on:
+  push:
+    branches: [ "dev/android-v0.1.1-motor-bench" ]
+    paths: [ ".github/workflows/android-v011-baseline.yml" ]
+  workflow_dispatch:
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract v0.1 source
+        run: |
+          mkdir -p /tmp/v011
+          tar -xJf android/DeltaESC_Android_v0_1_source.tar.xz -C /tmp/v011
+          find /tmp/v011 -maxdepth 6 -type f | sort
+          sha256sum /tmp/v011/DeltaESC_Android_v0_1/app/src/main/java/de/deltaesc/tool/*.java || true
+      - name: Package baseline source
+        run: tar -C /tmp/v011 -cJf /tmp/G30_Bench_BLE_v0.1_BASELINE_SOURCE.tar.xz DeltaESC_Android_v0_1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: G30-Bench-BLE-v0.1-baseline-source
+          retention-days: 7
+          path: /tmp/G30_Bench_BLE_v0.1_BASELINE_SOURCE.tar.xz
