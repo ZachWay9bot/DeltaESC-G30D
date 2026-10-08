@@ -1,0 +1,68 @@
+name: Build DeltaESC Android v0.2
+on:
+  push:
+    branches: [ "dev/android-tool-v0.2" ]
+    paths: [ "android/v0.2/**", ".github/workflows/android-v02-build.yml" ]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Reconstruct v0.2 source
+        run: |
+          mkdir -p /tmp/v01 /tmp/v02
+          tar -xJf android/DeltaESC_Android_v0_1_source.tar.xz -C /tmp/v01
+          cp -a /tmp/v01/. /tmp/v02/
+          xz -dc android/v0.2/android_v02.patch.xz | patch -d /tmp/v02 -p2
+      - name: Core protocol self-test
+        run: |
+          mkdir -p /tmp/core/de/deltaesc/tool /tmp/core-out
+          cp /tmp/v02/app/src/main/java/de/deltaesc/tool/{NinebotCrypto.java,NinebotProtocol.java,Hex.java} /tmp/core/de/deltaesc/tool/
+          cat >/tmp/core/de/deltaesc/tool/SelfTest.java <<'EOF'
+          package de.deltaesc.tool;
+          import java.util.*;
+          public class SelfTest {
+            public static void main(String[] args){
+              byte[] f=NinebotProtocol.read(0xD0,0x20);
+              if(!Hex.of(f).replace(" ","").toLowerCase().equals("5aa5013e2001d020")) throw new RuntimeException("logical");
+              NinebotCrypto c=new NinebotCrypto("MIScooter1234");
+              byte[] p=NinebotProtocol.bleCommand(0x5B,0,new byte[0]);
+              if(!Hex.of(c.encrypt(p)).replace(" ","").toLowerCase().equals("5aa500aa07c3ca000045ff0000")) throw new RuntimeException("crypto");
+              NinebotProtocol.CryptoStreamParser sp=new NinebotProtocol.CryptoStreamParser();
+              byte[] e=Hex.parse("5A A5 00 9E 84 DB EF 00 00 D4 FF 00 00");
+              if(!sp.push(Arrays.copyOfRange(e,0,4)).isEmpty()) throw new RuntimeException("fragment-early");
+              if(sp.push(Arrays.copyOfRange(e,4,e.length)).size()!=1) throw new RuntimeException("fragment-final");
+              System.out.println("Android protocol core self-test: PASS");
+            }
+          }
+          EOF
+          javac -d /tmp/core-out $(find /tmp/core -name '*.java')
+          java -cp /tmp/core-out de.deltaesc.tool.SelfTest
+      - name: Install Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Unit tests
+        working-directory: /tmp/v02
+        run: gradle --no-daemon :app:testDebugUnitTest
+      - name: Build debug APK
+        working-directory: /tmp/v02
+        run: gradle --no-daemon :app:assembleDebug
+      - name: Package source
+        run: |
+          tar -C /tmp/v02 -cJf /tmp/DeltaESC_Android_v0_2_source.tar.xz .
+          cp /tmp/v02/app/build/outputs/apk/debug/app-debug.apk /tmp/DeltaESC_Android_v0_2_debug.apk
+          sha256sum /tmp/DeltaESC_Android_v0_2_debug.apk /tmp/DeltaESC_Android_v0_2_source.tar.xz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-Android-v0.2
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            /tmp/DeltaESC_Android_v0_2_debug.apk
+            /tmp/DeltaESC_Android_v0_2_source.tar.xz
