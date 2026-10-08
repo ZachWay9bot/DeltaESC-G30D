@@ -61,4 +61,8 @@ v0.6.6 is **not** to be flashed onto this controller until stock recovery is com
 
 Current controller status: **recoverable-looking but Bluetooth stock reflash not yet proven**.
 
-Next engineering task: determine the exact SHU IAP-entry transaction and response sequence and fix the OTA path before any further real-controller flash attempt.
+## Recovery path constraint
+
+The intended and required recovery path is **Android phone -> BLE -> dashboard -> ESC**, using SHU or a compatible Android recovery tool. ST-Link is **not** the planned recovery/update path for this project and must not be treated as the normal next step.
+
+Next engineering task: determine the exact **BLE/SHU IAP-entry transaction and response sequence** and fix the OTA path so Stock DRV126 can be restored from the Android phone before any further real-controller flash attempt.
