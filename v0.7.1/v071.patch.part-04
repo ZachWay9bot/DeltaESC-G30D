@@ -1,0 +1,187 @@
++        int16_t d=phase_delta(s->observer_phase,s->openloop_phase);
++        uint32_t blend=s->state_ticks;if(blend>HANDOVER_TICKS)blend=HANDOVER_TICKS;
++        s->control_phase=(uint16_t)(s->openloop_phase+((int32_t)d*(int32_t)blend)/(int32_t)HANDOVER_TICKS);
++        int32_t se=abs32(s->observer_speed-(int32_t)s->openloop_step);
++        if(!s->observer_valid || se>(SPEED_LOCK_LIMIT_STEP*2)){if(s->lost_ticks<0xFFFFu)s->lost_ticks++;}else s->lost_ticks=0u;
++        if(s->lost_ticks>=OBS_LOST_TICKS){s->fault=2u;s->state=SENSORLESS_FAULT;}
++        else if(s->state_ticks>=HANDOVER_TICKS){s->state=SENSORLESS_CLOSED_LOOP;s->state_ticks=0u;s->lost_ticks=0u;}
+         break;
+     }
++
+     case SENSORLESS_CLOSED_LOOP:
+-        s->control_phase = s->observer_phase;
+-        if (!s->observer_valid) { if (s->lost_ticks < 0xFFFFu) s->lost_ticks++; } else s->lost_ticks = 0;
+-        if (s->lost_ticks >= OBS_LOST_TICKS) { s->fault = 3; s->state = SENSORLESS_FAULT; }
++        s->control_phase=s->observer_phase;
++        if(!s->observer_valid || s->observer_speed<8){if(s->lost_ticks<0xFFFFu)s->lost_ticks++;}else s->lost_ticks=0u;
++        if(s->lost_ticks>=OBS_LOST_TICKS){s->fault=3u;s->state=SENSORLESS_FAULT;}
+         break;
++
+     case SENSORLESS_FAULT:
+     default:
+-        s->drive_request = 0; zero_vector(s, pwm_arr); return;
++        s->drive_request=0u;zero_vector(s,pwm_arr);return;
+     }
+-    int32_t iq_ref = (s->state == SENSORLESS_ALIGN) ? ALIGN_IQ_COUNTS : s->run_iq_counts;
+-    current_control(s, i_alpha, i_beta, s->control_phase, iq_ref, pwm_arr);
++
++    int32_t id_ref=0,iq_ref=0;
++    if(s->state==SENSORLESS_ALIGN) id_ref=ALIGN_ID_COUNTS;
++    else iq_ref=s->run_iq_counts;
++    current_control(s,i_alpha,i_beta,s->control_phase,id_ref,iq_ref,pwm_arr);
+ }
+ 
+ const char *sensorless_state_name(uint8_t state) {
+     switch ((sensorless_state_id_t)state) {
+-    case SENSORLESS_STOP: return "STOP"; case SENSORLESS_ALIGN: return "ALIGN"; case SENSORLESS_OPEN_LOOP: return "OPEN";
+-    case SENSORLESS_HANDOVER: return "HANDOVER"; case SENSORLESS_CLOSED_LOOP: return "CLOSED"; case SENSORLESS_FAULT: return "FAULT";
++    case SENSORLESS_STOP: return "STOP";
++    case SENSORLESS_ALIGN: return "ALIGN";
++    case SENSORLESS_OPEN_LOOP: return "OPEN";
++    case SENSORLESS_HANDOVER: return "HANDOVER";
++    case SENSORLESS_CLOSED_LOOP: return "CLOSED";
++    case SENSORLESS_FAULT: return "FAULT";
+     default: return "?";
+     }
+ }
+diff -ruN '--exclude=build' '--exclude=__pycache__' /mnt/data/v070src/source/src/sensorless_control.h /mnt/data/v071work/src/sensorless_control.h
+--- /mnt/data/v070src/source/src/sensorless_control.h	2026-10-06 23:26:17.000000000 +0000
++++ /mnt/data/v071work/src/sensorless_control.h	2026-10-08 21:20:32.556452847 +0000
+@@ -17,6 +17,7 @@
+ } sensorless_state_id_t;
+ 
+ typedef struct {
++    /* Mxlemming-style flux state. Units are Vbus-ADC-count * control-tick. */
+     int64_t x_alpha;
+     int64_t x_beta;
+     int32_t e_alpha;
+@@ -27,16 +28,21 @@
+     int32_t v_beta_prev;
+ 
+     uint16_t observer_phase;
++    uint16_t observer_phase_prev;
+     uint16_t control_phase;
+     uint16_t openloop_phase;
+     int16_t phase_error;
++    int32_t observer_speed;
+ 
+     int32_t id;
+     int32_t iq;
+     int32_t id_int;
+     int32_t iq_int;
++    int16_t id_ref_counts;
++    int16_t iq_ref_counts;
+ 
+     uint32_t flux_sq;
++    uint32_t flux_target_raw;
+     uint16_t state_ticks;
+     uint16_t lock_ticks;
+     uint16_t lost_ticks;
+@@ -50,6 +56,13 @@
+     uint16_t run_current_ma;
+     int16_t run_iq_counts;
+ 
++    /* Physical config plus precomputed observer coefficients. */
++    uint32_t motor_r_uohm;
++    uint32_t motor_l_nh;
++    uint32_t flux_uwb;
++    uint16_t observer_r_q8;
++    uint16_t observer_l_q8;
++
+     uint8_t drive_request;
+     uint8_t observer_valid;
+     uint8_t state;
+@@ -61,6 +74,10 @@
+ void sensorless_control_stop(sensorless_control_t *s);
+ void sensorless_control_set_phase_offset(sensorless_control_t *s, int16_t offset);
+ uint8_t sensorless_control_set_run_current_ma(sensorless_control_t *s, uint16_t current_ma);
++uint8_t sensorless_control_set_motor_params(sensorless_control_t *s,
++                                            uint32_t resistance_uohm,
++                                            uint32_t inductance_nh,
++                                            uint32_t flux_uwb);
+ int32_t sensorless_counts_to_ma(int32_t counts);
+ void sensorless_control_step(sensorless_control_t *s,
+                              phase_current_counts_t current,
+diff -ruN '--exclude=build' '--exclude=__pycache__' /mnt/data/v070src/source/tools/sensorless_plant_sim.c /mnt/data/v071work/tools/sensorless_plant_sim.c
+--- /mnt/data/v070src/source/tools/sensorless_plant_sim.c	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/v071work/tools/sensorless_plant_sim.c	2026-10-08 21:24:06.172295821 +0000
+@@ -0,0 +1,46 @@
++#include <math.h>
++#include <stdint.h>
++#include <stdio.h>
++#include "sensorless_control.h"
++#ifndef M_PI
++#define M_PI 3.14159265358979323846
++#endif
++static int16_t sat16(double x){if(x>32767.0)x=32767.0;if(x<-32768.0)x=-32768.0;return (int16_t)lrint(x);}
++static int run_case(double r,double l,double flux,double inertia){
++    sensorless_control_t s;sensorless_control_init(&s);
++    if(!sensorless_control_set_run_current_ma(&s,800u))return 0;
++    sensorless_control_set_drive(&s,1u);
++    const double dt=1.0/4000.0,vbus=36.0,vunit=0.014,iunit=0.0503515625,pairs=15.0;
++    double ialpha=0.0,ibeta=0.0,theta=0.0,omega_e=0.0;int closed=0;
++    for(int k=0;k<12000;k++){
++        double pha=ialpha;
++        double phb=-0.5*ialpha+0.866025403784*ibeta;
++        double phc=-0.5*ialpha-0.866025403784*ibeta;
++        phase_current_counts_t cur={sat16(pha/iunit),sat16(phb/iunit),sat16(phc/iunit)};
++        sensorless_control_step(&s,cur,(uint16_t)lrint(vbus/vunit),1999u,1u);
++        double va=((double)s.v_alpha_prev/32768.0)*vbus;
++        double vb=((double)s.v_beta_prev/32768.0)*vbus;
++        double ea=-flux*omega_e*sin(theta),eb=flux*omega_e*cos(theta);
++        ialpha+=(va-r*ialpha-ea)/l*dt;ibeta+=(vb-r*ibeta-eb)/l*dt;
++        double iq=-ialpha*sin(theta)+ibeta*cos(theta);
++        double torque=1.5*pairs*flux*iq;
++        double omega_mech=omega_e/pairs;
++        omega_e+=(torque-0.015*omega_mech)/inertia*pairs*dt;
++        if(omega_e<0.0)omega_e=0.0;
++        theta+=omega_e*dt;while(theta>=2.0*M_PI)theta-=2.0*M_PI;
++        if(s.state==SENSORLESS_CLOSED_LOOP)closed=1;
++        if(s.state==SENSORLESS_FAULT||fabs(ialpha)>20.0||fabs(ibeta)>20.0)return 0;
++    }
++    return closed;
++}
++int main(void){
++    const double rs[]={0.08,0.10,0.15};
++    const double ls[]={80e-6,100e-6,150e-6};
++    const double fs[]={0.010,0.012,0.014};
++    const double js[]={0.02,0.03,0.05};
++    int total=0;
++    for(unsigned a=0;a<3;a++)for(unsigned b=0;b<3;b++)for(unsigned c=0;c<3;c++)for(unsigned d=0;d<3;d++){
++        total++;if(!run_case(rs[a],ls[b],fs[c],js[d])){fprintf(stderr,"plant case failed %u/%u/%u/%u\n",a,b,c,d);return 1;}
++    }
++    printf("sensorless plant simulation: PASS (%d cases)\n",total);return 0;
++}
+diff -ruN '--exclude=build' '--exclude=__pycache__' /mnt/data/v070src/source/tools/test_sensorless_bench.py /mnt/data/v071work/tools/test_sensorless_bench.py
+--- /mnt/data/v070src/source/tools/test_sensorless_bench.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/v071work/tools/test_sensorless_bench.py	2026-10-08 21:24:06.174253261 +0000
+@@ -0,0 +1,29 @@
++#!/usr/bin/env python3
++from pathlib import Path
++import os, subprocess, tempfile, re
++root=Path(__file__).resolve().parents[1]
++cc=os.environ.get('HOST_CC','cc')
++with tempfile.TemporaryDirectory() as td:
++    exe=Path(td)/'sensorless_plant_sim'
++    subprocess.check_call([cc,'-std=c11','-O2','-Wall','-Wextra','-Werror','-I'+str(root/'src'),
++        str(root/'src/sensorless_control.c'),str(root/'tools/sensorless_plant_sim.c'),'-lm','-o',str(exe)])
++    subprocess.check_call([str(exe)])
++main=(root/'src/main.c').read_text(); core=(root/'src/sensorless_control.c').read_text(); mk=(root/'Makefile').read_text()
++assert '#define HARD_OC_COUNTS                120u' in main
++assert '#define DASH_STALE_MS 180u' in main
++assert '#define DASH_DRIVE_MAX_MA 1500u' in main
++assert 'dashboard_motor_off(1u)' in main and 'dashboard_motor_off(0u)' in main
++assert 'power_stage_trip(0x0D00u|(uint32_t)ctrl.fault)' in main
++assert 'power_stage_trip(0x0C02u)' in main
++assert 'fast_atan2_u16(s->e_beta, s->e_alpha)' in core
++assert 'fast_atan2_u16(-s->e_beta' not in core
++assert '#define PI_KP_COUNTS 12' in core and '#define PI_KI_COUNTS 3' in core
++assert 'id_ref=ALIGN_ID_COUNTS' in core
++assert 'observer_seed_phase(s, s->control_phase)' in core
++assert 'all: bench' in mk and '-DPOWER_STAGE_ARM_ALLOWED=1 -DSENSORLESS_RUN_ALLOWED=1' in mk
++elf=root/'build/DeltaESC_G30D_v0_7_1_STLINK_SENSORLESS_BENCH.elf'
++binfile=root/'build/DeltaESC_G30D_v0_7_1_STLINK_SENSORLESS_BENCH.bin'
++assert elf.is_file() and binfile.is_file() and binfile.stat().st_size <= 0xC800
++syms=(root/'build/STLINK_SYMBOLS.txt').read_text()
++assert re.search(r'\b[gG]?_?sensorless_bench\b',syms) or 'g_sensorless_bench' in syms
++print('v0.7.1 ST-Link sensorless bench preflight: PASS')
