@@ -195,7 +195,7 @@ s=once(s,'DashBLE Motor 0.3.0','DashBLE Config 0.3.1')
 s=once(s,'        json=json.substring(0,json.length()-1)',
          '        json=json.replace("\\\"read_only\\\":true","\\\"read_only\\\":"+(!configAllowed()));\n        json=json.substring(0,json.length()-1)')
 s=once(s,'","+motorTelemetry.jsonFields()+"}"',
-       '","+motorTelemetry.jsonFields()+",\\\\"config_guarded\\\\":true,\\\\"config_enabled\\\\":"+configAllowed()+"}"')
+       r'","+motorTelemetry.jsonFields()+",\"config_guarded\":true,\"config_enabled\":"+configAllowed()+"}"')
 f.write_text(s)
 shutil.copyfile(Path(__file__).with_name('MotorConfig.java'),src/'MotorConfig.java')
 grad=root/'app/build.gradle'
