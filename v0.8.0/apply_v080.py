@@ -19,6 +19,16 @@ with tarfile.open(overlay,"r:xz") as t:
         raw=t.extractfile(matched[0]).read()
         if hashlib.sha256(raw).hexdigest()!=sha:raise RuntimeError("wrong motor overlay hash: "+name)
         (root/"src"/name).write_bytes(raw)
+# Fix two pre-existing undefined signed-left-shifts in the v0.7.0 BEMF
+# calculation. UBSan found the negative back-EMF case in motor host tests.
+mc=root/"src/sensorless_control.c"
+ms=mc.read_text()
+for expr in ("va_mv - ra_mv - la_mv","vb_mv - rb_mv - lb_mv"):
+    old=f"({expr}) << 8"
+    new=f"(int32_t)((int64_t)({expr}) * 256LL)"
+    if ms.count(old)!=1:raise RuntimeError("expected BEMF shift missing: "+expr)
+    ms=ms.replace(old,new)
+mc.write_text(ms)
 def sub1(s,old,new):
     n=s.count(old)
     if n!=1:raise RuntimeError("replace marker count "+str(n)+": "+old[:140])
