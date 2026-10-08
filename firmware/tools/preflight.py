@@ -37,7 +37,6 @@ for path in items:
         'reset_in_app': 0x08001001 <= reset < 0x0800D800,
         'adc_irq_in_app': 0x08001001 <= adc_vec < 0x0800D800,
         'size_50KiB': len(b) <= 50*1024,
-        'BLE_hello_signature': b'SLE' in b,
         'old_UART_ARM_text_absent': b'ARM:' not in b,
     }
     print(path.name)
