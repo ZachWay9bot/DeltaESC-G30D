@@ -6,6 +6,8 @@ on:
     paths:
       - 'firmware/**'
       - '.github/workflows/build.yml'
+      - 'tools/make_shu_zip.py'
+      - 'tools/make_shu_zip.py'
   pull_request:
     paths:
       - 'firmware/**'
@@ -26,7 +28,7 @@ jobs:
           clang-18 --version | head -n 1
           llvm-objcopy-18 --version | head -n 1
 
-      - name: Build v0.4.1 BLE diagnostic images
+      - name: Build v0.4.2 BLE diagnostic images
         run: |
           make -C firmware clean all \
             CC=clang-18 \
@@ -36,15 +38,44 @@ jobs:
       - name: Run static preflight
         run: python3 firmware/tools/preflight.py
 
+      - name: Build SHU ZIPv3 from SYNC-SAFE image
+        run: |
+          python3 tools/make_shu_zip.py \
+            firmware/build/DeltaESC_G30D_v0_4_2_shu_ble_syncsafe.bin \
+            DeltaESC_G30D_v0.4.2_SYNC_SAFE_SHU.zip \
+            --name "DeltaESC G30D v0.4.2 SYNC-SAFE"
+
+      - name: Validate SHU package contents
+        run: |
+          python3 - <<'PY'
+          import json, zipfile, hashlib
+          from pathlib import Path
+          z = Path("DeltaESC_G30D_v0.4.2_SYNC_SAFE_SHU.zip")
+          with zipfile.ZipFile(z) as f:
+              names = set(f.namelist())
+              assert names == {"FIRM.bin","FIRM.bin.enc","info.json","params.txt"}, names
+              info = json.loads(f.read("info.json"))
+              fw = f.read("FIRM.bin")
+              assert info["firmware"]["model"] == "max"
+              assert info["firmware"]["type"] == "DRV"
+              assert info["firmware"]["compatible"] == ["max_DRV_STM32F103CxT6"]
+              assert info["firmware"]["md5"]["bin"] == hashlib.md5(fw).hexdigest()
+              assert len(fw) <= 50*1024
+          print("SHU ZIP preflight: PASS")
+          PY
+
       - name: Show hashes
-        run: sha256sum firmware/build/*.bin
+        run: |
+          sha256sum firmware/build/*.bin
+          sha256sum DeltaESC_G30D_v0.4.2_SYNC_SAFE_SHU.zip
 
       - name: Upload bench binaries
         uses: actions/upload-artifact@v4
         with:
-          name: DeltaESC-G30D-v0.4.1-BLE-diag
+          name: DeltaESC-G30D-v0.4.2-BLE-diag
           if-no-files-found: error
           retention-days: 30
           path: |
-            firmware/build/DeltaESC_G30D_v0_4_1_ble_syncsafe.bin
-            firmware/build/DeltaESC_G30D_v0_4_1_ble_activecapable.bin
+            firmware/build/DeltaESC_G30D_v0_4_2_shu_ble_syncsafe.bin
+            firmware/build/DeltaESC_G30D_v0_4_2_shu_ble_activecapable.bin
+            DeltaESC_G30D_v0.4.2_SYNC_SAFE_SHU.zip
