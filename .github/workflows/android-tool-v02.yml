@@ -1,0 +1,58 @@
+name: Android Link Probe v0.2
+on:
+  push:
+    branches: [ "dev/android-tool-v0.2" ]
+    paths:
+      - "android/v0.2/**"
+      - ".github/workflows/android-tool-v02.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Reconstruct v0.2 source
+        run: |
+          mkdir -p /tmp/app
+          tar -xJf android/DeltaESC_Android_v0_1_source.tar.xz -C /tmp/app
+          mv /tmp/app/DeltaESC_Android_v0_1 /tmp/app/v02
+          cat android/v0.2/chunks/*.b64 | tr -d '\n\r ' | base64 -d > /tmp/android_v02.patch.xz
+          echo "269e9793c3bcbb7abf7cb7cd74d24d460a6cc070eadf9658cec515d76b46d7ec  /tmp/android_v02.patch.xz" | sha256sum -c -
+          xz -dc /tmp/android_v02.patch.xz | patch -d /tmp/app/v02 -p1
+
+      - name: Pure Java NinebotCrypto vector
+        run: |
+          mkdir -p /tmp/testclasses
+          javac -d /tmp/testclasses             /tmp/app/v02/app/src/main/java/de/deltaesc/tool/Hex.java             /tmp/app/v02/app/src/main/java/de/deltaesc/tool/NinebotProtocol.java             /tmp/app/v02/app/src/main/java/de/deltaesc/tool/NinebotCrypto.java             /tmp/app/v02/tools/TestCrypto.java
+          java -cp /tmp/testclasses de.deltaesc.tool.TestCrypto
+
+      - name: Build debug APK
+        working-directory: /tmp/app/v02
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Package source
+        run: |
+          tar -C /tmp/app -cJf /tmp/DeltaESC_Android_v0_2_source.tar.xz v02
+          sha256sum /tmp/app/v02/app/build/outputs/apk/debug/app-debug.apk /tmp/DeltaESC_Android_v0_2_source.tar.xz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-Link-Probe-v0.2
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            /tmp/app/v02/app/build/outputs/apk/debug/app-debug.apk
+            /tmp/DeltaESC_Android_v0_2_source.tar.xz
+            /tmp/app/v02/README.md
+            /tmp/app/v02/PROTOCOL.md
