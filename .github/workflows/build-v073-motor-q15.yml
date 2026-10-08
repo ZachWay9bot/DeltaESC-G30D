@@ -1,0 +1,81 @@
+name: Build v0.7.3 MOTOR TEST BENCH Q15
+on:
+  push:
+    branches: [ "dev/v0.7.3-motor-bench-q15" ]
+    paths: [ "v0.7.3/**", ".github/workflows/build-v073-motor-q15.yml" ]
+  workflow_dispatch:
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18 llvm-18 xz-utils patch
+      - name: Reconstruct frozen v0.7.2 bench
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/v061 /tmp/v073
+          tar -xJf v0.6/DeltaESC_G30D_v0_6_source.tar.xz -C /tmp/v061
+          xz -dc v0.6.1/v0611.patch.xz | patch -d /tmp/v061 -p1
+          cp -a /tmp/v061/. /tmp/v073/
+          xz -dc v0.6.2/v062.patch.xz | patch -d /tmp/v073 -p4
+          xz -dc v0.6.3/v063.patch.xz | patch -d /tmp/v073 -p4
+          xz -dc v0.6.4/v064.patch.xz | patch -d /tmp/v073 -p4
+          xz -dc v0.6.5/v065.patch.xz | patch -d /tmp/v073 -p1
+          cp v0.7.0/apply_v070.py /tmp/v073/apply_v070.py
+          python3 /tmp/v073/apply_v070.py
+          cp v0.7.2/apply_v072.py /tmp/v073/apply_v072.py
+          python3 /tmp/v073/apply_v072.py
+          cp v0.7.3/apply_v073.py /tmp/v073/apply_v073.py
+          python3 /tmp/v073/apply_v073.py
+      - name: Frozen safety invariants
+        working-directory: /tmp/v073
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          m=Path('src/main.c').read_text()
+          c=Path('src/sensorless_control.c').read_text()
+          assert '#define FW_BUILD 0x0730u' in m
+          assert 'g_phase_map[3] = {0u,1u,2u}' in m
+          assert 'g_adc_offset[0]-(int32_t)s0' in m
+          assert 'PHASE_SUM_FAULT_COUNTS          30u' in m
+          assert 'GPIOB_BASE,12' in m and 'TIM_BDTR_BKE' in m
+          assert 'gpio_cfg_nibble(GPIOB_BASE,1,' not in m
+          assert 'current_ma > 500u' in c
+          assert '#define DEFAULT_RUN_CURRENT_MA 250u' in c
+          assert '#define ALIGN_IQ_COUNTS 5' in c
+          assert 'pi_integrate_q15' in c and 'pi_duty_from_q15' in c
+          print('v0.7.2 safety invariants + Q15 overlay: PASS')
+          PY
+      - name: Build matrix
+        working-directory: /tmp/v073
+        run: make clean all CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+      - name: Existing motor core test
+        working-directory: /tmp/v073
+        run: |
+          clang-18 -std=c11 -Wall -Wextra -Werror -Isrc tools/motor_core_host_test.c src/sensorless_control.c -o build/motor_core_host_test
+          ./build/motor_core_host_test
+      - name: Q15 regression
+        working-directory: /tmp/v073
+        run: |
+          clang-18 -std=c11 -Wall -Wextra -Werror -fsanitize=undefined -Isrc tools/pi_q15_bench_test.c src/sensorless_control.c -o build/pi_q15_bench_test
+          ./build/pi_q15_bench_test
+      - name: Final checks and hashes
+        working-directory: /tmp/v073
+        run: |
+          test -f build/DeltaESC_G30D_v0_7_3_ble_sensorless_bench.bin
+          test $(stat -c%s build/DeltaESC_G30D_v0_7_3_ble_sensorless_bench.bin) -le 53248
+          sha256sum build/*.bin | tee build/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-G30D-v0.7.3-MOTOR-TEST-BENCH-Q15
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            /tmp/v073/build/DeltaESC_G30D_v0_7_3_ble_sensorless_bench.bin
+            /tmp/v073/build/DeltaESC_G30D_v0_7_3_ble_observer_zero_vector.bin
+            /tmp/v073/build/DeltaESC_G30D_v0_7_3_ble_syncsafe.bin
+            /tmp/v073/build/SHA256SUMS.txt
+            /tmp/v073/README.md
