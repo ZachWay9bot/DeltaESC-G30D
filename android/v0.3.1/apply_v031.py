@@ -81,7 +81,17 @@ add='''    private boolean motorSupported(){return stage==4 && deltaDetected && 
     private void sendBench(byte[] p,String tag){if(!benchSupported()){toast("Nur DeltaESC Build 0x0720");return;}if(!sendEncrypted(p,tag))toast("BLE beschäftigt, erneut versuchen");}
     private void confirmOffsetCal(){if(!benchSupported()){toast("Build 0x0720 nicht bestätigt");return;}new AlertDialog.Builder(this).setTitle("E0 Stromoffset").setMessage("Motor aus, Rad frei. Offsetkalibrierung starten?").setNegativeButton("Abbrechen",null).setPositiveButton("E0 senden",(d,w)->sendBench(MotorCommands.magic(MotorCommands.E0_CAL_OFFSET),"E0 CAL OFFSET")).show();}
     private void confirmBenchStart(){if(!benchSupported()){toast("Build 0x0720 nicht bestätigt");return;}final int ma;try{ma=benchMa();}catch(Exception e){toast("Teststrom 100..500 mA");return;}new AlertDialog.Builder(this).setTitle("Sensorless Bench starten").setMessage("Nur Hinterrad frei und 10S. Erster Versuch 100 mA.\\n\\nTeststrom: "+ma+" mA").setNegativeButton("Abbrechen",null).setPositiveButton("E5 START",(d,w)->sendBench(MotorCommands.start(ma),"E5 START "+ma+"mA")).show();}
-    private void sendBenchStop(){if(!benchSupported()){toast("Build 0x0720 nicht bestätigt");return;}motorAutomatic=false;motorCycle=false;motorPending=-1;motorNonce++;if(sendEncrypted(MotorCommands.stop(),"E6 STOP")&&benchState!=null)benchState.setText("E6 STOP gesendet");}
+    private boolean stopSupported(){return stage==4&&deltaDetected;}
+    private void sendBenchStop(){
+        motorAutomatic=false;motorCycle=false;motorPending=-1;motorNonce++;
+        if(!stopSupported()){toast("DeltaESC-Signatur nicht bestätigt");return;}
+        sendStopWhenFree(20);
+    }
+    private void sendStopWhenFree(int attempts){
+        if(!stopSupported()||attempts<=0){if(benchState!=null)benchState.setText("E6 STOP nicht gesendet");return;}
+        if(sendEncrypted(MotorCommands.stop(),"E6 STOP")){if(benchState!=null)benchState.setText("E6 STOP gesendet");return;}
+        handler.postDelayed(()->sendStopWhenFree(attempts-1),50);
+    }
     private double val(EditText e){return Double.parseDouble(e.getText().toString().trim().replace(',','.'));}
     private void writeR(){try{long v=Math.round(val(cfgR)*1000.0);sendBench(MotorCommands.u32(MotorCommands.F0_R_UOHM,v),"F0 R");}catch(Exception e){toast("R ungültig");}}
     private void writeL(){try{long v=Math.round(val(cfgL)*1000.0);sendBench(MotorCommands.u32(MotorCommands.F1_L_NH,v),"F1 L");}catch(Exception e){toast("L ungültig");}}
@@ -124,5 +134,8 @@ m.write_text(s)
 g=r/'app/build.gradle';s=g.read_text();s=one(s,"applicationId 'de.deltaesc.motorprobe'","applicationId 'de.deltaesc.motorbench'");s=one(s,'versionCode 30','versionCode 31');s=one(s,"versionName '0.3.0'","versionName '0.3.1'");g.write_text(s)
 manifest=r/'app/src/main/AndroidManifest.xml';s=manifest.read_text().replace('android:label="DashBLE Motor"','android:label="G30 Motor Bench"');manifest.write_text(s)
 for n,h in base.items(): assert hashlib.sha256((java/n).read_bytes()).hexdigest()==h,(n,'transport mutated')
-main=m.read_text();assert 'E5 TEST START' in main and 'D0–D9 Snapshot' in main and 'read_only\\":false' in main
+main=m.read_text()
+assert 'E5 TEST START' in main and 'D0–D9 Snapshot' in main and 'read_only\\":false' in main
+assert 'private boolean stopSupported(){return stage==4&&deltaDetected;}' in main
+assert 'sendStopWhenFree(20)' in main
 print('v0.3.1 overlay PASS; transport byte-identical')
