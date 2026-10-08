@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 from pathlib import Path
-import re
-
 root=Path(__file__).resolve().parent
 c=root/'src/sensorless_control.c'
 m=root/'src/main.c'
@@ -20,10 +18,10 @@ if '#define FW_BUILD 0x0740u' not in s:
     raise SystemExit('v0.7.4 build identity missing')
 s=s.replace('#define FW_BUILD 0x0740u','#define FW_BUILD 0x0750u',1)
 
-s,n=re.subn(r'g_cfg_r_uohm\s*=\s*90000u', 'g_cfg_r_uohm=170000u', s, count=1)
-if n!=1: raise SystemExit('main R default anchor mismatch')
-s,n=re.subn(r'g_cfg_l_nh\s*=\s*100000u', 'g_cfg_l_nh=312000u', s, count=1)
-if n!=1: raise SystemExit('main L default anchor mismatch')
+init='sensorless_control_init(&ctrl);sensorless_control_set_motor_params(&ctrl,g_cfg_r_uohm,g_cfg_l_nh,g_cfg_flux_uwb);'
+if s.count(init)!=1:
+    raise SystemExit('runtime motor-profile init anchor mismatch')
+s=s.replace(init,'g_cfg_r_uohm=170000u;g_cfg_l_nh=312000u;'+init,1)
 
 s=s.replace('DeltaESC G30D v0.7.4 OBSERVER HANDOVER',
             'DeltaESC G30D v0.7.5 G30 PROVISIONAL PROFILE',1)
