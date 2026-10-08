@@ -4,13 +4,14 @@ import hashlib, struct, sys
 
 ROOT = Path(__file__).resolve().parents[1]
 items = [
-    ROOT/'build/DeltaESC_G30D_v0_4_1_ble_syncsafe.bin',
-    ROOT/'build/DeltaESC_G30D_v0_4_1_ble_activecapable.bin',
+    ROOT/'build/DeltaESC_G30D_v0_4_2_shu_ble_syncsafe.bin',
+    ROOT/'build/DeltaESC_G30D_v0_4_2_shu_ble_activecapable.bin',
 ]
 
 main_src = (ROOT/'src/main.c').read_text()
 ble_src = (ROOT/'src/ninebot_diag.c').read_text()
 ble_hdr = (ROOT/'src/ninebot_diag.h').read_text()
+iap_src = (ROOT/'src/shu_iap.c').read_text()
 
 source_checks = {
     'PA2_USART2_half_duplex': 'USART2_CR3 = USART_CR3_HDSEL' in ble_src and
@@ -21,6 +22,11 @@ source_checks = {
                            'power_stage_arm' not in ble_src,
     'old_debug_uart_removed': 'uart1_debug_init' not in main_src and
                               'uart_puts' not in main_src,
+    'strict_iap_handoff': 'arg != 0x07u' in iap_src and
+                          'fw_size < 256u' in iap_src and
+                          'APP_MAX_BYTES' in iap_src and
+                          'power_stage_force_disarm();' in iap_src and
+                          'APP_BASE_ADDR + 2u' in iap_src,
 }
 
 ok = all(source_checks.values())
