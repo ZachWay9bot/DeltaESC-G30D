@@ -1,10 +1,10 @@
-name: Audit DeltaESC v0.8.1 DashBLE commissioning guard (SOURCE ONLY)
+name: Audit DeltaESC v0.8.2 stock DRV126 current frontend (SOURCE ONLY)
 on:
   push:
     branches: ["dev/v0.8.2-stock-current-frontend-sourceonly"]
     paths:
-      - "v0.8.1/**"
-      - ".github/workflows/build-v082-commissioning.yml"
+      - "v0.8.2/**"
+      - ".github/workflows/build-v082-current-frontend.yml"
   workflow_dispatch:
 
 jobs:
@@ -58,7 +58,9 @@ jobs:
           cp /tmp/v080_vendor/tools/motor_core_host_test.c /tmp/v082/tools/
           cp v0.7.2/tools/test_ble_motor_probe.c /tmp/v082/tools/
       - name: Apply v0.8.1 phone commissioning guard
-        run: python3 v0.8.1/apply_v082.py /tmp/v082
+        run: python3 v0.8.1/apply_v081.py /tmp/v082
+      - name: Apply v0.8.2 stock current frontend model
+        run: python3 v0.8.2/apply_v082.py /tmp/v082
       - name: Negative build rejects any gate arming
         working-directory: /tmp/v082
         run: |
@@ -70,6 +72,10 @@ jobs:
       - name: Build gate-OFF SYNC-SAFE target only
         working-directory: /tmp/v082
         run: make clean safe CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+      - name: Test stock DRV126 current frontend model
+        env:
+          HOST_CC: clang-18
+        run: python3 v0.8.2/tools/test_stock_current_frontend.py /tmp/v082
       - name: Test commissioning guard truth table
         env:
           HOST_CC: clang-18
@@ -77,18 +83,18 @@ jobs:
       - name: Test sensorless integration and passive BLE pages
         env:
           HOST_CC: clang-18
-        run: python3 v0.8.1/tools/test_motor_integration.py /tmp/v082
+        run: python3 v0.8.2/tools/test_motor_integration.py /tmp/v082
       - name: Emulate full SYNC-SAFE UART/IAP target with ACK retries
         env:
           ARM_NM: llvm-nm-18
         run: |
-          cp /tmp/v082/build/DeltaESC_G30D_v0_8_1_ble_syncsafe.elf /tmp/v082/build/target_syncsafe.elf
-          cp /tmp/v082/build/DeltaESC_G30D_v0_8_1_ble_syncsafe.bin /tmp/v082/build/target_syncsafe.bin
+          cp /tmp/v082/build/DeltaESC_G30D_v0_8_2_ble_syncsafe.elf /tmp/v082/build/target_syncsafe.elf
+          cp /tmp/v082/build/DeltaESC_G30D_v0_8_2_ble_syncsafe.bin /tmp/v082/build/target_syncsafe.bin
           python3 v0.6.10/full_target_protocol.py /tmp/v082 --retry --guard --blocks 130
       - name: Test actual ARM DashBLE commissioning ABI
         env:
           ARM_NM: llvm-nm-18
-        run: python3 v0.8.1/tools/test_arm_v082.py /tmp/v082
+        run: python3 v0.8.2/tools/test_arm_v082.py /tmp/v082
       - name: Test staged-IAP and stock bootloader error branches
         env:
           HOST_CC: clang-18
@@ -109,10 +115,10 @@ jobs:
       - name: Export SOURCE-ONLY audit, excluding all firmware images
         run: |
           tar --exclude=build --exclude=shu --exclude='__pycache__' -C /tmp/v082 -cJf /tmp/DeltaESC_v082_STOCK_CURRENT_FRONTEND_SOURCE_ONLY.tar.xz .
-          sha256sum /tmp/DeltaESC_v082_DASHBLE_COMMISSIONING_SOURCE_ONLY.tar.xz
+          sha256sum /tmp/DeltaESC_v082_STOCK_CURRENT_FRONTEND_SOURCE_ONLY.tar.xz
       - uses: actions/upload-artifact@v4
         with:
-          name: DeltaESC-v0.8.1-DASHBLE-COMMISSIONING-SOURCE-ONLY
+          name: DeltaESC-v0.8.2-STOCK-CURRENT-FRONTEND-SOURCE-ONLY
           if-no-files-found: error
           retention-days: 30
-          path: /tmp/DeltaESC_v082_DASHBLE_COMMISSIONING_SOURCE_ONLY.tar.xz
+          path: /tmp/DeltaESC_v082_STOCK_CURRENT_FRONTEND_SOURCE_ONLY.tar.xz
