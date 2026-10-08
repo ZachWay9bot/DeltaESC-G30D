@@ -66,6 +66,14 @@
 #define USART_CR2       REG32(USART1_BASE + 0x10)
 #define USART_CR3       REG32(USART1_BASE + 0x14)
 
+#define USART2_BASE     0x40004400u
+#define USART2_SR       REG32(USART2_BASE + 0x00)
+#define USART2_DR       REG32(USART2_BASE + 0x04)
+#define USART2_BRR      REG32(USART2_BASE + 0x08)
+#define USART2_CR1      REG32(USART2_BASE + 0x0C)
+#define USART2_CR2      REG32(USART2_BASE + 0x10)
+#define USART2_CR3      REG32(USART2_BASE + 0x14)
+
 #define SYST_CSR        REG32(0xE000E010u)
 #define SYST_RVR        REG32(0xE000E014u)
 #define SYST_CVR        REG32(0xE000E018u)
@@ -106,11 +114,14 @@
 #define ADC_CR2_JEXTTRIG (1u << 15)
 #define ADC_CR2_JSWSTART (1u << 21)
 
+#define USART_SR_ORE    (1u << 3)
 #define USART_SR_RXNE   (1u << 5)
+#define USART_SR_TC     (1u << 6)
 #define USART_SR_TXE    (1u << 7)
 #define USART_CR1_RE    (1u << 2)
 #define USART_CR1_TE    (1u << 3)
 #define USART_CR1_UE    (1u << 13)
+#define USART_CR3_HDSEL (1u << 3)
 
 static inline void irq_disable(void) { __asm volatile("cpsid i" ::: "memory"); }
 static inline void irq_enable(void)  { __asm volatile("cpsie i" ::: "memory"); }
