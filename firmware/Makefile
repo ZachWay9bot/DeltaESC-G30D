@@ -3,12 +3,12 @@ OBJCOPY := llvm-objcopy
 OBJDUMP := llvm-objdump
 CFLAGS_COMMON = --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Oz -Wall -Wextra -Werror -Isrc
 LDFLAGS_COMMON = --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -nostdlib -Wl,-T,linker.ld,--gc-sections
-SRC = src/main.c src/control_diag.c src/ninebot_diag.c
+SRC = src/main.c src/control_diag.c src/ninebot_diag.c src/shu_iap.c
 
-SAFE_ELF = build/DeltaESC_G30D_v0_4_1_ble_syncsafe.elf
-SAFE_BIN = build/DeltaESC_G30D_v0_4_1_ble_syncsafe.bin
-ACTIVE_ELF = build/DeltaESC_G30D_v0_4_1_ble_activecapable.elf
-ACTIVE_BIN = build/DeltaESC_G30D_v0_4_1_ble_activecapable.bin
+SAFE_ELF = build/DeltaESC_G30D_v0_4_2_shu_ble_syncsafe.elf
+SAFE_BIN = build/DeltaESC_G30D_v0_4_2_shu_ble_syncsafe.bin
+ACTIVE_ELF = build/DeltaESC_G30D_v0_4_2_shu_ble_activecapable.elf
+ACTIVE_BIN = build/DeltaESC_G30D_v0_4_2_shu_ble_activecapable.bin
 
 all: safe active
 safe: $(SAFE_BIN)
