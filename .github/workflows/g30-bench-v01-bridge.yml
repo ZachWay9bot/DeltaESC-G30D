@@ -1,0 +1,89 @@
+name: Compile original G30 Bench v0.1.0 diagnostic overlay
+on:
+  push:
+    branches: ["dev/g30bench-v01-bytecode-bridge"]
+    paths:
+      - "android/v0.1-bridge/**"
+      - ".github/workflows/g30-bench-v01-bridge.yml"
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Prepare separate overlay-only APK
+        run: |
+          set -eux
+          cp -a android/v0.2/source /tmp/g30bridge
+          rm -rf /tmp/g30bridge/app/src/main/java
+          mkdir -p /tmp/g30bridge/app/src/main/java/de/ebics/g30bench
+          cp android/v0.1-bridge/DeltaReadActivity.java /tmp/g30bridge/app/src/main/java/de/ebics/g30bench/
+          cat >/tmp/g30bridge/app/build.gradle <<'EOF'
+          plugins { id 'com.android.application' }
+          android {
+              namespace 'de.ebics.g30bench'
+              compileSdk 35
+              defaultConfig {
+                  applicationId 'de.ebics.g30bench.delta'
+                  minSdk 26
+                  targetSdk 28
+                  versionCode 102
+                  versionName '0.1.0-OriginalBridge-rc1'
+              }
+              buildTypes { debug { minifyEnabled false } }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          EOF
+          cat >/tmp/g30bridge/app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-feature android:name="android.hardware.bluetooth_le" android:required="true"/>
+              <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>
+              <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30"/>
+              <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+              <uses-permission android:name="android.permission.BLUETOOTH_SCAN"/>
+              <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
+              <application android:label="G30 Original BLE + DeltaESC" android:theme="@android:style/Theme.Material.NoActionBar">
+                  <activity android:name="de.ebics.g30bench.DeltaReadActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+      - name: Check overlay has no new transport implementation
+        run: |
+          set -eux
+          SRC=android/v0.1-bridge/DeltaReadActivity.java
+          grep -q 'Class.forName(PK+"BleClient"' "$SRC"
+          grep -q 'Session.isKnown' "$SRC"
+          grep -q '"readRegister"' "$SRC"
+          ! grep -q 'requestMtu\|discoverServices\|Cipher.getInstance\|MessageDigest.getInstance' "$SRC"
+      - name: Compile overlay
+        working-directory: /tmp/g30bridge
+        run: gradle :app:assembleDebug --stacktrace
+      - name: Inspect Android overlay APK
+        run: |
+          set -eux
+          mkdir -p /tmp/out
+          cp /tmp/g30bridge/app/build/outputs/apk/debug/app-debug.apk /tmp/out/g30-bridge-overlay-only.apk
+          unzip -l /tmp/out/g30-bridge-overlay-only.apk | tee /tmp/out/package-list.txt
+          echo "OVERLAY ONLY - original v0.1.0 classes.dex must still be injected and signed; DO NOT INSTALL this artifact" >/tmp/out/NOT_INSTALLABLE_README.txt
+          sha256sum /tmp/out/g30-bridge-overlay-only.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: g30-original-ble-readonly-overlay-compile
+          if-no-files-found: error
+          retention-days: 30
+          path: /tmp/out/*
