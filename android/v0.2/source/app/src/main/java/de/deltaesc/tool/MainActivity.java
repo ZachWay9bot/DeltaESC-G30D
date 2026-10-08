@@ -23,7 +23,7 @@ public class MainActivity extends Activity implements BleUartClient.Listener {
     private View buildUi(){
         ScrollView sc=new ScrollView(this);LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(14),dp(14),dp(14),dp(30));root.setBackgroundColor(Color.rgb(16,18,22));sc.addView(root);
         root.addView(text("DeltaESC Preflight",28,true));
-        TextView sub=text("G30D • NinebotCrypto/MIC • v0.2 • READ-ONLY",13,true);sub.setTextColor(Color.rgb(255,130,120));root.addView(sub);
+        TextView sub=text("G30D • NinebotCrypto/MIC • v0.2.1 • READ-ONLY",13,true);sub.setTextColor(Color.rgb(255,130,120));root.addView(sub);
         root.addView(section("VERBINDUNG"));connectionText=text("Nicht verbunden",16,true);root.addView(connectionText);
         LinearLayout row=row();row.addView(button("BLE scannen",v->startScan()));row.addView(button("Trennen",v->ble.disconnect()));root.addView(row);
         devicesBox=new LinearLayout(this);devicesBox.setOrientation(LinearLayout.VERTICAL);root.addView(devicesBox);
