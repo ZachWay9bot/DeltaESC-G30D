@@ -24,7 +24,7 @@ jobs:
           xz -dc v0.6.3/v063.patch.xz | patch -d /tmp/v066 -p4
           xz -dc v0.6.4/v064.patch.xz | patch -d /tmp/v066 -p4
           xz -dc v0.6.5/v065.patch.xz | patch -d /tmp/v066 -p1
-          xz -dc v0.6.6/v066.patch.xz | patch -d /tmp/v066 -p1
+          python3 v0.6.6/apply_v066.py /tmp/v066
       - name: Build matrix
         working-directory: /tmp/v066
         run: make clean all CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
@@ -52,7 +52,7 @@ jobs:
         working-directory: /tmp/v066
         run: |
           mkdir -p shu
-          python3 tools/make_shu_zip.py             build/DeltaESC_G30D_v0_6_6_ble_syncsafe.bin             shu/DeltaESC_G30D_v0_6_6_SHU_SYNC_SAFE.zip             --name "DeltaESC G30D v0.6.6 SAFE" --variant syncsafe
+          python3 tools/make_shu_zip.py build/DeltaESC_G30D_v0_6_6_ble_syncsafe.bin shu/DeltaESC_G30D_v0_6_6_SHU_SYNC_SAFE.zip --name "DeltaESC G30D v0.6.6 SAFE" --variant syncsafe
           tar --exclude=build --exclude=shu -C /tmp/v066 -cJf /tmp/DeltaESC_G30D_v0_6_6_source.tar.xz .
           sha256sum build/*.bin shu/*.zip /tmp/DeltaESC_G30D_v0_6_6_source.tar.xz
       - uses: actions/upload-artifact@v4
