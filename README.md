@@ -28,10 +28,12 @@ Current rules:
 - **v0.3**: passive 4 kHz diagnostic/control-path benchmark, physical bridge disabled.
 - **v0.4**: TIM1 complementary-PWM and ADC synchronization bring-up.
 - **v0.4.1**: stock-dashboard Bluetooth diagnostic path.
-  - phone side uses the proven NinebotCrypto flow;
-  - dashboard forwards decrypted Ninebot frames to ESC USART2 on PA2, 115200 half-duplex;
-  - private CMD `0x7D`, ARG `0x00` = HELLO, ARG `0x20` = read-only diagnostic snapshot;
-  - no BLE command can arm the power stage in v0.4.1.
+- **v0.4.2**: Bluetooth-first SHU candidate.
+  - SYNC-SAFE image keeps power-stage arming compiled out;
+  - ZIPv3/NinebotTEA package is built for SHU;
+  - stock IAP bootloader at `0x08000000..0x08000FFF` remains untouched;
+  - an exact checksum-valid IAP-start request can hand a running DeltaESC back to the stock bootloader;
+  - ST-Link remains recovery-only.
 
 The next planned stage is calibrated current sensing, phase mapping, low-energy motor parameter work and a controlled sensorless open-loop-to-observer transition.
 
@@ -52,9 +54,8 @@ This project is released under GPL-3.0. Sensorless observer architecture is info
 
 **Bluetooth-first is the project default.** Normal installation and later firmware updates are intended to use the stock G30 BLE/dashboard path with ScooterHacking Utility and the preserved Ninebot IAP bootloader. ST-Link is recovery-only and is not part of the normal test procedure.
 
-Do **not** treat the current raw v0.4.1 BIN as the preferred user flash artifact. Before hardware release, the clean branch must provide and validate both:
+The preferred first-test artifact is the **v0.4.2 SYNC-SAFE SHU ZIP**, not a raw BIN. Its power-stage arming code is compiled out.
 
-1. a stock-IAP/SHU ZIPv3 package generated from the 0x08001000 application image; and
-2. an exact, checksum-validated IAP-start handoff so a running DeltaESC can return to the preserved stock bootloader for later Bluetooth updates.
+The stock-IAP handoff is deliberately strict: only an exact checksum-valid ESC update-start frame with a plausible firmware size is accepted. It then forces the bridge disarmed, requires low phase-current residual, invalidates only the upper half-word of the application stack-vector, and resets so the preserved stock bootloader remains in recovery/update mode.
 
-Until that handoff is included and preflighted, v0.4.1 remains a development build rather than the Bluetooth-first hardware release candidate.
+**Hardware status:** packaging and static preflight are validated in CI; the IAP handoff itself is not yet proven on this exact G30D controller. ST-Link is therefore an emergency recovery option, not a normal flashing step.
