@@ -1,0 +1,130 @@
+rdware image remains SYNC-SAFE: power-stage arming and sensorless run are compiled out. v0.6.6 is meant to validate the complete stock dashboard/BLE/ESC communication loop and later SHU reflash path before any torque-producing test.
+diff -ruN '--exclude=build' '--exclude=shu' '--exclude=__pycache__' '--exclude=*.pyc' v065_src/src/dashboard_runtime.c v066_work/src/dashboard_runtime.c
+--- v065_src/src/dashboard_runtime.c	1970-01-01 00:00:00.000000000 +0000
++++ v066_work/src/dashboard_runtime.c	2026-10-08 15:20:22.443579979 +0000
+@@ -0,0 +1,32 @@
++#include "dashboard_runtime.h"
++
++static uint8_t native_dash_to_esc(const ninebot_frame_t *f) {
++    return (uint8_t)(f != 0 &&
++                     f->format == NINEBOT_FMT_5AA5 &&
++                     f->src == G30_DASH_ADDR &&
++                     f->dst == G30_ESC_ADDR);
++}
++
++uint8_t dashboard_decode_adc(const ninebot_frame_t *f, uint8_t *throttle, uint8_t *brake) {
++    if (!native_dash_to_esc(f) || f->cmd != G30_DASH_CMD_ADC ||
++        f->payload_len < 3u || throttle == 0 || brake == 0) {
++        return 0u;
++    }
++    *throttle = f->payload[1];
++    *brake = f->payload[2];
++    return 1u;
++}
++
++uint8_t dashboard_is_status_request(const ninebot_frame_t *f) {
++    return (uint8_t)(native_dash_to_esc(f) && f->cmd == G30_DASH_CMD_STATUS);
++}
++
++void dashboard_safe_status_payload(uint8_t out[G30_DASH_STATUS_BYTES]) {
++    if (!out) return;
++    out[0] = 0x01u; /* DRIVE icon */
++    out[1] = 50u;   /* explicit bench placeholder; vbus scaling still deferred */
++    out[2] = 0u;    /* light */
++    out[3] = 0u;    /* beep */
++    out[4] = 0u;    /* speed km/h */
++    out[5] = 0u;    /* dashboard-visible fault */
++}
+diff -ruN '--exclude=build' '--exclude=shu' '--exclude=__pycache__' '--exclude=*.pyc' v065_src/src/dashboard_runtime.h v066_work/src/dashboard_runtime.h
+--- v065_src/src/dashboard_runtime.h	1970-01-01 00:00:00.000000000 +0000
++++ v066_work/src/dashboard_runtime.h	2026-10-08 15:20:22.442862623 +0000
+@@ -0,0 +1,20 @@
++#pragma once
++#include <stdint.h>
++#include "ninebot_link.h"
++
++#define G30_ESC_ADDR          0x20u
++#define G30_DASH_ADDR         0x21u
++#define G30_DASH_CMD_STATUS   0x64u
++#define G30_DASH_CMD_ADC      0x65u
++#define G30_DASH_STATUS_BYTES 6u
++
++/* Decode the stock dashboard ADC report. The G30 payload layout used by the
++ * proven VESC/dashboard bridge stores throttle/brake in payload[1]/[2]. */
++uint8_t dashboard_decode_adc(const ninebot_frame_t *f, uint8_t *throttle, uint8_t *brake);
++
++/* True for the native G30 0x64 request that expects an ESC status response. */
++uint8_t dashboard_is_status_request(const ninebot_frame_t *f);
++
++/* First-hardware-test status payload. Values are deliberately non-driving:
++ * Drive icon, neutral 50% placeholder battery, lights/beep/speed/fault zero. */
++void dashboard_safe_status_payload(uint8_t out[G30_DASH_STATUS_BYTES]);
+diff -ruN '--exclude=build' '--exclude=shu' '--exclude=__pycache__' '--exclude=*.pyc' v065_src/src/main.c v066_work/src/main.c
+--- v065_src/src/main.c	2026-10-08 13:38:12.000000000 +0000
++++ v066_work/src/main.c	2026-10-08 15:20:22.933285452 +0000
+@@ -3,6 +3,7 @@
+ #include "sensorless_control.h"
+ #include "ninebot_link.h"
+ #include "iap_update.h"
++#include "dashboard_runtime.h"
+ 
+ #ifndef POWER_STAGE_ARM_ALLOWED
+ #define POWER_STAGE_ARM_ALLOWED 0
+@@ -34,7 +35,7 @@
+ #define MAGIC_UNLOCK 0xC0DEu
+ #define PROTO_MAJOR 0u
+ #define PROTO_MINOR 2u
+-#define FW_BUILD 0x0605u
++#define FW_BUILD 0x0606u
+ #define OFFSET_CAL_SAMPLES 512u
+ 
+ #define ACT_OK 0u
+@@ -371,8 +372,26 @@
+     action_ack(f,cmd,ACT_UNSUPPORTED);
+ }
+ 
++static uint8_t handle_stock_dashboard(const ninebot_frame_t *f){
++    uint8_t throttle=0u,brake=0u;
++    if(dashboard_decode_adc(f,&throttle,&brake)){
++        g_dash_throttle=throttle;g_dash_brake=brake;
++        return 1u;
++    }
++    if(dashboard_is_status_request(f)){
++        uint8_t p[G30_DASH_STATUS_BYTES];
++        dashboard_safe_status_payload(p);
++        ninebot_send_app_response(f,G30_DASH_CMD_STATUS,0x00u,p,G30_DASH_STATUS_BYTES);
++        return 1u;
++    }
++    return 0u;
++}
++
+ static void process_frame(const ninebot_frame_t *f){
+-    g_dash_seen=1u;g_dash_frames++;g_dash_last_ms=g_ms;
++    if(f->format==NINEBOT_FMT_5AA5&&f->src==G30_DASH_ADDR&&f->dst==G30_ESC_ADDR){
++        g_dash_seen=1u;g_dash_frames++;g_dash_last_ms=g_ms;
++        if(handle_stock_dashboard(f))return;
++    }
+     if(f->dst==0x20u&&(f->cmd==NINEBOT_READ||f->cmd==NINEBOT_WRITE)){
+         if(f->cmd==NINEBOT_READ)app_read_response(f);
+         else if(f->arg>=0xE0u&&f->arg<=0xE6u)app_write_action(f);
+@@ -380,13 +399,11 @@
+         else action_ack(f,f->arg,ACT_UNSUPPORTED);
+         return;
+     }
+-    /* Stock dashboard telemetry/throttle opcodes are intentionally not guessed here.
+-       v0.6.5 SAFE first validates framing + read route before dashboard-drive semantics. */
+ }
+ 
+ static void reset_stats(void){g_sample_interval_min=0xFFFFFFFFu;g_sample_interval_max=0u;g_max_isr_cycles=0u;g_max_control_cycles=0u;g_peak_abs_current=0u;g_control_hard_overruns=0u;}
+ static void report(void){
+-    uart_puts("v0.6.5 BLE arm=");uart_u32(g_power_armed);uart_puts(" state=");uart_puts(sensorless_state_name(ctrl.state));uart_puts(" obs=");uart_u32(ctrl.observer_valid);
++    uart_puts("v0.6.6 BLE arm=");uart_u32(g_power_armed);uart_puts(" state=");uart_puts(sensorless_state_name(ctrl.state));uart_puts(" obs=");uart_u32(ctrl.observer_valid);
+     uart_puts(" ctrl=");uart_u32(g_last_control_cycles);uart_putc('/');uart_u32(g_max_control_cycles);uart_puts(" I=");uart_u32(g_last_abs_current);uart_putc('/');uart_u32(g_peak_abs_current);
+     uart_puts(" dash=");uart_u32(g_dash_frames);uart_puts(" fmt=");uart_u32(ninebot_link_last_format());uart_puts(" thr/brk=");uart_u32(g_dash_throttle);uart_putc('/');uart_u32(g_dash_brake);uart_puts(" rxov=");uart_u32(ninebot_link_rx_overflows());
+     uart_puts(" action=");uart_u32(g_last_action_status);uart_puts(" fault=");uart_u32(current_fault_code());uart_puts("\r\n");
+@@ -401,7 +418,7 @@
+ int main(void){
+     irq_disable();clock_64mhz_hsi();dwt_init();power_hold_init();gate_enable_gpio_init();gate_pins_to_safe_inputs();uart1_debug_init();sensorless_control_init(&ctrl);
+     adc1_injected_init();tim1_pwm_and_adc_trigger_init();ninebot_link_init();iap_update_init();systick_init();irq_enable();
+-    uart_puts("DeltaESC G30D v0.6.5 G30-framing + staged-IAP firmware\r\n");
++    uart_puts("DeltaESC G30D v0.6.6 stock-dashboard-runtime + staged-IAP f
