@@ -1,0 +1,184 @@
+@@ -5,6 +5,7 @@
+ #include "iap_update.h"
+ #include "power_logic.h"
+ #include "motor_probe.h"
++#include "bench_telemetry.h"
+ #include "dashboard_runtime.h"
+ 
+ #ifndef POWER_STAGE_ARM_ALLOWED
+@@ -28,7 +29,7 @@
+ #define ARM_BOOT_DELAY_MS            3000u
+ #define ARM_MIN_ADC_SAMPLES          2000u
+ #define ARM_IDLE_CURRENT_COUNTS       120u
+-#define HARD_OC_COUNTS                700u
++#define HARD_OC_COUNTS                120u
+ #define ADC_STALE_MS                    5u
+ #define IRQ_ADC1_2 18u
+ #define IRQ_USART2 38u
+@@ -37,16 +38,18 @@
+ #define MAGIC_UNLOCK 0xC0DEu
+ #define PROTO_MAJOR 0u
+ #define PROTO_MINOR 2u
+-#define FW_BUILD 0x0700u
+-#if POWER_STAGE_ARM_ALLOWED || SENSORLESS_RUN_ALLOWED
+-#error "v0.7.0 motor probe must NEVER arm a physical power stage"
+-#endif
++#define FW_BUILD 0x0701u
+ #define STOCK_COMPAT_FW_WORD 0x0420u
+ #define POWER_HOLD_PIN 11u
+ #define POWER_BUTTON_PIN 12u
+ #define POWER_BUTTON_LONG_MS 6000u
+ #define POWER_OFF_ACK_DELAY_MS 150u
+ #define OFFSET_CAL_SAMPLES 512u
++#define DASH_STALE_MS 180u
++#define DASH_THROTTLE_DEADZONE 12u
++#define DASH_BRAKE_DEADZONE 12u
++#define DASH_DRIVE_MIN_MA 400u
++#define DASH_DRIVE_MAX_MA 1500u
+ 
+ #define ACT_OK 0u
+ #define ACT_BUSY 1u
+@@ -90,11 +93,15 @@
+ static volatile uint8_t g_dash_brake;
+ static volatile uint32_t g_dash_frames;
+ static volatile uint32_t g_dash_last_ms;
+-static uint32_t g_cfg_r_uohm;
+-static uint32_t g_cfg_l_nh;
+-static uint32_t g_cfg_flux_uwb;
++static volatile uint32_t g_dash_control_last_ms;
++static volatile uint32_t g_dash_control_frames;
++static volatile uint8_t g_dash_drive_requested;
++static volatile uint8_t g_start_interlock=1u;
++static uint32_t g_cfg_r_uohm=100000u;
++static uint32_t g_cfg_l_nh=100000u;
++static uint32_t g_cfg_flux_uwb=12000u;
+ static int16_t g_cfg_phase_offset;
+-static uint16_t g_cfg_test_current_ma = 500u;
++static uint16_t g_cfg_test_current_ma = 600u;
+ static uint8_t g_cfg_dirty;
+ static uint8_t g_phase_map_valid;
+ static uint8_t g_phase_map[3] = {0xFFu,0xFFu,0xFFu};
+@@ -110,6 +117,7 @@
+ void ADC1_2_IRQHandler(void);
+ void USART2_IRQHandler(void);
+ static void power_stage_force_disarm(void);
++static void power_stage_trip(uint32_t code);
+ 
+ __attribute__((section(".isr_vector"), used))
+ void (* const vectors[16u + IRQ_USART2 + 1u])(void) = {
+@@ -178,6 +186,16 @@
+     GPIO_BRR(GPIOB_BASE)=(1u<<1); TIM_CCER(TIM1_BASE)&=~GATE_CCER_MASK; gate_pins_to_safe_inputs();
+     g_power_armed=0u; sensorless_control_stop(&ctrl);
+ }
++static void power_stage_trip(uint32_t code) {
++    g_safety_latched=code;
++    GPIO_BRR(GPIOB_BASE)=(1u<<1);
++    TIM_CCER(TIM1_BASE)&=~GATE_CCER_MASK;
++    gate_pins_to_safe_inputs();
++    g_power_armed=0u;
++    ctrl.drive_request=0u; /* preserve state/fault for ST-Link telemetry */
++    g_dash_drive_requested=0u;
++    g_start_interlock=1u;
++}
+ static void schedule_poweroff(uint32_t delay_ms) {
+     power_stage_force_disarm();
+     g_poweroff_requested=1u;
+@@ -273,7 +291,7 @@
+     uint32_t *src=&_sidata; for(uint32_t *dst=&_sdata;dst<&_edata;)*dst++=*src++;
+     for(uint32_t *dst=&_sbss;dst<&_ebss;)*dst++=0u; (void)main(); for(;;){}
+ }
+-void Default_Handler(void){g_safety_latched=0xDEAD0001u;power_stage_force_disarm();for(;;){}}
++void Default_Handler(void){power_stage_trip(0xDEAD0001u);for(;;){}}
+ void SysTick_Handler(void) {
+     g_ms++;
+     const uint8_t line_low=(uint8_t)((GPIO_IDR(GPIOA_BASE)&(1u<<POWER_BUTTON_PIN))==0u);
+@@ -303,16 +321,20 @@
+     int32_t ia=(int32_t)s0-(int32_t)g_adc_offset[0],ib=(int32_t)s1-(int32_t)g_adc_offset[1],ic=(int32_t)s2-(int32_t)g_adc_offset[2];
+     uint16_t aa=abs16s(ia),ab=abs16s(ib),ac=abs16s(ic),peak=aa;if(ab>peak)peak=ab;if(ac>peak)peak=ac;
+     g_last_abs_current=peak;if(peak>g_peak_abs_current)g_peak_abs_current=peak;
+-    if(g_power_armed&&peak>HARD_OC_COUNTS){g_overcurrent_trips++;g_safety_latched=0x0C01u;power_stage_force_disarm();}
++    if(g_power_armed&&peak>HARD_OC_COUNTS){g_overcurrent_trips++;power_stage_trip(0x0C01u);}
+     if(++g_control_div4>=4u){
+         g_control_div4=0u;phase_current_counts_t i={(int16_t)ia,(int16_t)ib,(int16_t)ic};uint32_t c0=DWT_CYCCNT;
+         sensorless_control_step(&ctrl,i,s3,PWM_ARR,g_power_armed);uint32_t cc=DWT_CYCCNT-c0;g_last_control_cycles=cc;if(cc>g_max_control_cycles)g_max_control_cycles=cc;if(cc>CONTROL_HARD_CYCLES)g_control_hard_overruns++;g_control_ticks++;
+ #if SENSORLESS_RUN_ALLOWED
+-        if(g_power_armed&&ctrl.drive_request&&ctrl.state!=SENSORLESS_FAULT){TIM_CCR1(TIM1_BASE)=ctrl.ccr1;TIM_CCR2(TIM1_BASE)=ctrl.ccr2;TIM_CCR3(TIM1_BASE)=ctrl.ccr3;}
++        if(g_power_armed&&ctrl.state==SENSORLESS_FAULT){power_stage_trip(0x0D00u|(uint32_t)ctrl.fault);}
++        else if(g_power_armed&&cc>CONTROL_HARD_CYCLES){power_stage_trip(0x0C02u);}
++        else if(g_power_armed&&ctrl.drive_request){TIM_CCR1(TIM1_BASE)=ctrl.ccr1;TIM_CCR2(TIM1_BASE)=ctrl.ccr2;TIM_CCR3(TIM1_BASE)=ctrl.ccr3;}
+         else{TIM_CCR1(TIM1_BASE)=PWM_ZERO_CCR;TIM_CCR2(TIM1_BASE)=PWM_ZERO_CCR;TIM_CCR3(TIM1_BASE)=PWM_ZERO_CCR;}
+ #else
+         if(g_power_armed){TIM_CCR1(TIM1_BASE)=PWM_ZERO_CCR;TIM_CCR2(TIM1_BASE)=PWM_ZERO_CCR;TIM_CCR3(TIM1_BASE)=PWM_ZERO_CCR;}
+ #endif
++        sensorless_bench_capture(&ctrl,i,s3,g_peak_abs_current,g_ms,g_safety_latched,g_max_control_cycles,
++                                 g_power_armed,g_dash_throttle,g_dash_brake,g_start_interlock);
+     }
+     motor_probe_capture(s0,s1,s2,s3,g_adc_offset,g_ms,
+                         g_sample_interval_min,g_sample_interval_max,
+@@ -364,7 +386,7 @@
+     case 0xD3u: put_u32(p,g_cfg_r_uohm);n=4u;break;
+     case 0xD4u: put_u32(p,g_cfg_l_nh);n=4u;break;
+     case 0xD5u: put_u32(p,g_cfg_flux_uwb);n=4u;break;
+-    case 0xD6u: put_u16(p,ctrl.control_phase);put_u16(p+2,ctrl.observer_phase);put_i16(p+4,ctrl.phase_error);put_i16(p+6,(int16_t)sensorless_counts_to_ma(ctrl.iq));put_i16(p+8,(int16_t)sensorless_counts_to_ma(ctrl.id));put_u32(p+10,ctrl.flux_sq);n=14u;break;
++    case 0xD6u: put_u16(p,ctrl.control_phase);put_u16(p+2,ctrl.observer_phase);put_i16(p+4,ctrl.phase_error);put_i16(p+6,(int16_t)sensorless_counts_to_ma(ctrl.iq));put_i16(p+8,(int16_t)sensorless_counts_to_ma(ctrl.id));put_u32(p+10,ctrl.flux_sq);put_i16(p+14,(int16_t)ctrl.observer_speed);n=16u;break;
+     case 0xD7u:{uint16_t conf=0u;if(ctrl.observer_valid){int32_t e=ctrl.phase_error;if(e<0)e=-e;if(e>5461)e=5461;conf=(uint16_t)(1000-(e*1000)/5461);}p[0]=ctrl.state;p[1]=ctrl.observer_valid;put_u16(p+2,ctrl.lock_ticks);put_u16(p+4,ctrl.lost_ticks);put_u16(p+6,conf);n=8u;break;}
+     case 0xD8u: put_u32(p,g_last_control_cycles);put_u32(p+4,g_max_control_cycles);put_u32(p+8,CONTROL_BUDGET_CYCLES);n=12u;break;
+     case 0xD9u: put_u16(p,current_fault_code());put_u16(p+2,diag_flags());put_u16(p+4,HARD_OC_COUNTS);n=6u;break;
+@@ -419,19 +441,45 @@
+ 
+ static void app_write_config(const ninebot_frame_t *f){
+     uint8_t cmd=f->arg;
+-    if(cmd==0xF0u){if(f->payload_len<4u){action_ack(f,cmd,ACT_BAD_RANGE);return;}uint32_t v=get_u32(f->payload);if(v<1000u||v>2000000u){action_ack(f,cmd,ACT_BAD_RANGE);return;}g_cfg_r_uohm=v;g_cfg_dirty=1u;action_ack(f,cmd,ACT_OK);return;}
+-    if(cmd==0xF1u){if(f->payload_len<4u){action_ack(f,cmd,ACT_BAD_RANGE);return;}uint32_t v=get_u32(f->payload);if(v<1000u||v>5000000u){action_ack(f,cmd,ACT_BAD_RANGE);return;}g_cfg_l_nh=v;g_cfg_dirty=1u;action_ack(f,cmd,ACT_OK);return;}
+-    if(cmd==0xF2u){if(f->payload_len<4u){action_ack(f,cmd,ACT_BAD_RANGE);return;}uint32_t v=get_u32(f->payload);if(v<100u||v>1000000u){action_ack(f,cmd,ACT_BAD_RANGE);return;}g_cfg_flux_uwb=v;g_cfg_dirty=1u;action_ack(f,cmd,ACT_OK);return;}
++    if((cmd>=0xF0u&&cmd<=0xF2u)&&(g_power_armed||ctrl.drive_request)){action_ack(f,cmd,ACT_UNSAFE);return;}
++    if(cmd==0xF0u){if(f->payload_len<4u){action_ack(f,cmd,ACT_BAD_RANGE);return;}uint32_t v=get_u32(f->payload);if(!sensorless_control_set_motor_params(&ctrl,v,g_cfg_l_nh,g_cfg_flux_uwb)){action_ack(f,cmd,ACT_BAD_RANGE);return;}g_cfg_r_uohm=v;g_cfg_dirty=1u;action_ack(f,cmd,ACT_OK);return;}
++    if(cmd==0xF1u){if(f->payload_len<4u){action_ack(f,cmd,ACT_BAD_RANGE);return;}uint32_t v=get_u32(f->payload);if(!sensorless_control_set_motor_params(&ctrl,g_cfg_r_uohm,v,g_cfg_flux_uwb)){action_ack(f,cmd,ACT_BAD_RANGE);return;}g_cfg_l_nh=v;g_cfg_dirty=1u;action_ack(f,cmd,ACT_OK);return;}
++    if(cmd==0xF2u){if(f->payload_len<4u){action_ack(f,cmd,ACT_BAD_RANGE);return;}uint32_t v=get_u32(f->payload);if(!sensorless_control_set_motor_params(&ctrl,g_cfg_r_uohm,g_cfg_l_nh,v)){action_ack(f,cmd,ACT_BAD_RANGE);return;}g_cfg_flux_uwb=v;g_cfg_dirty=1u;action_ack(f,cmd,ACT_OK);return;}
+     if(cmd==0xF3u){if(f->payload_len<2u){action_ack(f,cmd,ACT_BAD_RANGE);return;}g_cfg_phase_offset=get_i16(f->payload);sensorless_control_set_phase_offset(&ctrl,g_cfg_phase_offset);g_cfg_dirty=1u;action_ack(f,cmd,ACT_OK);return;}
+     if(cmd==0xF4u){if(f->payload_len<2u){action_ack(f,cmd,ACT_BAD_RANGE);return;}uint16_t v=get_u16(f->payload);if(!sensorless_control_set_run_current_ma(&ctrl,v)){action_ack(f,cmd,ACT_BAD_RANGE);return;}g_cfg_test_current_ma=v;g_cfg_dirty=1u;action_ack(f,cmd,ACT_OK);return;}
+     if(cmd==0xF5u){if(!has_magic(f)){action_ack(f,cmd,ACT_BAD_MAGIC);return;}action_ack(f,cmd,ACT_RAM_ONLY);return;}
+     action_ack(f,cmd,ACT_UNSUPPORTED);
+ }
+ 
++static uint16_t dash_current_request_ma(uint8_t throttle){
++    if(throttle<=DASH_THROTTLE_DEADZONE)return 0u;
++    uint32_t span=(uint32_t)(255u-DASH_THROTTLE_DEADZONE);
++    uint32_t x=(uint32_t)(throttle-DASH_THROTTLE_DEADZONE);
++    uint32_t ma=DASH_DRIVE_MIN_MA+(x*(DASH_DRIVE_MAX_MA-DASH_DRIVE_MIN_MA))/span;
++    if(ma>DASH_DRIVE_MAX_MA)ma=DASH_DRIVE_MAX_MA;
++    return (uint16_t)ma;
++}
++static void dashboard_motor_off(uint8_t neutral_confirmed){
++    g_dash_drive_requested=0u;
++    power_stage_force_disarm();
++    if(neutral_confirmed)g_start_interlock=0u;
++    else g_start_interlock=1u;
++}
+ static uint8_t handle_stock_dashboard(const ninebot_frame_t *f){
+     uint8_t throttle=0u,brake=0u;
+     if(dashboard_decode_adc(f,&throttle,&brake)){
+-        g_dash_throttle=throttle;g_dash_brake=brake;
++        g_dash_throttle=throttle;g_dash_brake=brake;g_dash_control_last_ms=g_ms;g_dash_control_frames++;
++        if(brake>DASH_BRAKE_DEADZONE){dashboard_motor_off(0u);return 1u;}
++        if(throttle<=DASH_THROTTLE_DEADZONE){dashboard_motor_off(1u);return 1u;}
++        if(g_start_interlock||g_safety_latched||g_offset_cal_active)return 1u;
++#if POWER_STAGE_ARM_ALLOWED && SENSORLESS_RUN_ALLOWED
++        uint16_t ma=dash_current_request_ma(throttle);
++        if(!sensorless_control_set_run_current_ma(&ctrl,ma)){dashboard_motor_off(0u);return 1u;}
++        g_cfg_test_current_ma=ma;
++        if(!g_power_armed){if(!power_stage_arm_zero_vector())return 1u;}
++        if(!ctrl.drive_request)sensorless_control_set_drive(&ctrl,1u);
++        g_dash_drive_requested=1u;
++#endif
+         return 1u;
+     }
+     if(dashboard_is_status_request(f)){
+@@ -460,10 +508,11 @@
+ 
+ static void reset_stats(void){g_sample_interval_min=0xFFFFFFFFu;g_sample_interval_max=0u;g_max_isr_cycles=0u;g_max_control_cycles=0u;g_peak_abs_current=0u;g_control_hard_overruns=0u;}
+ static void report(void){
+-    uart_puts("v0.6.7 BLE arm=");uart_u32(g_power_armed);uart_puts(" state=");uart_puts(sensorless_state_name(ctrl.state));uart_puts(" obs=");uart_u32(ctrl.observer_valid);
++    uart_puts("v0.7.1 STLINK arm=");uart_u32(g_power_armed);uart_puts(" state=");uart_puts(sensorless_state_name(ctrl.state));uart_puts(" obs=");uart_u32(ctrl.observer_valid);
+     uart_puts(" ctrl=");uart_u32(g_last_control_cycles);uart_putc('/');uart_u32(g_max_control_cycles);uart_puts(" I=");uart_u32(g_last_abs_current);uart_putc('/');uart_u32(g_peak_abs_current);
+-    uart_puts(" dash=");uart_u32(g_dash_frames);uart_puts(" fmt=");uart_u32(ninebot_link_last_format());uart_puts(" thr/brk=");uart_u32(g_dash_throttle);uart_putc('/');uart_u32(g_dash_brake);uart_puts(" rxov=");uart_u32(ninebot_link_rx_overflows());
