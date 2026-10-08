@@ -1,0 +1,68 @@
++- Keeps the v0.6.5+ staged IAP, 128-byte transport, encrypted-only SHU packaging and explicit VTOR relocation unchanged.
++- Adds stock read register `0x10` with an explicit 14-byte ASCII controller identity: `DELTAESC-G30D0`.
++- This satisfies the already hardware-proven G30 Bench BLE v0.1.0/v0.1.1 ESC-route check, which reads `0x1A` then `0x10` before D0.
++- D0-D9 layout remains unchanged; D0 reports `DESC`, protocol 0.2 and build `0x0607`.
++- The Android BLE/GATT/NinebotCrypto path is not changed.
++- SYNC-SAFE still compiles out power-stage arming and sensorless run.
+ 
+-## Safety boundary
+-
+-The intended first hardware image remains SYNC-SAFE: power-stage arming and sensorless run are compiled out. v0.6.6 is meant to validate the complete stock dashboard/BLE/ESC communication loop and later SHU reflash path before any torque-producing test.
++The custom `0x10` identity is deliberately not copied from unknown stock flash/config locations. It identifies the running custom ESC firmware without inventing a factory serial-number address.
+diff -ruN '--exclude=build' '--exclude=shu' '--exclude=__pycache__' '--exclude=*.pyc' v066_work/src/main.c v067_work/src/main.c
+--- v066_work/src/main.c	2026-10-08 15:20:22.933285452 +0000
++++ v067_work/src/main.c	2026-10-08 15:35:07.803132360 +0000
+@@ -35,7 +35,7 @@
+ #define MAGIC_UNLOCK 0xC0DEu
+ #define PROTO_MAJOR 0u
+ #define PROTO_MINOR 2u
+-#define FW_BUILD 0x0606u
++#define FW_BUILD 0x0607u
+ #define OFFSET_CAL_SAMPLES 512u
+ 
+ #define ACT_OK 0u
+@@ -308,11 +308,14 @@
+     if(ninebot_link_rx_overflows())f|=8u;if(g_last_action_status==ACT_UNSUPPORTED)f|=16u;if(g_cfg_dirty)f|=32u;if(!g_phase_map_valid)f|=64u;f|=128u;if(g_shu_handoff_refused)f|=256u;return f;
+ }
+ 
++static const uint8_t g_esc_identity[14]={'D','E','L','T','A','E','S','C','-','G','3','0','D','0'};
++
+ static void app_read_response(const ninebot_frame_t *req){
+     uint8_t cmd=req->arg;uint8_t requested=req->payload_len?req->payload[0]:0u;
+     uint8_t p[32];uint8_t n=0u;
+     for(uint8_t i=0u;i<sizeof p;i++)p[i]=0u;
+     switch(cmd){
++    case 0x10u: for(uint8_t i=0u;i<14u;i++)p[i]=g_esc_identity[i];n=14u;break;
+     case 0x1Au: put_u16(p,FW_BUILD);n=2u;break;
+     case 0xB0u: put_u16(p+8,50u);put_u16(p+10,0u);put_i16(p+22,0);n=32u;break;
+     case 0xD0u: p[0]='D';p[1]='E';p[2]='S';p[3]='C';p[4]=PROTO_MAJOR;p[5]=PROTO_MINOR;put_u16(p+6,FW_BUILD);p[8]=ctrl.state;p[9]=status_flags();put_u16(p+10,current_fault_code());put_u16(p+12,PWM_HZ);put_u16(p+14,CONTROL_HZ);n=16u;break;
+@@ -403,7 +406,7 @@
+ 
+ static void reset_stats(void){g_sample_interval_min=0xFFFFFFFFu;g_sample_interval_max=0u;g_max_isr_cycles=0u;g_max_control_cycles=0u;g_peak_abs_current=0u;g_control_hard_overruns=0u;}
+ static void report(void){
+-    uart_puts("v0.6.6 BLE arm=");uart_u32(g_power_armed);uart_puts(" state=");uart_puts(sensorless_state_name(ctrl.state));uart_puts(" obs=");uart_u32(ctrl.observer_valid);
++    uart_puts("v0.6.7 BLE arm=");uart_u32(g_power_armed);uart_puts(" state=");uart_puts(sensorless_state_name(ctrl.state));uart_puts(" obs=");uart_u32(ctrl.observer_valid);
+     uart_puts(" ctrl=");uart_u32(g_last_control_cycles);uart_putc('/');uart_u32(g_max_control_cycles);uart_puts(" I=");uart_u32(g_last_abs_current);uart_putc('/');uart_u32(g_peak_abs_current);
+     uart_puts(" dash=");uart_u32(g_dash_frames);uart_puts(" fmt=");uart_u32(ninebot_link_last_format());uart_puts(" thr/brk=");uart_u32(g_dash_throttle);uart_putc('/');uart_u32(g_dash_brake);uart_puts(" rxov=");uart_u32(ninebot_link_rx_overflows());
+     uart_puts(" action=");uart_u32(g_last_action_status);uart_puts(" fault=");uart_u32(current_fault_code());uart_puts("\r\n");
+@@ -418,7 +421,7 @@
+ int main(void){
+     irq_disable();clock_64mhz_hsi();dwt_init();power_hold_init();gate_enable_gpio_init();gate_pins_to_safe_inputs();uart1_debug_init();sensorless_control_init(&ctrl);
+     adc1_injected_init();tim1_pwm_and_adc_trigger_init();ninebot_link_init();iap_update_init();systick_init();irq_enable();
+-    uart_puts("DeltaESC G30D v0.6.6 stock-dashboard-runtime + staged-IAP firmware\r\n");
++    uart_puts("DeltaESC G30D v0.6.7 v0.1.x-app-compat + staged-IAP firmware\r\n");
+ #if SENSORLESS_RUN_ALLOWED
+     uart_puts("BUILD: SENSORLESS BENCH; BLE E5 may arm/start only after safety preconditions.\r\n");
+ #elif POWER_STAGE_ARM_ALLOWED
+diff -ruN '--exclude=build' '--exclude=shu' '--exclude=__pycache__' '--exclude=*.pyc' v066_work/tools/make_shu_zip.py v067_work/tools/make_shu_zip.py
+--- v066_work/tools/make_shu_zip.py	2026-10-08 15:21:34.451312472 +0000
++++ v067_work/tools/make_shu_zip.py	2026-10-08 15:35:07.803304760 +0000
+@@ -72,7 +72,7 @@
+       }
+     }
+     notes=(
+-      f'DeltaESC G30D v0.6.6 SHU staged-IAP candidate ({variant})\n'
++      f'DeltaESC G30D v0.6.7 SHU staged-IAP candidate ({variant})\n'
+       'Application base: 0x08001000; stock 4 KiB bootloader preserved\n'
+       'App limit: 0x0800E000 (52 KiB)\n'
+       'Reflash: stock-compatible 5A A5 IAP 07/08/09/0A -> decrypt/write
