@@ -1,0 +1,86 @@
+name: Build DeltaESC G30D v0.7.0 Motor Bench
+on:
+  push:
+    branches: [ "dev/v0.7.0-motor-bench" ]
+    paths:
+      - "v0.7.0/**"
+      - ".github/workflows/build-v070-motor.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18 llvm-18 xz-utils patch
+          clang-18 --version | head -n 1
+
+      - name: Reconstruct CI-green v0.6.7 base
+        run: |
+          set -eux
+          mkdir -p /tmp/v061 /tmp/v070
+          tar -xJf v0.6/DeltaESC_G30D_v0_6_source.tar.xz -C /tmp/v061
+          xz -dc v0.6.1/v0611.patch.xz | patch -d /tmp/v061 -p1
+          cp -a /tmp/v061/. /tmp/v070/
+          xz -dc v0.6.2/v062.patch.xz | patch -d /tmp/v070 -p4
+          xz -dc v0.6.3/v063.patch.xz | patch -d /tmp/v070 -p4
+          xz -dc v0.6.4/v064.patch.xz | patch -d /tmp/v070 -p4
+          xz -dc v0.6.5/v065.patch.xz | patch -d /tmp/v070 -p1
+          cat v0.6.6/v066.patch.part-* > /tmp/v066.patch
+          echo "dfab72dc0bf7869d595e041cb1a797a4ac5f50e2118c5011f99a5d7fc33abd0a  /tmp/v066.patch" | sha256sum -c -
+          patch -d /tmp/v070 -p1 < /tmp/v066.patch
+          cat v0.6.7/v067.patch.part-* > /tmp/v067.patch
+          echo "430666ee2c9967973c5aaec1560385010ab531cc04d5e790ec28cf495a6c18a4  /tmp/v067.patch" | sha256sum -c -
+          patch -d /tmp/v070 -p1 < /tmp/v067.patch
+          test ! -n "$(find /tmp/v070 -name '*.rej' -print -quit)"
+
+      - name: Apply v0.7.0 motor delta
+        run: |
+          set -eux
+          cat v0.7.0/v070.patch.xz.b64.part-* | base64 -d > /tmp/v070.patch.xz
+          echo "feae0feb6e65ce7c5ff1c9298011ab7660172e7891e9d8ff14d3df00de4916c1  /tmp/v070.patch.xz" | sha256sum -c -
+          xz -dc /tmp/v070.patch.xz > /tmp/v070.patch
+          echo "833e70534a305ea239b93945f3fc28b28230e173f22d2f0c600bb83cf4d35af3  /tmp/v070.patch" | sha256sum -c -
+          patch -d /tmp/v070 -p1 < /tmp/v070.patch
+          test ! -n "$(find /tmp/v070 -name '*.rej' -print -quit)"
+
+      - name: Build four motor variants
+        working-directory: /tmp/v070
+        run: make clean all CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+
+      - name: Motor-core host regression
+        working-directory: /tmp/v070
+        env:
+          HOST_CC: clang-18
+        run: python3 tools/test_motor_core.py
+
+      - name: Dashboard runtime regression
+        working-directory: /tmp/v070
+        env:
+          HOST_CC: clang-18
+        run: python3 tools/test_dashboard_runtime.py
+
+      - name: v0.7.0 motor and app-contract preflight
+        working-directory: /tmp/v070
+        run: python3 tools/preflight_v070.py
+
+      - name: Package source and hashes
+        run: |
+          tar --exclude=build --exclude=shu --exclude='__pycache__' --exclude='*.pyc'             -C /tmp/v070 -cJf /tmp/DeltaESC_G30D_v0_7_0_source.tar.xz .
+          cd /tmp/v070
+          sha256sum build/*.bin
+          sha256sum /tmp/DeltaESC_G30D_v0_7_0_source.tar.xz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-G30D-v0.7.0-Motor-Bench
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            /tmp/v070/build/*.bin
+            /tmp/DeltaESC_G30D_v0_7_0_source.tar.xz
+            /tmp/v070/README.md
