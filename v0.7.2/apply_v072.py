@@ -100,6 +100,8 @@ s=t.read_text()
 s=s.replace('assert(s.run_current_ma == 500u);','assert(s.run_current_ma == 250u);')
 s=s.replace('sensorless_control_set_run_current_ma(&s, 2000u) == 1u','sensorless_control_set_run_current_ma(&s, 500u) == 1u')
 s=s.replace('sensorless_control_set_run_current_ma(&s, 2001u) == 0u','sensorless_control_set_run_current_ma(&s, 501u) == 0u')
+s=s.replace('sensorless_control_set_run_current_ma(&s,2000u)==1u','sensorless_control_set_run_current_ma(&s,500u)==1u')
+s=s.replace('sensorless_control_set_run_current_ma(&s,2001u)==0u','sensorless_control_set_run_current_ma(&s,501u)==0u')
 t.write_text(s)
 
 print('v0.7.2 motor bench transform applied')
