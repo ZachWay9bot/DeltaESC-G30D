@@ -175,10 +175,10 @@ jobs:
           s=importlib.util.spec_from_file_location('m','v0.8.5_dual_adc_unicorn.py')
           m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
           t=m.Target(Path('/tmp/v085').resolve())
-          out=t.packet(1,b'\\x10',arg=0xe8)
+          out=t.packet(1,b'\x10',arg=0xe8)
           print('E8 target bytes:',out.hex(),flush=True)
           assert out[2]==16,(len(out),out.hex())
-          assert out[5:7]==b'\\x04\\xe8',out.hex()
+          assert out[5:7]==b'\x04\xe8',out.hex()
           assert out[7+11]&2==0,'physical E0 was not simulated'
           print('PASS ARM Ninebot read E8 16B + v0.8.5 identity')
           PY
