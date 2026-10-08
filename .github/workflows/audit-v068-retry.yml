@@ -1,0 +1,109 @@
+name: Audit DeltaESC v0.6.8 UART IAP retry
+
+on:
+  push:
+    branches: ["fix/v068-iap-retry-audit"]
+    paths:
+      - "v0.6.8/**"
+      - ".github/workflows/audit-v068-retry.yml"
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned LLVM
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18 llvm-18 xz-utils patch
+          python3 -m pip install unicorn==2.1.4
+      - name: Reconstruct exact v0.6.7 freeze
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/v061 /tmp/v068
+          tar -xJf v0.6/DeltaESC_G30D_v0_6_source.tar.xz -C /tmp/v061
+          xz -dc v0.6.1/v0611.patch.xz | patch -d /tmp/v061 -p1
+          cp -a /tmp/v061/. /tmp/v068/
+          xz -dc v0.6.2/v062.patch.xz | patch -d /tmp/v068 -p4
+          xz -dc v0.6.3/v063.patch.xz | patch -d /tmp/v068 -p4
+          xz -dc v0.6.4/v064.patch.xz | patch -d /tmp/v068 -p4
+          xz -dc v0.6.5/v065.patch.xz | patch -d /tmp/v068 -p1
+          cat v0.6.6/v066.patch.part-* > /tmp/v066.patch
+          echo "dfab72dc0bf7869d595e041cb1a797a4ac5f50e2118c5011f99a5d7fc33abd0a  /tmp/v066.patch" | sha256sum -c -
+          patch -d /tmp/v068 -p1 < /tmp/v066.patch
+          cat v0.6.7/v067.patch.part-* > /tmp/v067.patch
+          echo "430666ee2c9967973c5aaec1560385010ab531cc04d5e790ec28cf495a6c18a4  /tmp/v067.patch" | sha256sum -c -
+          patch -d /tmp/v068 -p1 < /tmp/v067.patch
+          echo "842f432fdc32010108bd72adebb0d892436ce0a19ddf92fce4c293356128febe  /tmp/v068/src/iap_update.c" | sha256sum -c -
+      - name: Apply power-loss-safe control patch
+        run: |
+          set -eux
+          cp v0.6.8/src/iap_control.[ch] /tmp/v068/src/
+          cp v0.6.8/tools/iap_control_powercut_test.c v0.6.8/tools/test_iap_powercut.py /tmp/v068/tools/
+          patch -d /tmp/v068 -p1 < v0.6.8/iap_powercut_core.patch
+          test ! -n "$(find /tmp/v068 -name '*.rej' -print -quit)"
+      - name: Execute baseline UART path and reproduce lost-ACK failure
+        working-directory: /tmp/v068
+        env:
+          ARM_NM: llvm-nm-18
+        run: |
+          set -euo pipefail
+          make safe CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+          cp build/DeltaESC_G30D_v0_6_7_ble_syncsafe.elf build/target_syncsafe.elf
+          cp build/DeltaESC_G30D_v0_6_7_ble_syncsafe.bin build/target_syncsafe.bin
+          python3 "$GITHUB_WORKSPACE/v0.6.8/full_target_protocol.py" /tmp/v068 --guard
+          python3 - <<'PY'
+          import subprocess, os
+          p=subprocess.run(['python3',os.environ['GITHUB_WORKSPACE']+'/v0.6.8/full_target_protocol.py',
+                            '/tmp/v068','--retry'],capture_output=True,text=True)
+          assert p.returncode != 0 and 'lost-ACK retry failed' in p.stderr, p.stdout+p.stderr
+          print('Unpatched lost-ACK defect reproduced: PASS')
+          PY
+      - name: Apply retry-only patch
+        run: |
+          set -euo pipefail
+          patch -d /tmp/v068 -p1 < v0.6.8/iap_retry.patch
+          test ! -n "$(find /tmp/v068 -name '*.rej' -print -quit)"
+      - name: Build all firmware variants
+        working-directory: /tmp/v068
+        run: make clean all CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+      - name: Execute full patched ARM UART path including index wrap
+        working-directory: /tmp/v068
+        env:
+          ARM_NM: llvm-nm-18
+        run: |
+          cp build/DeltaESC_G30D_v0_6_7_ble_syncsafe.elf build/target_syncsafe.elf
+          cp build/DeltaESC_G30D_v0_6_7_ble_syncsafe.bin build/target_syncsafe.bin
+          python3 "$GITHUB_WORKSPACE/v0.6.8/full_target_protocol.py" /tmp/v068 --retry --guard --blocks 130
+      - name: Verify IAP power-cut ordering
+        working-directory: /tmp/v068
+        env:
+          HOST_CC: clang-18
+        run: python3 tools/test_iap_powercut.py
+      - name: Model stock bootloader copy interruptions
+        run: python3 v0.6.8/tools/test_stock_copy_faults.py
+      - name: Pin unsafe stock erase-error branch
+        run: python3 v0.6.8/tools/test_stock_error_paths.py
+      - name: Existing regression suite
+        working-directory: /tmp/v068
+        env:
+          HOST_CC: clang-18
+        run: |
+          python3 tools/test_iap_ack.py
+          python3 tools/test_iap_transport.py
+          python3 tools/test_iap_crypto.py
+          python3 tools/test_dashboard_runtime.py
+          python3 tools/preflight_v067.py
+          python3 tools/test_shu_package.py
+      - name: Package source ONLY (not for flashing)
+        run: |
+          tar --exclude=build --exclude=shu --exclude='__pycache__' -C /tmp/v068 -cJf /tmp/DeltaESC_v068_IAP_RETRY_AUDIT_SOURCE_ONLY.tar.xz .
+          sha256sum /tmp/DeltaESC_v068_IAP_RETRY_AUDIT_SOURCE_ONLY.tar.xz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-v0.6.8-IAP-RETRY-AUDIT-SOURCE-ONLY
+          if-no-files-found: error
+          retention-days: 30
+          path: /tmp/DeltaESC_v068_IAP_RETRY_AUDIT_SOURCE_ONLY.tar.xz
+
