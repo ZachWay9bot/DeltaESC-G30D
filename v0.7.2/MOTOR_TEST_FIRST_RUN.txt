@@ -1,0 +1,20 @@
+DeltaESC G30D v0.7.2 MOTOR TEST BENCH
+===========================================
+
+BENCH ONLY. Rear wheel fully off the ground. 10S battery only.
+
+1. Connect with the phone diagnostic/config app.
+2. D0 must report build 0x0720.
+3. Run E0 current-offset calibration while DISARMED.
+4. Read D1, D2 and D9. Stop if a fault is present.
+5. First E5 test current: 100 mA only.
+6. Keep E6 STOP ready.
+7. Watch D6/D7/D9 during the attempt.
+8. Immediately E6 on grinding, unexpected kick, wrong direction, 0x0C01, 0x0C02 or observer loss.
+9. This build rejects motor-current requests above 500 mA.
+
+Reference mapping used by this candidate:
+PA3=U current, PA4=V current, PA5=W current.
+Current sign: calibrated offset minus ADC sample.
+TIM1 CH1/2/3 = U/V/W; PB12 = active-low BKIN.
+PB1 is not used as a gate-enable pin.
