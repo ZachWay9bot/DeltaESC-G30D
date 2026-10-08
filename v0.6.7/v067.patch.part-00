@@ -1,0 +1,71 @@
+diff -ruN '--exclude=build' '--exclude=shu' '--exclude=__pycache__' '--exclude=*.pyc' v066_work/Makefile v067_work/Makefile
+--- v066_work/Makefile	2026-10-08 15:20:22.933416019 +0000
++++ v067_work/Makefile	2026-10-08 15:35:07.803256907 +0000
+@@ -4,30 +4,30 @@
+ CFLAGS_COMMON = --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Oz -Wall -Wextra -Werror -Isrc
+ LDFLAGS_COMMON = --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -nostdlib -Wl,-T,linker.ld,--gc-sections
+ SRC = src/main.c src/sensorless_control.c src/ninebot_link.c src/iap_update.c src/iap_proto.c src/dashboard_runtime.c
+-SAFE_ELF = build/DeltaESC_G30D_v0_6_6_ble_syncsafe.elf
+-SAFE_BIN = build/DeltaESC_G30D_v0_6_6_ble_syncsafe.bin
+-ACTIVE_ELF = build/DeltaESC_G30D_v0_6_6_ble_observer_zero_vector.elf
+-ACTIVE_BIN = build/DeltaESC_G30D_v0_6_6_ble_observer_zero_vector.bin
+-BENCH_ELF = build/DeltaESC_G30D_v0_6_6_ble_sensorless_bench.elf
+-BENCH_BIN = build/DeltaESC_G30D_v0_6_6_ble_sensorless_bench.bin
++SAFE_ELF = build/DeltaESC_G30D_v0_6_7_ble_syncsafe.elf
++SAFE_BIN = build/DeltaESC_G30D_v0_6_7_ble_syncsafe.bin
++ACTIVE_ELF = build/DeltaESC_G30D_v0_6_7_ble_observer_zero_vector.elf
++ACTIVE_BIN = build/DeltaESC_G30D_v0_6_7_ble_observer_zero_vector.bin
++BENCH_ELF = build/DeltaESC_G30D_v0_6_7_ble_sensorless_bench.elf
++BENCH_BIN = build/DeltaESC_G30D_v0_6_7_ble_sensorless_bench.bin
+ all: safe active bench
+ safe: $(SAFE_BIN)
+ active: $(ACTIVE_BIN)
+ bench: $(BENCH_BIN)
+ build: ; mkdir -p build
+ $(SAFE_ELF): $(SRC) linker.ld | build
+-	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 $(SRC) $(LDFLAGS_COMMON) -Wl,-Map=build/v0_6_6_syncsafe.map -o $@
++	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 $(SRC) $(LDFLAGS_COMMON) -Wl,-Map=build/v0_6_7_syncsafe.map -o $@
+ $(SAFE_BIN): $(SAFE_ELF)
+ 	$(OBJCOPY) -O binary $< $@
+-	$(OBJDUMP) -h $< > build/v0_6_6_syncsafe_sections.txt
++	$(OBJDUMP) -h $< > build/v0_6_7_syncsafe_sections.txt
+ $(ACTIVE_ELF): $(SRC) linker.ld | build
+-	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=1 -DSENSORLESS_RUN_ALLOWED=0 $(SRC) $(LDFLAGS_COMMON) -Wl,-Map=build/v0_6_6_observer.map -o $@
++	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=1 -DSENSORLESS_RUN_ALLOWED=0 $(SRC) $(LDFLAGS_COMMON) -Wl,-Map=build/v0_6_7_observer.map -o $@
+ $(ACTIVE_BIN): $(ACTIVE_ELF)
+ 	$(OBJCOPY) -O binary $< $@
+-	$(OBJDUMP) -h $< > build/v0_6_6_observer_sections.txt
++	$(OBJDUMP) -h $< > build/v0_6_7_observer_sections.txt
+ $(BENCH_ELF): $(SRC) linker.ld | build
+-	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=1 -DSENSORLESS_RUN_ALLOWED=1 $(SRC) $(LDFLAGS_COMMON) -Wl,-Map=build/v0_6_6_bench.map -o $@
++	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=1 -DSENSORLESS_RUN_ALLOWED=1 $(SRC) $(LDFLAGS_COMMON) -Wl,-Map=build/v0_6_7_bench.map -o $@
+ $(BENCH_BIN): $(BENCH_ELF)
+ 	$(OBJCOPY) -O binary $< $@
+-	$(OBJDUMP) -h $< > build/v0_6_6_bench_sections.txt
++	$(OBJDUMP) -h $< > build/v0_6_7_bench_sections.txt
+ clean: ; rm -rf build
+diff -ruN '--exclude=build' '--exclude=shu' '--exclude=__pycache__' '--exclude=*.pyc' v066_work/README.md v067_work/README.md
+--- v066_work/README.md	2026-10-08 15:22:02.846412887 +0000
++++ v067_work/README.md	2026-10-08 15:35:34.240970546 +0000
+@@ -1,20 +1,17 @@
+-# DeltaESC G30D v0.6.6 - stock dashboard runtime + staged IAP
++# DeltaESC G30D v0.6.7 - v0.1.x app compatibility + stock dashboard runtime
+ 
+-Status: **CI/development candidate. Do not flash until the v0.1.0 BLE app compatibility check and first-controller SHU procedure are explicitly approved.**
++Status: **development candidate; not yet a hardware flash release.**
+ 
+-Based on the CI-green v0.6.5 staged-IAP/128-byte/VTOR candidate.
++Based on the CI-green v0.6.6 dashboard-runtime freeze.
+ 
+-## v0.6.6 delta
++## v0.6.7 delta
+ 
+-- Keeps the v0.6.5 staged IAP implementation, 128-byte data blocks, encrypted-only SHU packaging and explicit VTOR relocation.
+-- Adds the native G30 dashboard runtime on PA2 without changing the Android/NinebotCrypto transport.
+-- Native `5A A5` dashboard `0x65` frames from `0x21 -> 0x20` are decoded read-only. Throttle is payload byte 1, brake payload byte 2, matching the established G30 VESC/SmartESC integrations.
+-- Native dashboard `0x64` requests receive a stock-shaped `0x64` ESC status frame with six bytes: mode, battery, light, beep, speed, fault.
+-- The first-test SYNC-SAFE payload deliberately reports Drive, 50% placeholder battery, light off, beep off, speed 0, fault 0. The 50% value is a bench placeholder because bus-voltage calibration remains deferred.
+-- Dashboard throttle/brake values are diagnostic only in this step. They do not request torque.
+-- D0-D9 diagnostics and E0-E6/F0-F5 protocol remain present; build identity is `0x0606`.
+-- App-originated reads no longer falsely count as dashboard-runtime traffic; the dashboard-seen flag now requires native source `0x21`.
++- Keeps v0.6.6 native G30 `0x64/0x65` dashboard runtime unchanged.
