@@ -1,0 +1,213 @@
+diff -ruN '--exclude=build' '--exclude=__pycache__' /mnt/data/v070src/source/Makefile /mnt/data/v071work/Makefile
+--- /mnt/data/v070src/source/Makefile	2026-10-08 21:05:21.000000000 +0000
++++ /mnt/data/v071work/Makefile	2026-10-08 21:22:06.348043210 +0000
+@@ -1,21 +1,19 @@
+ CC ?= clang
+ OBJCOPY ?= llvm-objcopy
+ OBJDUMP ?= llvm-objdump
++NM ?= llvm-nm
+ CFLAGS_COMMON = -g3 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Oz -Wall -Wextra -Werror -Isrc
+ LDFLAGS_COMMON = --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -nostdlib -Wl,-T,linker.ld,--gc-sections
+-SRC = src/main.c src/sensorless_control.c src/ninebot_link.c src/iap_update.c src/iap_proto.c src/iap_control.c src/dashboard_runtime.c src/power_logic.c src/motor_probe.c
+-SAFE_ELF = build/DeltaESC_G30D_v0_7_0_ble_syncsafe.elf
+-SAFE_BIN = build/DeltaESC_G30D_v0_7_0_ble_syncsafe.bin
+-ACTIVE_ELF = build/DeltaESC_G30D_v0_7_0_ble_observer_zero_vector.elf
+-ACTIVE_BIN = build/DeltaESC_G30D_v0_7_0_ble_observer_zero_vector.bin
+-BENCH_ELF = build/DeltaESC_G30D_v0_7_0_ble_sensorless_bench.elf
+-BENCH_BIN = build/DeltaESC_G30D_v0_7_0_ble_sensorless_bench.bin
+-all: safe
+-safe: $(SAFE_BIN)
++SRC = src/main.c src/sensorless_control.c src/ninebot_link.c src/iap_update.c src/iap_proto.c src/iap_control.c src/dashboard_runtime.c src/power_logic.c src/motor_probe.c src/bench_telemetry.c
++BENCH_ELF = build/DeltaESC_G30D_v0_7_1_STLINK_SENSORLESS_BENCH.elf
++BENCH_BIN = build/DeltaESC_G30D_v0_7_1_STLINK_SENSORLESS_BENCH.bin
++all: bench
++bench: $(BENCH_BIN)
+ build: ; mkdir -p build
+-$(SAFE_ELF): $(SRC) linker.ld | build
+-	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 $(SRC) $(LDFLAGS_COMMON) -Wl,-Map=build/v0_7_0_syncsafe.map -o $@
+-$(SAFE_BIN): $(SAFE_ELF)
++$(BENCH_ELF): $(SRC) linker.ld | build
++	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=1 -DSENSORLESS_RUN_ALLOWED=1 $(SRC) $(LDFLAGS_COMMON) -Wl,-Map=build/v0_7_1_sensorless_bench.map -o $@
++$(BENCH_BIN): $(BENCH_ELF)
+ 	$(OBJCOPY) -O binary $< $@
+-	$(OBJDUMP) -h $< > build/v0_7_0_syncsafe_sections.txt
++	$(OBJDUMP) -h $< > build/v0_7_1_sensorless_bench_sections.txt
++	$(NM) -n $< > build/STLINK_SYMBOLS.txt
+ clean: ; rm -rf build
+diff -ruN '--exclude=build' '--exclude=__pycache__' /mnt/data/v070src/source/README.md /mnt/data/v071work/README.md
+--- /mnt/data/v070src/source/README.md	2026-10-08 21:05:21.000000000 +0000
++++ /mnt/data/v071work/README.md	2026-10-08 21:25:37.895496227 +0000
+@@ -1,17 +1,21 @@
+-# DeltaESC G30D v0.6.7 - v0.1.x app compatibility + stock dashboard runtime
++# DeltaESC G30D v0.7.1 — ST-Link sensorless bench
+ 
+-Status: **development candidate; not yet a hardware flash release.**
++**ACTIVE MOTOR BENCH IMAGE. ST-LINK ONLY. WHEEL MUST BE FREE. 10S FIRST TEST. NOT FOR RIDING.**
+ 
+-Based on the CI-green v0.6.6 dashboard-runtime freeze.
++Purpose: get the stock G30D Gen1 3-cap ESC to make the motor start sensorless, then hand over from a controlled open-loop FOC ramp to a flux observer.
+ 
+-## v0.6.7 delta
++Key changes from the old sensorless core:
+ 
+-- Keeps v0.6.6 native G30 `0x64/0x65` dashboard runtime unchanged.
+-- Keeps the v0.6.5+ staged IAP, 128-byte transport, encrypted-only SHU packaging and explicit VTOR relocation unchanged.
+-- Adds stock read register `0x10` with an explicit 14-byte ASCII controller identity: `DELTAESC-G30D0`.
+-- This satisfies the already hardware-proven G30 Bench BLE v0.1.0/v0.1.1 ESC-route check, which reads `0x1A` then `0x10` before D0.
+-- D0-D9 layout remains unchanged; D0 reports `DESC`, protocol 0.2 and build `0x0607`.
+-- The Android BLE/GATT/NinebotCrypto path is not changed.
+-- SYNC-SAFE still compiles out power-stage arming and sensorless run.
++- Fixed the current PI quantization bug: gains now operate directly in modulation-count/current-count units (`Kp=12`, `Ki=3`) instead of Q15 gains that rounded useful errors to zero.
++- Replaced the provisional nonlinear observer with a discrete Mxlemming-style flux observer in raw ADC/control-tick units.
++- Corrected observer phase convention to `atan2(beta, alpha)`; the old core mirrored beta.
++- ALIGN uses d-axis current (~0.5 A), not q-axis torque current, and seeds the observer flux state at the known alignment angle.
++- Open-loop ramp starts at 0 and rises to ~659 electrical RPM, then phase/speed-qualified handover and 100 ms blend to observer phase.
++- Dashboard throttle maps to 0.4…1.5 A phase-current request. Brake or throttle release disables PB1 and all six TIM1 gate outputs immediately. No regen.
++- Start interlock requires a neutral throttle/brake frame after boot or after a fault/brake event.
++- Dashboard-control watchdog: 180 ms. Overcurrent hard trip: 120 ADC counts (~6 A with provisional scale). Control-loop >15k cycles trips immediately.
++- `g_sensorless_bench` is exported as a global SRAM telemetry structure for live ST-Link observation; exact address is in `build/STLINK_SYMBOLS.txt`.
+ 
+-The custom `0x10` identity is deliberately not copied from unknown stock flash/config locations. It identifies the running custom ESC firmware without inventing a factory serial-number address.
++Initial observer defaults are deliberately provisional: R=0.100 Ω, L=100 µH, flux=0.012 Wb. They are close to generic VESC/SmartESC hub-motor defaults, not a claim that the exact G30 motor has those parameters. F0/F1/F2 can change them while the bridge is disarmed.
++
++First hardware objective is only: ALIGN -> OPEN -> HANDOVER -> CLOSED while the wheel is in the air. Any brake, throttle release, stale dashboard, observer fault, control overrun or overcurrent disables the bridge.
+diff -ruN '--exclude=build' '--exclude=__pycache__' /mnt/data/v070src/source/STLINK_WATCH_LAYOUT.txt /mnt/data/v071work/STLINK_WATCH_LAYOUT.txt
+--- /mnt/data/v070src/source/STLINK_WATCH_LAYOUT.txt	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/v071work/STLINK_WATCH_LAYOUT.txt	2026-10-08 21:25:10.677427354 +0000
+@@ -0,0 +1,39 @@
++DeltaESC G30D v0.7.1 ST-Link watch layout
++
++Load build/DeltaESC_G30D_v0_7_1_STLINK_SENSORLESS_BENCH.elf when possible; it contains symbols.
++For raw memory view, use the g_sensorless_bench address from build/STLINK_SYMBOLS.txt.
++
++sensorless_bench_telemetry_t (68 bytes):
+++0x00 u32 magic = 0x314E4253 (SBN1)
+++0x04 u32 sequence (even = stable snapshot)
+++0x08 u32 stamp_ms
+++0x0C u32 safety_latched
+++0x10 u32 max_control_cycles
+++0x14 u32 flux_sq
+++0x18 s32 observer_speed (u16 electrical-angle counts/control tick)
+++0x1C s16 ia_counts
+++0x1E s16 ib_counts
+++0x20 s16 ic_counts
+++0x22 s16 id_counts
+++0x24 s16 iq_counts
+++0x26 s16 id_ref_counts
+++0x28 s16 iq_ref_counts
+++0x2A u16 control_phase
+++0x2C u16 observer_phase
+++0x2E s16 phase_error
+++0x30 u16 openloop_step
+++0x32 u16 ccr1
+++0x34 u16 ccr2
+++0x36 u16 ccr3
+++0x38 u16 vbus_adc
+++0x3A u16 peak_current_counts
+++0x3C u8  state: 0 STOP,1 ALIGN,2 OPEN,3 HANDOVER,4 CLOSED,5 FAULT
+++0x3D u8  fault
+++0x3E u8  observer_valid
+++0x3F u8  power_armed
+++0x40 u8  throttle
+++0x41 u8  brake
+++0x42 u8  start_interlock
+++0x43 u8  reserved
++
++Provisional current scale: ~50.35 mA/count. HARD_OC is 120 counts (~6 A).
+diff -ruN '--exclude=build' '--exclude=__pycache__' /mnt/data/v070src/source/src/bench_telemetry.c /mnt/data/v071work/src/bench_telemetry.c
+--- /mnt/data/v070src/source/src/bench_telemetry.c	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/v071work/src/bench_telemetry.c	2026-10-08 21:20:46.647173461 +0000
+@@ -0,0 +1,36 @@
++#include "bench_telemetry.h"
++volatile sensorless_bench_telemetry_t g_sensorless_bench;
++void sensorless_bench_init(void){
++    volatile uint8_t *p=(volatile uint8_t*)&g_sensorless_bench;
++    for(uint32_t i=0;i<sizeof(g_sensorless_bench);i++)p[i]=0u;
++    g_sensorless_bench.magic=SENSORLESS_BENCH_MAGIC;
++}
++void sensorless_bench_capture(const sensorless_control_t *s,
++                              phase_current_counts_t cur,
++                              uint16_t vbus_adc,
++                              uint16_t peak_current_counts,
++                              uint32_t ms,
++                              uint32_t safety_latched,
++                              uint32_t max_control_cycles,
++                              uint8_t power_armed,
++                              uint8_t throttle,
++                              uint8_t brake,
++                              uint8_t start_interlock){
++    g_sensorless_bench.sequence++;
++    g_sensorless_bench.stamp_ms=ms;
++    g_sensorless_bench.safety_latched=safety_latched;
++    g_sensorless_bench.max_control_cycles=max_control_cycles;
++    g_sensorless_bench.flux_sq=s->flux_sq;
++    g_sensorless_bench.observer_speed=s->observer_speed;
++    g_sensorless_bench.ia_counts=cur.ia;g_sensorless_bench.ib_counts=cur.ib;g_sensorless_bench.ic_counts=cur.ic;
++    g_sensorless_bench.id_counts=(int16_t)s->id;g_sensorless_bench.iq_counts=(int16_t)s->iq;
++    g_sensorless_bench.id_ref_counts=s->id_ref_counts;g_sensorless_bench.iq_ref_counts=s->iq_ref_counts;
++    g_sensorless_bench.control_phase=s->control_phase;g_sensorless_bench.observer_phase=s->observer_phase;
++    g_sensorless_bench.phase_error=s->phase_error;g_sensorless_bench.openloop_step=s->openloop_step;
++    g_sensorless_bench.ccr1=s->ccr1;g_sensorless_bench.ccr2=s->ccr2;g_sensorless_bench.ccr3=s->ccr3;
++    g_sensorless_bench.vbus_adc=vbus_adc;g_sensorless_bench.peak_current_counts=peak_current_counts;
++    g_sensorless_bench.state=s->state;g_sensorless_bench.fault=s->fault;g_sensorless_bench.observer_valid=s->observer_valid;
++    g_sensorless_bench.power_armed=power_armed;g_sensorless_bench.throttle=throttle;g_sensorless_bench.brake=brake;
++    g_sensorless_bench.start_interlock=start_interlock;
++    g_sensorless_bench.sequence++;
++}
+diff -ruN '--exclude=build' '--exclude=__pycache__' /mnt/data/v070src/source/src/bench_telemetry.h /mnt/data/v071work/src/bench_telemetry.h
+--- /mnt/data/v070src/source/src/bench_telemetry.h	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/v071work/src/bench_telemetry.h	2026-10-08 21:20:46.643258354 +0000
+@@ -0,0 +1,50 @@
++#pragma once
++#include <stdint.h>
++#include "sensorless_control.h"
++#define SENSORLESS_BENCH_MAGIC 0x314E4253u /* SBN1 little endian */
++typedef struct {
++    uint32_t magic;
++    uint32_t sequence;
++    uint32_t stamp_ms;
++    uint32_t safety_latched;
++    uint32_t max_control_cycles;
++    uint32_t flux_sq;
++    int32_t observer_speed;
++    int16_t ia_counts;
++    int16_t ib_counts;
++    int16_t ic_counts;
++    int16_t id_counts;
++    int16_t iq_counts;
++    int16_t id_ref_counts;
++    int16_t iq_ref_counts;
++    uint16_t control_phase;
++    uint16_t observer_phase;
++    int16_t phase_error;
++    uint16_t openloop_step;
++    uint16_t ccr1;
++    uint16_t ccr2;
++    uint16_t ccr3;
++    uint16_t vbus_adc;
++    uint16_t peak_current_counts;
++    uint8_t state;
++    uint8_t fault;
++    uint8_t observer_valid;
++    uint8_t power_armed;
++    uint8_t throttle;
++    uint8_t brake;
++    uint8_t start_interlock;
++    uint8_t reserved;
++} sensorless_bench_telemetry_t;
++extern volatile sensorless_bench_telemetry_t g_sensorless_bench;
++void sensorless_bench_init(void);
++void sensorless_bench_capture(const sensorless_control_t *s,
++                              phase_current_counts_t cur,
++                              uint16_t vbus_adc,
++                              uint16_t peak_current_counts,
++                              uint32_t ms,
++                              uint32_t safety_latched,
++                              uint32_t max_control_cycles,
++                              uint8_t power_armed,
++                              uint8_t throttle,
++                              uint8_t brake,
++                              uint8_t start_interlock);
+diff -ruN '--exclude=build' '--exclude=__pycache__' /mnt/data/v070src/source/src/main.c /mnt/data/v071work/src/main.c
+--- /mnt/data/v070src/source/src/main.c	2026-10-08 21:05:21.000000000 +0000
++++ /mnt/data/v071work/src/main.c	2026-10-08 21:22:06.222008266 +0000
