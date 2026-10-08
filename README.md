@@ -13,7 +13,9 @@ The default `main` branch is a **repository index**, not the latest firmware. Do
 
 | Version / branch | State | Purpose |
 |---|---|---|
-| [v0.6.7 v0.1.x app compatibility](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.6.7-v01-app-compat-ci-green-2026-10-08) | **CI green, hardware unvalidated** | Preferred **SYNC-SAFE** development baseline, adds explicit 14-byte `0x10` ESC identity for the hardware-proven G30 Bench BLE v0.1.x app |
+| [v0.6.9 PA12 + IAP source audit](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.6.9-pa12-iap-source-ci-green-2026-10-08) | **CI green, SOURCE-ONLY, NOT FOR FLASH** | Combines v0.6.8 staged-update guard with PA12 long-press, PA11 power-hold, stock 0x79 power-off and write ACK handling; retains v0.1.x app identity and G30 dashboard runtime. [CI run](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37836783098) | 
+| [v0.6.8 stock bootloader audit](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.6.8-iap-copy-audit-ci-green-2026-10-08) | **CI green, SOURCE-ONLY** | Verified critical DRV126 erase-error counterexample: bootloader may clear pending update after app pages are erased. No guaranteed Bluetooth-only recovery. |
+| [v0.6.7 v0.1.x app compatibility](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.6.7-v01-app-compat-ci-green-2026-10-08) | **CI green, hardware unvalidated, superseded for new testing** | Earlier **SYNC-SAFE** baseline; v0.6.8 audit identified an IAP hazard. Adds explicit 14-byte `0x10` ESC identity for the hardware-proven G30 Bench BLE v0.1.x app |
 | [v0.6.6 dashboard runtime](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.6.6-dashboard-runtime-ci-green-2026-10-08) | CI green, hardware unvalidated | Native G30 `0x64/0x65` dashboard traffic on PA2, read-only throttle/brake, fixed 50% battery status placeholder |
 | [v0.6.6 dashboard-drive RC](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.6.6-dashboard-rc-ci-green-2026-10-08) | CI green, **NOT for first flash or road use** | Optional low-current torque-capable laboratory experiment; hardware current/phase measurements are still missing |
 | v0.6.5 | CI green, superseded by v0.6.7 | 128-byte staged-IAP, final-block padding and VTOR |
@@ -46,7 +48,7 @@ The older v0.2ci/link-probe app connection regression must **not** be used as a 
 - [v0.6.6 stock dashboard runtime, success](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37801003694)
 - [v0.6.6 dashboard drive RC after patch repair, success](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37803370548)
 
-**Next release gate**: verify the physical stock BLE/SHU/IAP installation and reversible reflash/rollback sequence without requiring ST-Link as a planned step. The 3-cap ESC remains on stock until the operator explicitly accepts the residual recovery risk.
+**Next release gate**: remain on stock firmware with the valuable 3-cap ESC. The v0.6.8 reverse engineering found a real stock-bootloader erase-error path that clears pending IAP state while the active app is invalid. That can defeat Bluetooth/SHU recovery irrespective of an app-side patch. The v0.6.9 CI-green source-only integration does not resolve that protected-bootloader failure path and must not be flashed. Independent recovery verification on noncritical hardware is required before reconsidering a physical test; ST-Link is emergency recovery, not the proposed normal update path.
 
 ## License
 
