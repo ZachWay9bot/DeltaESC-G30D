@@ -168,7 +168,7 @@ static void gate_enable_gpio_init(void) {
     GPIO_BRR(GPIOB_BASE) = (1u << 1);
 }
 
-static void power_stage_force_disarm(void) {
+void power_stage_force_disarm(void) {
     GPIO_BRR(GPIOB_BASE) = (1u << 1);             /* disable gate driver first */
     TIM_CCER(TIM1_BASE) &= ~GATE_CCER_MASK;       /* retain CH4 ADC trigger */
     gate_pins_to_safe_inputs();
