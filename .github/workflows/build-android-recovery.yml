@@ -1,0 +1,62 @@
+name: Build G30 BLE DRV126 Recovery v0.1.2R
+on:
+  push:
+    branches: [ "dev/android-v0.1.2R-drv126-ble-recovery" ]
+    paths: [ "android-recovery/**", ".github/workflows/build-android-recovery.yml" ]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare Android SDK
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
+      - name: Extract source
+        run: |
+          mkdir -p /tmp/g30rec
+          tar -xJf android-recovery/G30_Bench_BLE_v0.1.2R_source.tar.xz -C /tmp/g30rec
+      - name: Verify proven transport continuity and stock payload
+        working-directory: /tmp/g30rec
+        run: |
+          test "$(sha256sum src/de/ebics/g30bench/LegacyCrypto.java | cut -d' ' -f1)" = "c65dd6505ff5953f6ef91c934e8dd7bc5ebd9cac91702bdc9f1fb323f01a2a4a"
+          test "$(sha256sum src/de/ebics/g30bench/Packet.java | cut -d' ' -f1)" = "5c5c6f7c832755e35b9f0e94155b17b5fa520eb461fa17f5ab6041743b26b85c"
+          test "$(sha256sum src/de/ebics/g30bench/WireDecoder.java | cut -d' ' -f1)" = "89f4f2b9c6fa5430818925b1232309bb7fccae817d7c8962e9267e86c44cc87a"
+          test "$(sha256sum assets/DRV126_FIRM.bin.enc | cut -d' ' -f1)" = "1d41c1259ba5919d923c4c05b489e62a0760dc0003e186378e877a93e8260461"
+          test "$(wc -c < assets/DRV126_FIRM.bin.enc)" = "30080"
+          grep -q 'android:versionCode="3"' AndroidManifest.xml
+          grep -q 'android:versionName="0.1.2R"' AndroidManifest.xml
+      - name: Existing v0.1.1 core tests
+        working-directory: /tmp/g30rec
+        run: |
+          python3 tests/run_core_tests.py
+          python3 tests/run_ble_mock_tests.py
+      - name: Recovery state-machine test
+        working-directory: /tmp/g30rec
+        run: |
+          rm -rf /tmp/rt && mkdir /tmp/rt
+          javac -source 8 -target 8 -d /tmp/rt src/de/ebics/g30bench/Packet.java src/de/ebics/g30bench/RecoverySession.java tests/RecoverySessionTests.java
+          java -cp /tmp/rt de.ebics.g30bench.RecoverySessionTests assets/DRV126_FIRM.bin.enc
+      - name: Build signed APK
+        working-directory: /tmp/g30rec
+        run: |
+          python3 build.py --android-jar "$ANDROID_HOME/platforms/android-35/android.jar" --build-tools "$ANDROID_HOME/build-tools/35.0.0"
+          sha256sum dist/G30_Bench_BLE_v0.1.2R_DRV126_RECOVERY.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs dist/G30_Bench_BLE_v0.1.2R_DRV126_RECOVERY.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging dist/G30_Bench_BLE_v0.1.2R_DRV126_RECOVERY.apk | head -n 4
+      - name: Package source
+        working-directory: /tmp/g30rec
+        run: |
+          python3 package.py --output dist/G30_Bench_BLE_v0.1.2R_DRV126_RECOVERY_SOURCE_TESTS.zip
+          sha256sum dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: G30-Bench-BLE-v0.1.2R-DRV126-Recovery
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            /tmp/g30rec/dist/G30_Bench_BLE_v0.1.2R_DRV126_RECOVERY.apk
+            /tmp/g30rec/dist/G30_Bench_BLE_v0.1.2R_DRV126_RECOVERY_SOURCE_TESTS.zip
+            /tmp/g30rec/README_DE.md
