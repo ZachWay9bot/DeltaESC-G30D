@@ -1,0 +1,50 @@
+name: Build DeltaESC Diag APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'android/DeltaESCDiag/**'
+      - '.github/workflows/build_android.yml'
+  pull_request:
+    paths:
+      - 'android/DeltaESCDiag/**'
+      - '.github/workflows/build_android.yml'
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Test protocol
+        run: gradle -p android/DeltaESCDiag :app:testDebugUnitTest --no-daemon
+
+      - name: Build debug APK
+        run: |
+          gradle -p android/DeltaESCDiag :app:assembleDebug --no-daemon
+          cp android/DeltaESCDiag/app/build/outputs/apk/debug/app-debug.apk DeltaESC_Diag_v0.4.1.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-Diag-v0.4.1
+          if-no-files-found: error
+          retention-days: 30
+          path: DeltaESC_Diag_v0.4.1.apk
