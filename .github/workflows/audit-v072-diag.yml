@@ -1,0 +1,35 @@
+name: Audit v0.7.2 diag layout
+on:
+  push:
+    branches: [ "test/v0.7.2-motor-bench" ]
+    paths: [ ".github/workflows/audit-v072-diag.yml" ]
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconstruct v0.7.2
+        run: |
+          mkdir -p /tmp/v061 /tmp/v072
+          tar -xJf v0.6/DeltaESC_G30D_v0_6_source.tar.xz -C /tmp/v061
+          xz -dc v0.6.1/v0611.patch.xz | patch -d /tmp/v061 -p1
+          cp -a /tmp/v061/. /tmp/v072/
+          xz -dc v0.6.2/v062.patch.xz | patch -d /tmp/v072 -p4
+          xz -dc v0.6.3/v063.patch.xz | patch -d /tmp/v072 -p4
+          xz -dc v0.6.4/v064.patch.xz | patch -d /tmp/v072 -p4
+          xz -dc v0.6.5/v065.patch.xz | patch -d /tmp/v072 -p1
+          cp v0.7.0/apply_v070.py /tmp/v072/apply_v070.py
+          python3 /tmp/v072/apply_v070.py
+          cp v0.7.2/apply_v072.py /tmp/v072/apply_v072.py
+          python3 /tmp/v072/apply_v072.py
+      - name: Print diag and magic
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('/tmp/v072/src/main.c').read_text().splitlines()
+          for i,line in enumerate(s):
+              if 'MAGIC_UNLOCK' in line or any(f'0xD{x:X}u' in line for x in range(10)):
+                  a=max(0,i-2); b=min(len(s),i+4)
+                  print(f'--- lines {a+1}-{b} ---')
+                  print('\n'.join(f'{n+1}: {s[n]}' for n in range(a,b)))
+          PY
