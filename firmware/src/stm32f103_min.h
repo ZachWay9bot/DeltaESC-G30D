@@ -10,7 +10,11 @@
 #define RCC_APB2ENR     REG32(RCC_BASE + 0x18)
 #define RCC_APB1ENR     REG32(RCC_BASE + 0x1C)
 
-#define FLASH_ACR       REG32(0x40022000u)
+#define FLASH_BASE      0x40022000u
+#define FLASH_ACR       REG32(FLASH_BASE + 0x00)
+#define FLASH_KEYR      REG32(FLASH_BASE + 0x04)
+#define FLASH_SR        REG32(FLASH_BASE + 0x0C)
+#define FLASH_CR        REG32(FLASH_BASE + 0x10)
 
 #define GPIOA_BASE      0x40010800u
 #define GPIOB_BASE      0x40010C00u
