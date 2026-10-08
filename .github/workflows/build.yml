@@ -7,11 +7,11 @@ on:
       - 'firmware/**'
       - '.github/workflows/build.yml'
       - 'tools/make_shu_zip.py'
-      - 'tools/make_shu_zip.py'
   pull_request:
     paths:
       - 'firmware/**'
       - '.github/workflows/build.yml'
+      - 'tools/make_shu_zip.py'
 
 jobs:
   build:
