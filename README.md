@@ -27,8 +27,11 @@ Current rules:
 
 - **v0.3**: passive 4 kHz diagnostic/control-path benchmark, physical bridge disabled.
 - **v0.4**: TIM1 complementary-PWM and ADC synchronization bring-up.
-  - `syncsafe` build cannot arm the bridge.
-  - `zero_vector_active` build can be manually armed for oscilloscope validation only and commands equal phase duty, not a rotating torque vector.
+- **v0.4.1**: stock-dashboard Bluetooth diagnostic path.
+  - phone side uses the proven NinebotCrypto flow;
+  - dashboard forwards decrypted Ninebot frames to ESC USART2 on PA2, 115200 half-duplex;
+  - private CMD `0x7D`, ARG `0x00` = HELLO, ARG `0x20` = read-only diagnostic snapshot;
+  - no BLE command can arm the power stage in v0.4.1.
 
 The next planned stage is calibrated current sensing, phase mapping, low-energy motor parameter work and a controlled sensorless open-loop-to-observer transition.
 
