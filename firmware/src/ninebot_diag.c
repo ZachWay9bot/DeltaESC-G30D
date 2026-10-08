@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "stm32f103_min.h"
 #include "ninebot_diag.h"
+#include "shu_iap.h"
 
 #ifndef POWER_STAGE_ARM_ALLOWED
 #define POWER_STAGE_ARM_ALLOWED 0
@@ -241,6 +242,10 @@ void ninebot_diag_poll(void) {
     }
 
     while (USART2_SR & USART_SR_RXNE) {
-        feed_byte((uint8_t)(USART2_DR & 0xFFu));
+        uint8_t b = (uint8_t)(USART2_DR & 0xFFu);
+        if (shu_iap_feed_byte(b)) {
+            shu_iap_handoff();
+        }
+        feed_byte(b);
     }
 }
