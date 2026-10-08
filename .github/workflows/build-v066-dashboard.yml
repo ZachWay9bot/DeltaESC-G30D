@@ -35,6 +35,9 @@ jobs:
           cat v0.6.6/v066.patch.part-* > /tmp/v066.patch
           echo "dfab72dc0bf7869d595e041cb1a797a4ac5f50e2118c5011f99a5d7fc33abd0a  /tmp/v066.patch" | sha256sum -c -
           patch -d /tmp/v066 -p1 < /tmp/v066.patch
+          cat v0.6.6/v066-serial.patch.part-* > /tmp/v066-serial.patch
+          echo "c10b9a4b2b1d9721ee08de496b4a38e90f0ee7eb6e843e8a6a45038892c58b11  /tmp/v066-serial.patch" | sha256sum -c -
+          patch -d /tmp/v066 -p1 < /tmp/v066-serial.patch
           test ! -n "$(find /tmp/v066 -name '*.rej' -print -quit)"
 
       - name: Build matrix
@@ -66,6 +69,12 @@ jobs:
         env:
           HOST_CC: clang-18
         run: python3 tools/test_dashboard_runtime.py
+
+      - name: Stock serial identity regression
+        working-directory: /tmp/v066
+        env:
+          HOST_CC: clang-18
+        run: python3 tools/test_serial_identity.py
 
       - name: v0.6.6 hardening preflight
         working-directory: /tmp/v066
