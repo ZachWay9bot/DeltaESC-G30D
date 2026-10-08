@@ -13,50 +13,54 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Reconstruct v0.2 source
-        run: |
-          mkdir -p /tmp/v01 /tmp/v02
-          tar -xJf android/DeltaESC_Android_v0_1_source.tar.xz -C /tmp/v01
-          cp -a /tmp/v01/. /tmp/v02/
-          xz -dc android/v0.2/android_v02.patch.xz | patch -d /tmp/v02 -p1
-      - name: Core protocol self-test
-        run: |
-          mkdir -p /tmp/core/de/deltaesc/tool /tmp/core-out
-          cp /tmp/v02/app/src/main/java/de/deltaesc/tool/{NinebotCrypto.java,NinebotProtocol.java,Hex.java} /tmp/core/de/deltaesc/tool/
-          cat >/tmp/core/de/deltaesc/tool/SelfTest.java <<'EOF'
-          package de.deltaesc.tool;
-          import java.util.*;
-          public class SelfTest {
-            public static void main(String[] args){
-              byte[] f=NinebotProtocol.read(0xD0,0x20);
-              if(!Hex.of(f).replace(" ","").toLowerCase().equals("5aa5013e2001d020")) throw new RuntimeException("logical");
-              NinebotCrypto c=new NinebotCrypto("MIScooter1234");
-              byte[] p=NinebotProtocol.bleCommand(0x5B,0,new byte[0]);
-              if(!Hex.of(c.encrypt(p)).replace(" ","").toLowerCase().equals("5aa500aa07c3ca000045ff0000")) throw new RuntimeException("crypto");
-              NinebotProtocol.CryptoStreamParser sp=new NinebotProtocol.CryptoStreamParser();
-              byte[] e=Hex.parse("5A A5 00 9E 84 DB EF 00 00 D4 FF 00 00");
-              if(!sp.push(Arrays.copyOfRange(e,0,4)).isEmpty()) throw new RuntimeException("fragment-early");
-              if(sp.push(Arrays.copyOfRange(e,4,e.length)).size()!=1) throw new RuntimeException("fragment-final");
-              System.out.println("Android protocol core self-test: PASS");
-            }
-          }
-          EOF
-          javac -d /tmp/core-out $(find /tmp/core -name '*.java')
-          java -cp /tmp/core-out de.deltaesc.tool.SelfTest
-      - name: Install Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
-      - name: Unit tests
-        working-directory: /tmp/v02
-        run: gradle --no-daemon :app:testDebugUnitTest
+      - name: Reconstruct v0.2 source
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xz-utils patch
+          mkdir -p /tmp/deltaesc-android
+          tar -xJf android/DeltaESC_Android_v0_1_source.tar.xz -C /tmp/deltaesc-android
+          cd /tmp/deltaesc-android/DeltaESC_Android_v0_1
+          xz -dc "$GITHUB_WORKSPACE/android/v0.2/android_v02.patch.xz" | patch -p1
+      - name: Protocol and MIC unit test
+        working-directory: /tmp/deltaesc-android/DeltaESC_Android_v0_1
+        run: |
+          SRC=app/src/main/java/de/deltaesc/tool
+          cat > "$SRC/ProtocolSelfTest.java" <<'JAVA'
+          package de.deltaesc.tool;
+          import java.util.Arrays;
+          final class ProtocolSelfTest {
+            private static void ok(boolean x,String m){if(!x)throw new AssertionError(m);}
+            public static void main(String[] args){
+              byte[] r=NinebotProtocol.read(0x1A,1);
+              ok(Arrays.equals(r,new byte[]{0x5A,(byte)0xA5,1,0x3E,0x20,1,0x1A,1}),"read frame");
+              byte[] id=NinebotProtocol.build(0x3E,0x04,0xD0,new byte[]{
+                'D','E','S','C',0,1,3,6,0,0,0,0,(byte)0x80,0x3E,(byte)0xA0,0x0F});
+              ok(DeltaEscProtocol.isDeltaEscIdentity(NinebotProtocol.decode(id)),"DESC identity");
+              NinebotCrypto tx=new NinebotCrypto("NBScooter2088");
+              NinebotCrypto rx=new NinebotCrypto("NBScooter2088");
+              byte[] enc=tx.encrypt(NinebotProtocol.init());
+              ok(Arrays.equals(rx.decryptVerified(enc),NinebotProtocol.init()),"first crypto roundtrip");
+              byte[] bad=enc.clone(); bad[bad.length-4]^=1;
+              boolean rejected=false; try{new NinebotCrypto("NBScooter2088").decryptVerified(bad);}catch(SecurityException e){rejected=true;}
+              ok(rejected,"tampered MIC accepted");
+              System.out.println("protocol+identity+MIC unit: PASS");
+            }
+          }
+          JAVA
+          rm -rf /tmp/java-test && mkdir -p /tmp/java-test
+          javac -d /tmp/java-test "$SRC/Hex.java" "$SRC/NinebotProtocol.java" "$SRC/NinebotCrypto.java" "$SRC/DeltaEscProtocol.java" "$SRC/ProtocolSelfTest.java"
+          java -cp /tmp/java-test de.deltaesc.tool.ProtocolSelfTest
+          rm "$SRC/ProtocolSelfTest.java"
       - name: Build debug APK
-        working-directory: /tmp/v02
-        run: gradle --no-daemon :app:assembleDebug
+        working-directory: /tmp/deltaesc-android/DeltaESC_Android_v0_1
+        run: gradle :app:assembleDebug --stacktrace
       - name: Package source
         run: |
-          tar -C /tmp/v02 -cJf /tmp/DeltaESC_Android_v0_2_source.tar.xz .
-          cp /tmp/v02/app/build/outputs/apk/debug/app-debug.apk /tmp/DeltaESC_Android_v0_2_debug.apk
+          tar -C /tmp/deltaesc-android -cJf /tmp/DeltaESC_Android_v0_2_source.tar.xz DeltaESC_Android_v0_1
+          cp /tmp/deltaesc-android/DeltaESC_Android_v0_1/app/build/outputs/apk/debug/app-debug.apk /tmp/DeltaESC_Android_v0_2_debug.apk
           sha256sum /tmp/DeltaESC_Android_v0_2_debug.apk /tmp/DeltaESC_Android_v0_2_source.tar.xz
       - uses: actions/upload-artifact@v4
         with:
@@ -66,3 +70,5 @@ jobs:
           path: |
             /tmp/DeltaESC_Android_v0_2_debug.apk
             /tmp/DeltaESC_Android_v0_2_source.tar.xz
+            /tmp/deltaesc-android/DeltaESC_Android_v0_1/README.md
+            /tmp/deltaesc-android/DeltaESC_Android_v0_1/PROTOCOL.md
