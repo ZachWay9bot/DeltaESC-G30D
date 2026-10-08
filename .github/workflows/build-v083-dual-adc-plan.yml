@@ -1,7 +1,7 @@
-name: Audit DeltaESC v0.8.3 stock DRV126 current frontend (SOURCE ONLY)
+name: Audit DeltaESC v0.8.3 stock dual-ADC acquisition plan (SOURCE ONLY)
 on:
   push:
-    branches: ["dev/v0.8.3-stock-current-frontend-sourceonly"]
+    branches: ["dev/v0.8.3-stock-dual-adc-plan-sourceonly"]
     paths:
       - "v0.8.3/**"
       - ".github/workflows/build-v083-dual-adc-plan.yml"
@@ -74,10 +74,11 @@ jobs:
       - name: Build gate-OFF SYNC-SAFE target only
         working-directory: /tmp/v083
         run: make clean safe CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
-      - name: Test stock DRV126 current frontend model
+      - name: Test stock DRV126 current frontend and dual-ADC plan
         env:
           HOST_CC: clang-18
-        run: python3 v0.8.2/tools/test_stock_current_frontend.py /tmp/v083
+        run: |
+          python3 v0.8.2/tools/test_stock_current_frontend.py /tmp/v083
           python3 v0.8.3/tools/test_stock_dual_adc_plan.py /tmp/v083
       - name: Test commissioning guard truth table
         env:
@@ -91,8 +92,8 @@ jobs:
         env:
           ARM_NM: llvm-nm-18
         run: |
-          cp /tmp/v083/build/DeltaESC_G30D_v0_8_2_ble_syncsafe.elf /tmp/v083/build/target_syncsafe.elf
-          cp /tmp/v083/build/DeltaESC_G30D_v0_8_2_ble_syncsafe.bin /tmp/v083/build/target_syncsafe.bin
+          cp /tmp/v083/build/DeltaESC_G30D_v0_8_3_ble_syncsafe.elf /tmp/v083/build/target_syncsafe.elf
+          cp /tmp/v083/build/DeltaESC_G30D_v0_8_3_ble_syncsafe.bin /tmp/v083/build/target_syncsafe.bin
           python3 v0.6.10/full_target_protocol.py /tmp/v083 --retry --guard --blocks 130
       - name: Test actual ARM DashBLE commissioning ABI
         env:
