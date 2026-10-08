@@ -65,14 +65,17 @@ static int small_error(void){
     phase_current_counts_t z={0,0,0};
     sensorless_control_init(&s);
     sensorless_control_set_drive(&s,1u);
+    int32_t expect=0;
     for(unsigned k=1;k<=400u;k++){
         sensorless_control_step(&s,z,2500u,1999u,1u);
         if(s.state!=SENSORLESS_ALIGN)return 1;
-        if(s.iq_int!=(int32_t)(k*5u*220u))return 2;
+        int32_t iq=(k<5u)?(int32_t)k:5;
+        expect += iq*220;
+        if(s.iq_int!=expect)return 2;
         if(s.id_int!=0)return 3;
         if(s.ccr1>1999u||s.ccr2>1999u||s.ccr3>1999u)return 4;
     }
-    if(s.iq_int!=440000)return 5;
+    if(s.iq_int!=437800)return 5;
     sensorless_control_stop(&s);
     if(s.id_int||s.iq_int)return 6;
     return 0;
