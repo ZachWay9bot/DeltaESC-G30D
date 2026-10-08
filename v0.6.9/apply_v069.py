@@ -112,6 +112,10 @@ s=s[:idx]+'''if(g_poweroff_requested) {
             else if((int32_t)(g_ms-g_poweroff_deadline_ms)>=0)power_hold_release_now();
         }
         '''+s[idx:]
+# The C-function extractor starts at the name; keep exactly one return type.
+s=once(s,"static void static void power_hold_init","static void power_hold_init","power hold signature")
+s=once(s,"void void SysTick_Handler","void SysTick_Handler","SysTick signature")
+s=once(s,"static void static void action_ack","static void action_ack","ACK signature")
 main.write_text(s)
 
 hdr=root/"src/ninebot_link.h"
