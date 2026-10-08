@@ -30,6 +30,8 @@ jobs:
           cat android/v0.2/chunks/*.b64 | tr -d '\n\r ' | base64 -d > /tmp/android_v02.patch.xz
           echo "269e9793c3bcbb7abf7cb7cd74d24d460a6cc070eadf9658cec515d76b46d7ec  /tmp/android_v02.patch.xz" | sha256sum -c -
           xz -dc /tmp/android_v02.patch.xz | patch -d /tmp/app/v02 -p1
+          rm -f /tmp/app/v02/app/src/main/java/de/deltaesc/tool/DeltaEscProtocol.java
+          test ! -e /tmp/app/v02/app/src/main/java/de/deltaesc/tool/DeltaEscProtocol.java
 
       - name: Pure Java NinebotCrypto vector
         run: |
