@@ -1,0 +1,118 @@
+name: Build DeltaESC v0.7.1 ST-Link sensorless bench
+
+on:
+  push:
+    branches: ["dev/v0.7.1-stlink-sensorless-bench"]
+    paths:
+      - "v0.7.1/**"
+      - ".github/workflows/build-v071-sensorless-bench.yml"
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned LLVM and build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18 llvm-18 xz-utils patch
+
+      - name: Reconstruct canonical v0.7.0 source
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/v061 /tmp/v071
+          tar -xJf v0.6/DeltaESC_G30D_v0_6_source.tar.xz -C /tmp/v061
+          xz -dc v0.6.1/v0611.patch.xz | patch -d /tmp/v061 -p1
+          cp -a /tmp/v061/. /tmp/v071/
+          xz -dc v0.6.2/v062.patch.xz | patch -d /tmp/v071 -p4
+          xz -dc v0.6.3/v063.patch.xz | patch -d /tmp/v071 -p4
+          xz -dc v0.6.4/v064.patch.xz | patch -d /tmp/v071 -p4
+          xz -dc v0.6.5/v065.patch.xz | patch -d /tmp/v071 -p1
+          cat v0.6.6/v066.patch.part-* > /tmp/v066.patch
+          echo "dfab72dc0bf7869d595e041cb1a797a4ac5f50e2118c5011f99a5d7fc33abd0a  /tmp/v066.patch" | sha256sum -c -
+          patch -d /tmp/v071 -p1 < /tmp/v066.patch
+          cat v0.6.7/v067.patch.part-* > /tmp/v067.patch
+          echo "430666ee2c9967973c5aaec1560385010ab531cc04d5e790ec28cf495a6c18a4  /tmp/v067.patch" | sha256sum -c -
+          patch -d /tmp/v071 -p1 < /tmp/v067.patch
+          cp v0.6.8/src/iap_control.[ch] /tmp/v071/src/
+          patch -d /tmp/v071 -p1 < v0.6.8/iap_powercut_core.patch
+          python3 v0.6.9/apply_v069.py /tmp/v071
+          patch -d /tmp/v071 -p1 < v0.6.10/iap_retry.patch
+          python3 v0.7.0/apply_v070.py /tmp/v071
+          test -z "$(find /tmp/v071 -name '*.rej' -print -quit)"
+
+      - name: Apply v0.7.1 active sensorless bench
+        run: |
+          set -euxo pipefail
+          cat v0.7.1/v071.patch.part-* > /tmp/v071.patch
+          echo "28c210ccf8a6f5d3dfbfbd515c6781b16b95dc942742fbb5bfa0b834cd24b290  /tmp/v071.patch" | sha256sum -c -
+          patch -d /tmp/v071 -p4 < /tmp/v071.patch
+          test -z "$(find /tmp/v071 -name '*.rej' -print -quit)"
+          # Comment-only corrections after the already-hashed functional patch.
+          sed -i 's/300 ms before lock may count/500 ms before lock may count/' /tmp/v071/src/sensorless_control.c
+          sed -i 's/1.6 s/2.25 s/' /tmp/v071/src/sensorless_control.c
+          sed -i 's/~88 eRPM at 4 kHz/start from zero electrical speed/' /tmp/v071/src/sensorless_control.c
+          sed -i 's/~806 eRPM/~659 eRPM/' /tmp/v071/src/sensorless_control.c
+          sed -i 's/0.75 s/1.5 s/' /tmp/v071/src/sensorless_control.c
+
+      - name: Build active ST-Link bench
+        working-directory: /tmp/v071
+        run: |
+          make clean all CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18 NM=llvm-nm-18
+          test -s build/DeltaESC_G30D_v0_7_1_STLINK_SENSORLESS_BENCH.bin
+          test $(stat -c%s build/DeltaESC_G30D_v0_7_1_STLINK_SENSORLESS_BENCH.bin) -le 51200
+          test -z "$(llvm-nm-18 -u build/DeltaESC_G30D_v0_7_1_STLINK_SENSORLESS_BENCH.elf)"
+
+      - name: Sensorless 81-case plant simulation and active-build preflight
+        working-directory: /tmp/v071
+        env:
+          HOST_CC: clang-18
+        run: python3 tools/test_sensorless_bench.py
+
+      - name: Existing dashboard and stock-IAP regressions
+        working-directory: /tmp/v071
+        env:
+          HOST_CC: clang-18
+        run: |
+          python3 tools/test_dashboard_runtime.py
+          python3 tools/test_iap_ack.py
+          python3 tools/test_iap_transport.py
+
+      - name: Active-build invariants
+        working-directory: /tmp/v071
+        run: |
+          set -euxo pipefail
+          grep -F -- '-DPOWER_STAGE_ARM_ALLOWED=1 -DSENSORLESS_RUN_ALLOWED=1' Makefile
+          grep -F '#define HARD_OC_COUNTS                120u' src/main.c
+          grep -F 'GPIO_BRR(GPIOB_BASE)=(1u<<1)' src/main.c
+          grep -F 'TIM_CCER(TIM1_BASE)&=~GATE_CCER_MASK' src/main.c
+          grep -F 'dashboard_motor_off(0u)' src/main.c
+          grep -F 'dashboard_motor_off(1u)' src/main.c
+          grep -F 'fast_atan2_u16(s->e_beta, s->e_alpha)' src/sensorless_control.c
+          grep -F 'observer_seed_phase(s, s->control_phase)' src/sensorless_control.c
+          grep -F 'g_sensorless_bench' build/STLINK_SYMBOLS.txt
+
+      - name: Export canonical artifacts
+        run: |
+          set -euxo pipefail
+          cp /tmp/v071/build/DeltaESC_G30D_v0_7_1_STLINK_SENSORLESS_BENCH.bin /tmp/
+          cp /tmp/v071/build/DeltaESC_G30D_v0_7_1_STLINK_SENSORLESS_BENCH.elf /tmp/
+          cp /tmp/v071/build/STLINK_SYMBOLS.txt /tmp/
+          cp /tmp/v071/STLINK_WATCH_LAYOUT.txt /tmp/
+          tar --exclude=build --exclude='__pycache__' -C /tmp/v071 -cJf /tmp/DeltaESC_G30D_v0_7_1_SOURCE.tar.xz .
+          sha256sum /tmp/DeltaESC_G30D_v0_7_1_STLINK_SENSORLESS_BENCH.bin                     /tmp/DeltaESC_G30D_v0_7_1_STLINK_SENSORLESS_BENCH.elf                     /tmp/DeltaESC_G30D_v0_7_1_SOURCE.tar.xz                     /tmp/STLINK_SYMBOLS.txt                     /tmp/STLINK_WATCH_LAYOUT.txt | tee /tmp/SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-v0.7.1-STLINK-SENSORLESS-BENCH
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            /tmp/DeltaESC_G30D_v0_7_1_STLINK_SENSORLESS_BENCH.bin
+            /tmp/DeltaESC_G30D_v0_7_1_STLINK_SENSORLESS_BENCH.elf
+            /tmp/DeltaESC_G30D_v0_7_1_SOURCE.tar.xz
+            /tmp/STLINK_SYMBOLS.txt
+            /tmp/STLINK_WATCH_LAYOUT.txt
+            /tmp/SHA256SUMS.txt
