@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from pathlib import Path
 
-root=Path(__file__).resolve().parent.parent
+root=Path(__file__).resolve().parent
 h=root/'src/sensorless_control.h'
 c=root/'src/sensorless_control.c'
 m=root/'src/main.c'
