@@ -52,6 +52,8 @@ jobs:
         run: python3 tools/test_iap_powercut.py
       - name: Model stock bootloader copy interruptions
         run: python3 v0.6.8/tools/test_stock_copy_faults.py
+      - name: Pin unsafe stock erase-error branch
+        run: python3 v0.6.8/tools/test_stock_error_paths.py
       - name: Existing regression suite
         working-directory: /tmp/v068
         env:
