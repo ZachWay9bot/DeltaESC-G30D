@@ -1,0 +1,20 @@
+name: Export Android v0.1 source
+on:
+  push:
+    branches: [ "dev/android-tool-v0.2" ]
+  workflow_dispatch:
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract source
+        run: |
+          mkdir -p /tmp/src
+          tar -xJf android/DeltaESC_Android_v0_1_source.tar.xz -C /tmp/src
+          cd /tmp/src
+          zip -qr /tmp/DeltaESC_Android_v0_1_extracted.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-Android-v0.1-extracted
+          path: /tmp/DeltaESC_Android_v0_1_extracted.zip
