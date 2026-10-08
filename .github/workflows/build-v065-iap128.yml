@@ -1,4 +1,4 @@
-name: Build DeltaESC G30D v0.6.5 IAP128 + VTOR
+name: Build DeltaESC G30D v0.6.5 IAP128 VTOR
 on:
   push:
     branches: [ "dev/v0.6.5-iap128-vtor" ]
@@ -9,10 +9,11 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Install toolchain
+      - name: Install pinned toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y clang-18 llvm-18 xz-utils patch
+          clang-18 --version | head -n 1
       - name: Reconstruct v0.6.5 source
         run: |
           mkdir -p /tmp/v061 /tmp/v065
@@ -22,36 +23,57 @@ jobs:
           xz -dc v0.6.2/v062.patch.xz | patch -d /tmp/v065 -p4
           xz -dc v0.6.3/v063.patch.xz | patch -d /tmp/v065 -p4
           xz -dc v0.6.4/v064.patch.xz | patch -d /tmp/v065 -p4
-          xz -dc v0.6.5/v065.patch.xz | patch -d /tmp/v065 -p2
+          xz -dc v0.6.5/v065.patch.xz | patch -d /tmp/v065 -p1
       - name: Build matrix
         working-directory: /tmp/v065
         run: make clean all CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
-      - name: Stock IAP ACK host vector
+      - name: Stock DRV126 IAP ACK vector
         working-directory: /tmp/v065
-        env: { HOST_CC: clang-18 }
+        env:
+          HOST_CC: clang-18
         run: python3 tools/test_iap_ack.py
-      - name: 128-byte IAP transport vector
+      - name: Stock 128-byte IAP transport and checksum vector
         working-directory: /tmp/v065
-        env: { HOST_CC: clang-18 }
+        env:
+          HOST_CC: clang-18
         run: python3 tools/test_iap_transport.py
-      - name: v0.6.5 preflight
+      - name: v0.6.5 hardening preflight
         working-directory: /tmp/v065
         run: python3 tools/preflight_v065.py
-      - name: IAP crypto regression
+      - name: NinebotTEA regression
         working-directory: /tmp/v065
         run: python3 tools/test_iap_crypto.py
-      - name: SHU ZIPv3 preflight
+      - name: SHU ZIP3 encrypted-only preflight
         working-directory: /tmp/v065
         run: python3 tools/test_shu_package.py
-      - name: Build packages
+      - name: Build first-test SHU package
         working-directory: /tmp/v065
         run: |
           mkdir -p shu
-          python3 tools/make_shu_zip.py build/DeltaESC_G30D_v0_6_5_ble_syncsafe.bin shu/DeltaESC_G30D_v0_6_5_SHU_SYNC_SAFE.zip --name "DeltaESC G30D v0.6.5 SAFE" --variant syncsafe
-          python3 tools/make_shu_zip.py build/DeltaESC_G30D_v0_6_5_ble_observer_zero_vector.bin shu/DeltaESC_G30D_v0_6_5_SHU_ZERO_VECTOR.zip --name "DeltaESC G30D v0.6.5 ZERO VECTOR" --variant zero-vector
-          python3 tools/make_shu_zip.py build/DeltaESC_G30D_v0_6_5_ble_sensorless_bench.bin shu/DeltaESC_G30D_v0_6_5_SHU_SENSORLESS_BENCH.zip --name "DeltaESC G30D v0.6.5 SENSORLESS BENCH" --variant sensorless-bench
-          tar --exclude=build --exclude=shu -C /tmp/v065 -cJf /tmp/DeltaESC_G30D_v0_6_5_source.tar.xz .
-          sha256sum build/*.bin shu/*.zip /tmp/DeltaESC_G30D_v0_6_5_source.tar.xz
+          python3 tools/make_shu_zip.py \
+            build/DeltaESC_G30D_v0_6_5_ble_syncsafe.bin \
+            shu/DeltaESC_G30D_v0_6_5_SHU_SYNC_SAFE.zip \
+            --name "DeltaESC G30D v0.6.5 SAFE" --variant syncsafe
+          python3 - <<'PY'
+          import hashlib,json,zipfile
+          p='shu/DeltaESC_G30D_v0_6_5_SHU_SYNC_SAFE.zip'
+          with zipfile.ZipFile(p) as z:
+              assert set(z.namelist()) == {'FIRM.bin.enc','info.json','params.txt'}
+              i=json.loads(z.read('info.json'))['firmware']
+              assert i['encryption']=='encrypted'
+              assert i['compatible']==['max_DRV_STM32F103CxT6']
+              e=z.read('FIRM.bin.enc')
+              assert hashlib.md5(e).hexdigest()==i['md5']['enc']
+          print('final SHU encrypted-only package check: PASS')
+          PY
+      - name: Package reproducible source
+        run: tar --exclude=build --exclude=shu -C /tmp/v065 -cJf /tmp/DeltaESC_G30D_v0_6_5_source.tar.xz .
+      - name: Canonical hashes
+        working-directory: /tmp/v065
+        run: |
+          sha256sum build/*.bin
+          sha256sum shu/DeltaESC_G30D_v0_6_5_SHU_SYNC_SAFE.zip
+          sha256sum /tmp/DeltaESC_G30D_v0_6_5_source.tar.xz
       - uses: actions/upload-artifact@v4
         with:
           name: DeltaESC-G30D-v0.6.5-IAP128-VTOR
@@ -59,6 +81,6 @@ jobs:
           if-no-files-found: error
           path: |
             /tmp/v065/build/*.bin
-            /tmp/v065/shu/*.zip
+            /tmp/v065/shu/DeltaESC_G30D_v0_6_5_SHU_SYNC_SAFE.zip
             /tmp/DeltaESC_G30D_v0_6_5_source.tar.xz
             /tmp/v065/README.md
