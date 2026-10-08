@@ -163,9 +163,9 @@ jobs:
           s=p.read_text()
           assert "b'\\x04\\x08'" in s
           s=s.replace("b'\\x04\\x08'","b'\\x05\\x08'")
-          old_import="path=repo/'v0.6.10'/'full_target_protocol.py'"
+          old_import="repo/'v0.6.10'/'full_target_protocol.py'"
           assert old_import in s
-          s=s.replace(old_import,"path=repo/'v0.8.5_dual_adc_unicorn.py'")
+          s=s.replace(old_import,"repo/'v0.8.5_dual_adc_unicorn.py'")
           target.write_text(s)
           PY
           python3 v0.8.4/tools/test_arm_v085.py /tmp/v085
