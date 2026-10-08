@@ -159,12 +159,12 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           p=Path('v0.8.4/tools/test_arm_v084.py')
-          target=Path('v0.8.5_test_arm_abi.py')
+          target=Path('v0.8.5/tools/test_arm_v085.py')
           s=p.read_text()
           assert "b'\\x04\\x08'" in s
           target.write_text(s.replace("b'\\x04\\x08'","b'\\x05\\x08'"))
           PY
-          python3 v0.8.5_test_arm_abi.py /tmp/v085
+          python3 v0.8.5/tools/test_arm_v085.py /tmp/v085
           python3 - <<'PY'
           from pathlib import Path
           import importlib.util
