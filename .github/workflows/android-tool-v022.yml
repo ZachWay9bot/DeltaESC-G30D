@@ -1,0 +1,98 @@
+name: Android Link Probe v0.2.2 Bench Transport
+on:
+  push:
+    branches: [ "dev/android-tool-v0.2.2-bench-transport" ]
+    paths:
+      - "android/v0.2.2/**"
+      - ".github/workflows/android-tool-v022.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Reconstruct v0.2 baseline
+        run: |
+          mkdir -p /tmp/app
+          tar -xJf android/DeltaESC_Android_v0_1_source.tar.xz -C /tmp/app
+          mv /tmp/app/DeltaESC_Android_v0_1 /tmp/app/v022
+          cat android/v0.2/chunks/*.b64 | tr -d '\n\r ' | base64 -d > /tmp/android_v02.patch.xz
+          echo "269e9793c3bcbb7abf7cb7cd74d24d460a6cc070eadf9658cec515d76b46d7ec  /tmp/android_v02.patch.xz" | sha256sum -c -
+          xz -dc /tmp/android_v02.patch.xz | patch -d /tmp/app/v022 -p1
+          rm -f /tmp/app/v022/app/src/main/java/de/deltaesc/tool/DeltaEscProtocol.java
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('/tmp/app/v022/app/src/main/java/de/deltaesc/tool/MainActivity.java')
+          s=p.read_text()
+          old='private void readDeltaSnapshot(){if(stage!=4){toast("Nicht angemeldet");return;}int[] r={0xD0,0xD1,0xD8,0xD9};'
+          new='private void readDeltaSnapshot(){if(stage!=4){toast("Nicht angemeldet");return;}if(!deltaDetected){toast("DeltaESC-Signatur fehlt; Snapshot gesperrt");return;}int[] r={0xD0,0xD1,0xD8,0xD9};'
+          assert old in s
+          p.write_text(s.replace(old,new))
+          PY
+
+      - name: Apply v0.2.2 proven-transport delta
+        run: |
+          echo "18c5215acfd303129224f837bb152abc8defc81ccf4c7e6b109a3e2ea869f21a  android/v0.2.2/v022.patch.xz" | sha256sum -c -
+          xz -dc android/v0.2.2/v022.patch.xz | patch -d /tmp/app/v022 -p1
+
+      - name: Static transport safety preflight
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root=Path('/tmp/app/v022/app/src/main/java/de/deltaesc/tool')
+          ble=(root/'BleUartClient.java').read_text()
+          main=(root/'MainActivity.java').read_text()
+          gradle=Path('/tmp/app/v022/app/build.gradle').read_text()
+          assert 'NUS_CHUNK = 20' in ble
+          assert 'WRITE_TYPE_DEFAULT' in ble
+          assert 'MAX_CHUNK_ATTEMPTS = 6' in ble
+          assert 'GATT-Chunk ohne Bestätigung' in ble
+          assert 'requestMtu' not in ble
+          assert 'advertisedName' in ble
+          assert 'new NinebotCrypto(selectedName)' in main
+          assert 'NBScooter2020' not in ble + main
+          assert 'DeltaESC Link Probe 0.2.2' in main
+          assert "versionName '0.2.2'" in gradle
+          assert 'DeltaEscProtocol.java' not in [p.name for p in root.glob('*.java')]
+          print('v0.2.2 G30 bench-transport preflight: PASS')
+          PY
+
+      - name: Pure Java NinebotCrypto vector
+        run: |
+          mkdir -p /tmp/testclasses
+          javac -d /tmp/testclasses \
+            /tmp/app/v022/app/src/main/java/de/deltaesc/tool/Hex.java \
+            /tmp/app/v022/app/src/main/java/de/deltaesc/tool/NinebotProtocol.java \
+            /tmp/app/v022/app/src/main/java/de/deltaesc/tool/NinebotCrypto.java \
+            /tmp/app/v022/tools/TestCrypto.java
+          java -cp /tmp/testclasses de.deltaesc.tool.TestCrypto
+
+      - name: Build debug APK
+        working-directory: /tmp/app/v022
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Package source and hashes
+        run: |
+          cp /tmp/app/v022/app/build/outputs/apk/debug/app-debug.apk /tmp/DeltaESC_Link_Probe_v0_2_2.apk
+          tar --exclude=.gradle --exclude=app/build -C /tmp/app -cJf /tmp/DeltaESC_Android_v0_2_2_source.tar.xz v022
+          sha256sum /tmp/DeltaESC_Link_Probe_v0_2_2.apk /tmp/DeltaESC_Android_v0_2_2_source.tar.xz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-Link-Probe-v0.2.2-BenchTransport
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            /tmp/DeltaESC_Link_Probe_v0_2_2.apk
+            /tmp/DeltaESC_Android_v0_2_2_source.tar.xz
+            /tmp/app/v022/README.md
+            /tmp/app/v022/PROTOCOL.md
