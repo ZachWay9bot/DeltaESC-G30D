@@ -39,18 +39,24 @@ static void sync_active_config_from_txn(void){
 static uint8_t commit_motor_config(void){
     if(!motor_config_pending_complete(&g_motor_cfg))return 0u;
     motor_config_values_t v=g_motor_cfg.pending;
-    if(!sensorless_control_set_motor_params(&ctrl,v.r_uohm,v.l_nh,v.flux_uwb))return 0u;
-    if(!sensorless_control_set_run_current_ma(&ctrl,v.test_current_ma))return 0u;
-    sensorless_control_set_phase_offset(&ctrl,v.phase_offset);
-    if(!motor_config_commit(&g_motor_cfg))return 0u;
-    sync_active_config_from_txn();
-    g_cfg_dirty=1u;
-    return 1u;
+    /* The transaction module already range-validates every field. Mask the ADC
+       ISR as well so it can never observe R/L/flux from one tuple and current/
+       phase from another, even if this code is reused by a future active build. */
+    irq_disable();
+    uint8_t ok=(uint8_t)(sensorless_control_set_motor_params(&ctrl,v.r_uohm,v.l_nh,v.flux_uwb) &&
+                         sensorless_control_set_run_current_ma(&ctrl,v.test_current_ma));
+    if(ok){
+        sensorless_control_set_phase_offset(&ctrl,v.phase_offset);
+        ok=motor_config_commit(&g_motor_cfg);
+        if(ok){sync_active_config_from_txn();g_cfg_dirty=1u;}
+    }
+    irq_enable();
+    return ok;
 }
 
 static void app_write_config(const ninebot_frame_t *f){
     uint8_t cmd=f->arg;
-    if(g_power_armed){action_ack(f,cmd,ACT_UNSAFE);return;}
+    if(g_power_armed||ctrl.drive_request||ctrl.state!=SENSORLESS_STOP){action_ack(f,cmd,ACT_UNSAFE);return;}
     if(!has_magic(f)){action_ack(f,cmd,ACT_BAD_MAGIC);return;}
     if(cmd==0xF0u||cmd==0xF1u||cmd==0xF2u){
         if(f->payload_len<6u){action_ack(f,cmd,ACT_BAD_RANGE);return;}
@@ -68,7 +74,8 @@ static void app_write_config(const ninebot_frame_t *f){
         action_ack(f,cmd,ACT_RAM_ONLY);return;
     }
     if(cmd==0xF5u){
-        if(f->payload_len>=3u && f->payload[2]==0u){motor_config_abort(&g_motor_cfg);action_ack(f,cmd,ACT_OK);return;}
+        if(f->payload_len==3u && f->payload[2]==0u){motor_config_abort(&g_motor_cfg);action_ack(f,cmd,ACT_OK);return;}
+        if(f->payload_len!=2u){action_ack(f,cmd,ACT_BAD_RANGE);return;}
         if(!commit_motor_config()){action_ack(f,cmd,ACT_BAD_RANGE);return;}
         action_ack(f,cmd,ACT_RAM_ONLY);return;
     }

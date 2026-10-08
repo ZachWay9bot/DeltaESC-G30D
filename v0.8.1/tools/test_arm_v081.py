@@ -38,7 +38,9 @@ assert pkt_write(0xF3,magic+struct.pack('<h',-1234))==6
 assert pkt_write(0xF4,magic+struct.pack('<H',350))==6
 fault,diag,oc,phase,current,mask,valid=read_d9()
 assert phase==0 and current==500 and mask==0x1f and valid==0,(phase,current,mask,valid)
-# Commit only with complete tuple.
+# Commit only with complete tuple; trailing bytes are rejected.
+assert pkt_write(0xF5,magic+b'\x01')==5
+assert read_u32(0xD3)==0
 assert pkt_write(0xF5,magic)==6
 assert read_u32(0xD3)==250000 and read_u32(0xD4)==180000 and read_u32(0xD5)==12000
 fault,diag,oc,phase,current,mask,valid=read_d9()

@@ -7,6 +7,8 @@ assert 'motor_config_txn_init(&g_motor_cfg,g_cfg_test_current_ma)' in main
 assert 'if(!has_magic(f))' in main
 assert 'motor_config_stage_u32(&g_motor_cfg,cmd,get_u32(f->payload+2))' in main
 assert 'motor_config_pending_complete(&g_motor_cfg)' in main
+assert 'irq_disable();' in main and 'ctrl.drive_request||ctrl.state!=SENSORLESS_STOP' in main
+assert 'f->payload_len!=2u' in main
 assert 'motor_config_abort(&g_motor_cfg)' in main
 assert 'put_i16(p+6,g_cfg_phase_offset)' in main and 'p[10]=g_motor_cfg.pending_mask' in main
 assert 'src/motor_config_txn.c' in mk
