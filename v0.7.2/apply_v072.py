@@ -5,6 +5,7 @@ root=Path(__file__).resolve().parent
 m=root/'src/main.c'
 c=root/'src/sensorless_control.c'
 mk=root/'Makefile'
+hdr=root/'src/stm32f103_min.h'
 t=root/'tools/motor_core_host_test.c'
 
 s=m.read_text()
@@ -74,6 +75,14 @@ rep('case 0xD9u: put_u16(p,current_fault_code());put_u16(p+2,diag_flags());put_u
     'case 0xD9u: put_u16(p,current_fault_code());put_u16(p+2,diag_flags());put_u16(p+4,HARD_OC_COUNTS);put_u16(p+6,PHASE_SUM_FAULT_COUNTS);n=8u;break;')
 rep('DeltaESC G30D v0.7 motor-core development','DeltaESC G30D v0.7.2 MOTOR TEST BENCH')
 m.write_text(s)
+
+s=hdr.read_text()
+if '#define TIM_BDTR_BKE' not in s:
+    if '#define TIM_BDTR_OSSR   (1u << 11)' not in s:
+        raise SystemExit('unexpected stm32f103_min.h BDTR block')
+    s=s.replace('#define TIM_BDTR_OSSR   (1u << 11)',
+                '#define TIM_BDTR_OSSR   (1u << 11)\n#define TIM_BDTR_BKE    (1u << 12)')
+hdr.write_text(s)
 
 s=c.read_text()
 if '#define ALIGN_IQ_COUNTS 10' not in s or '#define DEFAULT_RUN_CURRENT_MA 500u' not in s:
