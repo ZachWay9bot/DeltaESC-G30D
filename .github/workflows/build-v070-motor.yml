@@ -38,14 +38,11 @@ jobs:
           patch -d /tmp/v070 -p1 < /tmp/v067.patch
           test ! -n "$(find /tmp/v070 -name '*.rej' -print -quit)"
 
-      - name: Apply v0.7.0 motor delta
+      - name: Apply v0.7.0 motor source overlay
         run: |
           set -eux
-          cat v0.7.0/v070.patch.xz.b64.part-* | base64 -d > /tmp/v070.patch.xz
-          echo "feae0feb6e65ce7c5ff1c9298011ab7660172e7891e9d8ff14d3df00de4916c1  /tmp/v070.patch.xz" | sha256sum -c -
-          xz -dc /tmp/v070.patch.xz > /tmp/v070.patch
-          echo "833e70534a305ea239b93945f3fc28b28230e173f22d2f0c600bb83cf4d35af3  /tmp/v070.patch" | sha256sum -c -
-          patch -d /tmp/v070 -p1 < /tmp/v070.patch
+          echo "4c76c78595117f8b1ec6f7804f335fd091254fc1febb73281f7e13ef8e611e7c  v0.7.0/v070_overlay.tar.xz" | sha256sum -c -
+          tar -xJf v0.7.0/v070_overlay.tar.xz -C /tmp/v070
           test ! -n "$(find /tmp/v070 -name '*.rej' -print -quit)"
 
       - name: Build four motor variants
