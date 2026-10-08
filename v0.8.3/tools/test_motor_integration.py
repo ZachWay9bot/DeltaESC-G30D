@@ -8,7 +8,7 @@ core=(root/'src/sensorless_control.c').read_text()
 guard=(root/'src/commissioning_guard.c').read_text()
 make=(root/'Makefile').read_text()
 assert '#define FW_BUILD 0x0803u' in main
-assert '#error "v0.8.3 stock-current frontend audit must NEVER arm a physical power stage"' in main
+assert '#error "v0.8.3 stock dual-ADC acquisition audit must NEVER arm a physical power stage"' in main
 assert 'all: safe\n' in make and 'active: ' not in make and 'bench: ' not in make
 assert '-DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0' in make
 assert 'src/commissioning_guard.c' in make
