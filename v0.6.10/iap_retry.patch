@@ -1,0 +1,56 @@
+--- a/src/iap_update.c
++++ b/src/iap_update.c
+@@ -36,6 +36,10 @@
+ static volatile uint8_t st,last_err,mode;
+ static volatile uint32_t expected,received,staged;
+ static uint8_t expected_index;
++/* Cache only the most recently accepted wire block. A lost ACK may cause
++   the sender to retransmit it; never decrypt or program that block twice. */
++static uint8_t last_write_valid,last_write_len;
++static uint8_t last_write_data[MAX_RX_DATA];
+ static uint32_t plain_sum,wire_sum;
+ static uint32_t enc_iv_lo,enc_iv_hi,enc_processed;
+ static uint32_t tea_key[4];
+@@ -88,7 +92,7 @@
+ }
+ static void fail(uint8_t e,uint8_t src,uint8_t cmd){(void)cmd;last_err=e;st=IAP_ERROR;send_ack(src,e);}
+ 
+-void iap_update_init(void){st=IAP_IDLE;last_err=0u;q_ready=0u;p.state=0u;}
++void iap_update_init(void){st=IAP_IDLE;last_err=0u;q_ready=0u;p.state=0u;last_write_valid=0u;}
+ uint8_t iap_update_active(void){return st!=IAP_IDLE&&st!=IAP_ERROR;}
+ uint8_t iap_update_pending(void){return q_ready;}
+ uint8_t iap_update_state(void){return st;}
+@@ -119,10 +123,14 @@
+     if(!iap_control_invalidate(flash_erase_page,control_read_word)){
+         fail(ERR_FLASH,src,IAP_CMD_BEGIN);return;
+     }
+-    if(!erase_stage()){fail(ERR_FLASH,src,IAP_CMD_BEGIN);return;}expected=sz;received=staged=plain_sum=wire_sum=0u;expected_index=0u;mode=0u;first_block=1u;tail_len=0u;key_reset();last_err=0u;st=IAP_READY;send_ack(src,0u);
++    if(!erase_stage()){fail(ERR_FLASH,src,IAP_CMD_BEGIN);return;}expected=sz;received=staged=plain_sum=wire_sum=0u;expected_index=0u;last_write_valid=0u;mode=0u;first_block=1u;tail_len=0u;key_reset();last_err=0u;st=IAP_READY;send_ack(src,0u);
+ }
+ static void handle_write(uint8_t src,uint8_t idx,const uint8_t *d,uint8_t n){
+     if(st!=IAP_READY&&st!=IAP_RECEIVING){fail(ERR_ORDER,src,IAP_CMD_WRITE);return;}
++    if(last_write_valid&&idx==(uint8_t)(expected_index-1u)&&n==last_write_len){
++        uint8_t same=1u;for(uint8_t i=0u;i<n;i++)if(d[i]!=last_write_data[i]){same=0u;break;}
++        if(same){send_ack(src,ERR_NONE);return;}
++    }
+     if(idx!=expected_index){fail(ERR_ORDER,src,IAP_CMD_WRITE);return;}
+     uint8_t take=0u;
+     if(!iap_proto_effective_write_len(expected,received,d,n,&take)){fail(ERR_SIZE,src,IAP_CMD_WRITE);return;}
+@@ -130,9 +138,16 @@
+     if(mode==2u && (take&7u)){fail(ERR_SIZE,src,IAP_CMD_WRITE);return;}
+     wire_sum=iap_proto_sum32_update(wire_sum,d,take);
+     uint8_t ok=(mode==1u)?stage_plain(d,take):stage_encrypted(d,take);if(!ok){fail(ERR_FLASH,src,IAP_CMD_WRITE);return;}
+-    received+=take;expected_index=iap_proto_next_index(expected_index);st=IAP_RECEIVING;send_ack(src,0u);
++    received+=take;expected_index=iap_proto_next_index(expected_index);st=IAP_RECEIVING;
++    for(uint8_t i=0u;i<n;i++)last_write_data[i]=d[i];last_write_len=n;last_write_valid=1u;
++    send_ack(src,0u);
+ }
+ static void handle_crc(uint8_t src,const uint8_t *d,uint8_t n){
++    /* CRC ACK can also be lost after committing the marker. Re-ACK only
++       the exact checksum already validated; do not rewrite control flash. */
++    if(st==IAP_COMPLETE&&n==4u&&rd32(d)==iap_proto_sum32_finish(wire_sum)){
++        send_ack(src,ERR_NONE);return;
++    }
+     if(st!=IAP_RECEIVING||received!=expected||tail_len!=0u||n!=4u){fail(ERR_ORDER,src,IAP_CMD_CRC);return;}
+     uint32_t supplied=rd32(d);uint8_t ok=0u;uint32_t final_size=staged;
+     uint8_t wire_ok=(uint8_t)(iap_proto_sum32_finish(wire_sum)==supplied);
