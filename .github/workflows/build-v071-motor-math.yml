@@ -57,7 +57,7 @@ jobs:
       - name: Reproduce v0.7.0 integrator deadzone before applying fix
         run: |
           set -euo pipefail
-          cc -std=c11 -O1 -Wall -Wextra -Werror -I/tmp/v071/src \
+          cc -std=c11 -O1 -Wall -Wextra -Werror -Wno-misleading-indentation -I/tmp/v071/src \
             /tmp/v071/src/sensorless_control.c \
             v0.7.1/tools/sensorless_pi_host_test.c -o /tmp/old_sensorless_pi_test
           set +e
