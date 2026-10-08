@@ -14,4 +14,4 @@ Changes:
 
 Physical reference: G30 Bench BLE 0.1.0 successfully authenticated NBScooter2088, verified MIC, and read ESC registers 0x1A, 0x10 and 0xD0 with zero malformed frames.
 
-Patch SHA-256: 18c5215acfd303129224f837bb152abc8defc81ccf4c7e6b109a3e2ea869f21a
+Patch SHA-256: 5ab8ab7a389795c26d7049f1e2e6aeadccf72bfb0e2d3cc08bb8b05de98678d2

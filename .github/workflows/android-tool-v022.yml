@@ -41,7 +41,7 @@ jobs:
 
       - name: Apply v0.2.2 proven-transport delta
         run: |
-          echo "18c5215acfd303129224f837bb152abc8defc81ccf4c7e6b109a3e2ea869f21a  android/v0.2.2/v022.patch.xz" | sha256sum -c -
+          echo "5ab8ab7a389795c26d7049f1e2e6aeadccf72bfb0e2d3cc08bb8b05de98678d2  android/v0.2.2/v022.patch.xz" | sha256sum -c -
           xz -dc android/v0.2.2/v022.patch.xz | patch -d /tmp/app/v022 -p1
 
       - name: Static transport safety preflight
