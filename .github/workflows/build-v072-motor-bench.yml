@@ -1,0 +1,75 @@
+name: Build v0.7.2 MOTOR TEST BENCH
+on:
+  push:
+    branches: [ "test/v0.7.2-motor-bench" ]
+    paths: [ "v0.7.2/**", ".github/workflows/build-v072-motor-bench.yml" ]
+  workflow_dispatch:
+jobs:
+  motor-bench-agent:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18 llvm-18 xz-utils patch
+      - name: Reconstruct v0.7.0 motor core
+        run: |
+          mkdir -p /tmp/v061 /tmp/v072
+          tar -xJf v0.6/DeltaESC_G30D_v0_6_source.tar.xz -C /tmp/v061
+          xz -dc v0.6.1/v0611.patch.xz | patch -d /tmp/v061 -p1
+          cp -a /tmp/v061/. /tmp/v072/
+          xz -dc v0.6.2/v062.patch.xz | patch -d /tmp/v072 -p4
+          xz -dc v0.6.3/v063.patch.xz | patch -d /tmp/v072 -p4
+          xz -dc v0.6.4/v064.patch.xz | patch -d /tmp/v072 -p4
+          xz -dc v0.6.5/v065.patch.xz | patch -d /tmp/v072 -p1
+          cp v0.7.0/apply_v070.py /tmp/v072/apply_v070.py
+          python3 /tmp/v072/apply_v070.py
+          cp v0.7.2/apply_v072.py /tmp/v072/apply_v072.py
+          python3 /tmp/v072/apply_v072.py
+          cp v0.7.2/MOTOR_TEST_FIRST_RUN.txt /tmp/v072/MOTOR_TEST_FIRST_RUN.txt
+      - name: Static motor safety preflight
+        working-directory: /tmp/v072
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          m=Path('src/main.c').read_text()
+          c=Path('src/sensorless_control.c').read_text()
+          assert '#define FW_BUILD 0x0720u' in m
+          assert 'g_phase_map[3] = {0u,1u,2u}' in m
+          assert 'g_adc_offset[0]-(int32_t)s0' in m
+          assert 'PHASE_SUM_FAULT_COUNTS          30u' in m
+          assert 'TIM_BDTR_BKE' in m and 'GPIOB_BASE,12' in m
+          assert 'gpio_cfg_nibble(GPIOB_BASE,1,' not in m
+          assert 'GPIO_BSRR(GPIOB_BASE)=(1u<<1)' not in m
+          assert 'GPIO_BRR(GPIOB_BASE)=(1u<<1)' not in m
+          assert 'current_ma > 500u' in c
+          assert '#define DEFAULT_RUN_CURRENT_MA 250u' in c
+          assert '#define ALIGN_IQ_COUNTS 5' in c
+          print('motor safety preflight: PASS')
+          PY
+      - name: Build matrix
+        working-directory: /tmp/v072
+        run: make clean all CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+      - name: Motor-core host test
+        working-directory: /tmp/v072
+        run: |
+          clang-18 -std=c11 -Wall -Wextra -Werror -Isrc tools/motor_core_host_test.c src/sensorless_control.c -o build/motor_core_host_test
+          ./build/motor_core_host_test
+      - name: Final artifact checks
+        working-directory: /tmp/v072
+        run: |
+          test -f build/DeltaESC_G30D_v0_7_2_ble_sensorless_bench.bin
+          test $(stat -c%s build/DeltaESC_G30D_v0_7_2_ble_sensorless_bench.bin) -le 53248
+          sha256sum build/*.bin | tee build/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-G30D-v0.7.2-MOTOR-TEST-BENCH
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            /tmp/v072/build/DeltaESC_G30D_v0_7_2_ble_sensorless_bench.bin
+            /tmp/v072/build/DeltaESC_G30D_v0_7_2_ble_observer_zero_vector.bin
+            /tmp/v072/build/DeltaESC_G30D_v0_7_2_ble_syncsafe.bin
+            /tmp/v072/build/SHA256SUMS.txt
+            /tmp/v072/MOTOR_TEST_FIRST_RUN.txt
