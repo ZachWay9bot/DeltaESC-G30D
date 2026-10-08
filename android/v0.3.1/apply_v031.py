@@ -24,18 +24,18 @@ def once(s,old,new):
 verify()
 f=src/'MainActivity.java'
 s=f.read_text()
-s=once('import android.content.Context;', 'import android.content.Context;\nimport android.app.AlertDialog;\nimport android.text.InputType;\nimport android.widget.EditText;')
-s=once('/** Read-only link probe for the first DeltaESC G30D hardware validation. */',
+s=once(s,'import android.content.Context;', 'import android.content.Context;\nimport android.app.AlertDialog;\nimport android.text.InputType;\nimport android.widget.EditText;')
+s=once(s,'/** Read-only link probe for the first DeltaESC G30D hardware validation. */',
        '/** G30 phone link and guarded configuration; NO MOTOR OR FIRMWARE commands. */')
-s=once('    private long motorNonce;', '''    private long motorNonce;
+s=once(s,'    private long motorNonce;', '''    private long motorNonce;
     private TextView configStatus;
     private final EditText[] configInputs=new EditText[3];
     private boolean configBusy,configReadAll,configVerify;
     private int configPending=-1,configNext=MotorConfig.FIRST_READ;
     private int configWriteReg=-1,configExpected=-1;
     private long configNonce;''')
-s=once(' • v0.3.0 • READ ONLY',' • v0.3.1 • MOTOR CONFIG LOCKED')
-s=once('        root.addView(section("BUS LOG"));', '''        root.addView(section("MOTORPARAMETER · NUR DELTAESC 0x0800"));
+s=once(s,' • v0.3.0 • READ ONLY',' • v0.3.1 • MOTOR CONFIG LOCKED')
+s=once(s,'        root.addView(section("BUS LOG"));', '''        root.addView(section("MOTORPARAMETER · NUR DELTAESC 0x0800"));
         configStatus=text("Gesperrt: ESC muss DESC + genau Build 0x0800 melden",13,true);
         root.addView(configStatus);
         root.addView(text("Werte sind KEINE Motormessung. Nur nach externer R/L/Flux-Kalibrierung eingeben. Keine Motorstart-, E- oder Flashbefehle.",13,false));
@@ -60,18 +60,18 @@ s=once('        root.addView(section("BUS LOG"));', '''        root.addView(sect
         Button readParams=button("R / L / Flux vom ESC lesen",v->beginConfigRead());
         readParams.setLayoutParams(full());root.addView(readParams);
         root.addView(section("BUS LOG"));''')
-s=once('        TextView foot=text("Keine Motor-Ansteuerung, keine Schreibbefehle, keine Updates. ST-Link ist nur für Recovery. Livewerte erst auf DeltaESC mit DA–DF verfügbar.",12,true);',
+s=once(s,'        TextView foot=text("Keine Motor-Ansteuerung, keine Schreibbefehle, keine Updates. ST-Link ist nur für Recovery. Livewerte erst auf DeltaESC mit DA–DF verfügbar.",12,true);',
 '''        TextView foot=text("Nur F0/F1/F2 Einzelparameter mit Bestätigung und Rücklesen, ausschließlich DESC Build 0800 (Gate-OFF-Build). KEINE E-Motorbefehle, keine SHU-Updates. ST-Link nur Recovery.",12,true);''')
-s=once('motorTelemetry.reset();if(motorState!=null)',
+s=once(s,'motorTelemetry.reset();if(motorState!=null)',
 '''motorTelemetry.reset();configBusy=false;configReadAll=false;configVerify=false;configPending=-1;configWriteReg=-1;configNonce++;if(configStatus!=null)configStatus.setText("Gesperrt / getrennt");if(motorState!=null)''')
-s=once('        if(stage!=4 || f.src!=NinebotProtocol.ESC || f.cmd!=NinebotProtocol.READ_ACK)return;',
+s=once(s,'        if(stage!=4 || f.src!=NinebotProtocol.ESC || f.cmd!=NinebotProtocol.READ_ACK)return;',
 '''        if(stage!=4 || f.src!=NinebotProtocol.ESC)return;
         if(f.cmd==MotorConfig.WRITE_ACK){handleMotorConfigAck(f);return;}
         if(f.cmd!=NinebotProtocol.READ_ACK)return;
         if(f.arg>=MotorConfig.FIRST_READ&&f.arg<=MotorConfig.LAST_READ&&configBusy){
             handleMotorConfigRead(f);return;
         }''')
-s=once('    private void runReadProbe(){', '''    private boolean configAllowed(){
+s=once(s,'    private void runReadProbe(){', '''    private boolean configAllowed(){
         return MotorConfig.eligible(stage==4,deltaDetected,deltaBuild);
     }
     private void configError(String why){
@@ -175,26 +175,23 @@ s=once('    private void runReadProbe(){', '''    private boolean configAllowed(
         handler.postDelayed(()->requestConfigRead(next),150);
     }
     private void runReadProbe(){''')
-s=once('        if(motorCycle)return;\n        sendReadWhenFree(0x1A','        if(motorCycle||configBusy)return;\n        sendReadWhenFree(0x1A')
-s=once('        if(motorCycle){toast("Motor-Diagnose läuft; Snapshot erst danach");return;}',
+s=once(s,'        if(motorCycle)return;\n        sendReadWhenFree(0x1A','        if(motorCycle||configBusy)return;\n        sendReadWhenFree(0x1A')
+s=once(s,'        if(motorCycle){toast("Motor-Diagnose läuft; Snapshot erst danach");return;}',
        '        if(motorCycle||configBusy){toast("Diagnose oder Konfiguration beschäftigt");return;}')
-s=once('        if(motorCycle){if(auto)motorAutomatic=true;return;}',
+s=once(s,'        if(motorCycle){if(auto)motorAutomatic=true;return;}',
        '        if(configBusy){toast("Konfiguration läuft");return;}\n        if(motorCycle){if(auto)motorAutomatic=true;return;}')
-s=once('        statusText.setText("Crypto paired: "',
+s=once(s,'        statusText.setText("Crypto paired: "',
 '''        if(configStatus!=null&&!configBusy){
             configStatus.setText(configAllowed()?
                 "DESC 0800: R/L/Flux einzeln lesbar und nach Bestätigung schreibbar (RAM)":
                 "Gesperrt: Signatur DESC / exakt Build 0800 erforderlich");
         }
         statusText.setText("Crypto paired: "''')
-s=once('"tool\\\\":\\\\"DashBLE Motor 0.3.0\\"', '"tool\\\\":\\\\"DashBLE Config 0.3.1\\"') if False else s
 # Literal string in Java belongs to a longer JSON String.format statement:
-s=once('DashBLE Motor 0.3.0','DashBLE Config 0.3.1')
-s=once('"read_only\\\\":true}', '"read_only\\\\":false}') if False else s
-s=once('\\\\\\"read_only\\\\\\":true}', '\\\\\\"read_only\\\\\\":false}') if False else s
+s=once(s,'DashBLE Motor 0.3.0','DashBLE Config 0.3.1')
 # Leave 'read_only:true' in the report ONLY when no writes are currently
 # possible; append capability fields in the JSON result instead.
-s=once('","+motorTelemetry.jsonFields()+"}"',
+s=once(s,'","+motorTelemetry.jsonFields()+"}"',
        '","+motorTelemetry.jsonFields()+",\\\\"config_guarded\\\\":true,\\\\"config_enabled\\\\":"+configAllowed()+"}"')
 f.write_text(s)
 shutil.copyfile(Path(__file__).with_name('MotorConfig.java'),src/'MotorConfig.java')
