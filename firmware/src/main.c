@@ -416,7 +416,6 @@ int main(void) {
 
         if ((int32_t)(g_ms-next)>=0) {
             next+=1000u;
-            report();
             if ((uint32_t)(g_ms-g_adc_last_ms)>ADC_STALE_MS) {
                 g_safety_latched=0xA002u;
                 power_stage_force_disarm();
