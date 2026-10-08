@@ -155,7 +155,8 @@ jobs:
       - name: Test actual ARM DashBLE commissioning ABI
         env:
           ARM_NM: llvm-nm-18
-        run: python3 - <<'PY'
+        run: |
+          python3 - <<'PY'
           from pathlib import Path
           p=Path('v0.8.4/tools/test_arm_v084.py')
           target=Path('v0.8.5_test_arm_abi.py')
