@@ -1,0 +1,95 @@
+name: Audit DeltaESC v0.6.10 IAP ACK-retry plus PA12 and power-cut (source only)
+on:
+  push:
+    branches: ["dev/v0.6.10-iap-retry-full-target-source-only"]
+    paths:
+      - "v0.6.10/**"
+      - ".github/workflows/build-v0610-safe.yml"
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned LLVM and build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18 llvm-18 xz-utils patch
+          python3 -m pip install unicorn==2.1.4
+      - name: Reconstruct canonical v0.6.7 firmware
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/v061 /tmp/v010
+          tar -xJf v0.6/DeltaESC_G30D_v0_6_source.tar.xz -C /tmp/v061
+          xz -dc v0.6.1/v0611.patch.xz | patch -d /tmp/v061 -p1
+          cp -a /tmp/v061/. /tmp/v010/
+          xz -dc v0.6.2/v062.patch.xz | patch -d /tmp/v010 -p4
+          xz -dc v0.6.3/v063.patch.xz | patch -d /tmp/v010 -p4
+          xz -dc v0.6.4/v064.patch.xz | patch -d /tmp/v010 -p4
+          xz -dc v0.6.5/v065.patch.xz | patch -d /tmp/v010 -p1
+          cat v0.6.6/v066.patch.part-* > /tmp/v066.patch
+          echo "dfab72dc0bf7869d595e041cb1a797a4ac5f50e2118c5011f99a5d7fc33abd0a  /tmp/v066.patch" | sha256sum -c -
+          patch -d /tmp/v010 -p1 < /tmp/v066.patch
+          cat v0.6.7/v067.patch.part-* > /tmp/v067.patch
+          echo "430666ee2c9967973c5aaec1560385010ab531cc04d5e790ec28cf495a6c18a4  /tmp/v067.patch" | sha256sum -c -
+          patch -d /tmp/v010 -p1 < /tmp/v067.patch
+          echo "842f432fdc32010108bd72adebb0d892436ce0a19ddf92fce4c293356128febe  /tmp/v010/src/iap_update.c" | sha256sum -c -
+      - name: Apply v0.6.8 staged-IAP safety overlay
+        run: |
+          set -euxo pipefail
+          cp v0.6.8/src/iap_control.[ch] /tmp/v010/src/
+          patch -d /tmp/v010 -p1 < v0.6.8/iap_powercut_core.patch
+          test -z "$(find /tmp/v010 -name '*.rej' -print -quit)"
+      - name: Apply v0.6.9 power-button and shutdown integration
+        run: |
+          set -euxo pipefail
+          python3 v0.6.9/apply_v069.py /tmp/v010
+      - name: Apply ACK-loss retry patch (no other IAP behavioral changes)
+        run: |
+          set -euxo pipefail
+          patch -d /tmp/v010 -p1 < v0.6.10/iap_retry.patch
+          test -z "$(find /tmp/v010 -name '*.rej' -print -quit)"
+      - name: Cross-build all variants for regression only
+        working-directory: /tmp/v010
+        run: make clean all CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+      - name: Test long-press, ACK and source safety contracts
+        env:
+          HOST_CC: clang-18
+        run: python3 v0.6.9/tools/test_power_logic.py /tmp/v010
+      - name: Emulate full SYNC-SAFE ARM USART2 firmware including repeated ACKs
+        env:
+          ARM_NM: llvm-nm-18
+        run: |
+          set -euxo pipefail
+          cp /tmp/v010/build/DeltaESC_G30D_v0_6_7_ble_syncsafe.elf /tmp/v010/build/target_syncsafe.elf
+          cp /tmp/v010/build/DeltaESC_G30D_v0_6_7_ble_syncsafe.bin /tmp/v010/build/target_syncsafe.bin
+          python3 v0.6.10/full_target_protocol.py /tmp/v010 --retry --guard --blocks 130
+      - name: Test staged-IAP and stock bootloader error branches
+        env:
+          HOST_CC: clang-18
+        run: |
+          cp v0.6.8/tools/{iap_control_powercut_test.c,test_iap_powercut.py} /tmp/v010/tools/
+          python3 /tmp/v010/tools/test_iap_powercut.py
+          python3 v0.6.8/tools/test_stock_copy_faults.py
+          python3 v0.6.8/tools/test_stock_error_paths.py
+      - name: Run existing transport and dashboard regressions
+        working-directory: /tmp/v010
+        env:
+          HOST_CC: clang-18
+        run: |
+          python3 tools/test_iap_ack.py
+          python3 tools/test_iap_transport.py
+          python3 tools/test_iap_crypto.py
+          python3 tools/test_dashboard_runtime.py
+          python3 tools/test_shu_package.py
+      - name: Export SOURCE-ONLY audit, excluding all firmware images
+        run: |
+          tar --exclude=build --exclude=shu --exclude='__pycache__' -C /tmp/v010 -cJf /tmp/DeltaESC_v0610_RETRY_SOURCE_ONLY.tar.xz .
+          sha256sum /tmp/DeltaESC_v0610_RETRY_SOURCE_ONLY.tar.xz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-v0.6.10-IAP-RETRY-SOURCE-ONLY
+          if-no-files-found: error
+          retention-days: 30
+          path: /tmp/DeltaESC_v0610_RETRY_SOURCE_ONLY.tar.xz
