@@ -9,7 +9,10 @@ import android.os.Looper;
 
 import java.io.ByteArrayOutputStream;
 import java.security.SecureRandom;
-import java.util.*;
+import java.util.ArrayDeque;
+import java.util.Arrays;
+import java.util.Locale;
+import java.util.UUID;
 
 public final class NinebotBleClient {
     public interface Listener {
@@ -24,10 +27,16 @@ public final class NinebotBleClient {
     private static final UUID NUS_RX = UUID.fromString("6e400003-b5a3-f393-e0a9-e50e24dcca9e");
     private static final UUID CCCD = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
 
+    private static final int PAIR_WAIT_5B = 1;
+    private static final int PAIR_WAIT_5C = 2;
+    private static final int PAIR_WAIT_5D = 3;
+    private static final int PAIR_READY = 4;
+
     private final Context context;
     private final Listener listener;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final BluetoothAdapter adapter;
+
     private BluetoothLeScanner scanner;
     private BluetoothGatt gatt;
     private BluetoothGattCharacteristic tx;
@@ -43,16 +52,15 @@ public final class NinebotBleClient {
     private boolean writeBusy;
     private final ByteArrayOutputStream rxBuffer = new ByteArrayOutputStream();
 
-    private static final int PAIR_WAIT_5B = 1;
-    private static final int PAIR_WAIT_5C = 2;
-    private static final int PAIR_WAIT_5D = 3;
-    private static final int PAIR_READY = 4;
-
     public NinebotBleClient(Context context, Listener listener) {
         this.context = context.getApplicationContext();
         this.listener = listener;
         BluetoothManager bm = (BluetoothManager) context.getSystemService(Context.BLUETOOTH_SERVICE);
         adapter = bm.getAdapter();
+    }
+
+    public boolean isReady() {
+        return ready;
     }
 
     @SuppressLint("MissingPermission")
@@ -62,13 +70,168 @@ public final class NinebotBleClient {
             listener.onStatus("Bluetooth ist ausgeschaltet");
             return;
         }
+
         scanner = adapter.getBluetoothLeScanner();
+        if (scanner == null) {
+            listener.onStatus("BLE-Scanner nicht verfügbar");
+            return;
+        }
+
         listener.onStatus("Suche Ninebot…");
         scanner.startScan(scanCallback);
+        handler.postDelayed(() -> {
+            if (scanner != null) {
+                try { scanner.stopScan(scanCallback); } catch (Exception ignored) {}
+                scanner = null;
+                listener.onStatus("Kein G30 gefunden");
+            }
+        },10000);
     }
 
-    private void sendEncryptedPair(int cmd,int arg,byte[] payload) {
-        byte[] p = SescProtocol.buildBleInner(0x3E,0x21,cmd,arg,payload);
+    @SuppressLint("MissingPermission")
+    public void disconnect() {
+        ready = false;
+        pairState = 0;
+        handler.removeCallbacksAndMessages(null);
+
+        if (scanner != null) {
+            try { scanner.stopScan(scanCallback); } catch (Exception ignored) {}
+            scanner = null;
+        }
+
+        if (gatt != null) {
+            try { gatt.disconnect(); } catch (Exception ignored) {}
+            try { gatt.close(); } catch (Exception ignored) {}
+            gatt = null;
+        }
+
+        tx = null;
+        rx = null;
+        crypto = null;
+
+        synchronized (writeQueue) {
+            writeQueue.clear();
+            writeBusy = false;
+        }
+        synchronized (rxBuffer) {
+            rxBuffer.reset();
+        }
+    }
+
+    public void sendConfig(int arg, byte[] payload) {
+        if (!ready || crypto == null) {
+            listener.onStatus("NinebotCrypto noch nicht bereit");
+            return;
+        }
+        queueBytes(crypto.encrypt(SescProtocol.buildConfigBleInner(arg,payload)));
+    }
+
+    private final ScanCallback scanCallback = new ScanCallback() {
+        @Override @SuppressLint("MissingPermission")
+        public void onScanResult(int callbackType, ScanResult result) {
+            BluetoothDevice d = result.getDevice();
+            String name = d.getName();
+            if (name == null && result.getScanRecord() != null) {
+                name = result.getScanRecord().getDeviceName();
+            }
+            String n = name == null ? "" : name.toLowerCase(Locale.ROOT);
+            if (!n.contains("nbscooter") && !n.contains("ninebot") && !n.contains("segway")) return;
+
+            if (scanner != null) {
+                try { scanner.stopScan(this); } catch (Exception ignored) {}
+                scanner = null;
+            }
+            listener.onStatus("Verbinde " + (name == null ? d.getAddress() : name));
+            gatt = d.connectGatt(context,false,gattCallback,BluetoothDevice.TRANSPORT_LE);
+        }
+
+        @Override public void onScanFailed(int errorCode) {
+            listener.onStatus("BLE-Scan Fehler " + errorCode);
+        }
+    };
+
+    private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
+        @Override @SuppressLint("MissingPermission")
+        public void onConnectionStateChange(BluetoothGatt g, int status, int newState) {
+            if (newState == BluetoothProfile.STATE_CONNECTED) {
+                listener.onStatus("BLE verbunden, suche Ninebot UART…");
+                g.discoverServices();
+            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                ready = false;
+                listener.onStatus("Verbindung getrennt");
+                listener.onDisconnected();
+            }
+        }
+
+        @Override @SuppressLint("MissingPermission")
+        public void onServicesDiscovered(BluetoothGatt g, int status) {
+            BluetoothGattService s = g.getService(NUS_SERVICE);
+            if (s == null) {
+                listener.onStatus("Ninebot UART-Service nicht gefunden");
+                return;
+            }
+            tx = s.getCharacteristic(NUS_TX);
+            rx = s.getCharacteristic(NUS_RX);
+            if (tx == null || rx == null) {
+                listener.onStatus("Ninebot UART-Characteristics fehlen");
+                return;
+            }
+
+            g.setCharacteristicNotification(rx,true);
+            BluetoothGattDescriptor d = rx.getDescriptor(CCCD);
+            if (d == null) {
+                listener.onStatus("BLE CCCD fehlt");
+                return;
+            }
+            d.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+            g.writeDescriptor(d);
+        }
+
+        @Override public void onDescriptorWrite(BluetoothGatt g, BluetoothGattDescriptor descriptor, int status) {
+            if (CCCD.equals(descriptor.getUuid()) && status == BluetoothGatt.GATT_SUCCESS) {
+                startHandshake();
+            }
+        }
+
+        @Override public void onCharacteristicChanged(BluetoothGatt g, BluetoothGattCharacteristic characteristic) {
+            if (NUS_RX.equals(characteristic.getUuid())) {
+                onRxChunk(characteristic.getValue());
+            }
+        }
+
+        @Override public void onCharacteristicWrite(BluetoothGatt g, BluetoothGattCharacteristic characteristic, int status) {
+            synchronized (writeQueue) {
+                writeBusy = false;
+            }
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                listener.onStatus("BLE-Schreibfehler " + status);
+            }
+            writeNext();
+        }
+    };
+
+    private void startHandshake() {
+        String name = "";
+        try { name = gatt.getDevice().getName(); } catch (Exception ignored) {}
+
+        crypto = new LegacyNinebotCrypto(name == null ? "" : name);
+        ready = false;
+        pairState = PAIR_WAIT_5B;
+        synchronized (rxBuffer) { rxBuffer.reset(); }
+
+        listener.onStatus("Authentifiziere NinebotCrypto…");
+        sendEncryptedPair(0x5B,0,new byte[0]);
+
+        handler.postDelayed(() -> {
+            if (!ready && pairState != PAIR_READY) {
+                listener.onStatus("NinebotCrypto Handshake Timeout");
+            }
+        },8000);
+    }
+
+    private void sendEncryptedPair(int cmd, int arg, byte[] payload) {
+        if (crypto == null) return;
+        byte[] p = SescProtocol.buildBleInner(SescProtocol.APP_ADDR,0x21,cmd,arg,payload);
         queueBytes(crypto.encrypt(p));
     }
 
@@ -83,8 +246,10 @@ public final class NinebotBleClient {
 
     private void onRxChunk(byte[] chunk) {
         if (chunk == null || chunk.length == 0) return;
+
         synchronized (rxBuffer) {
             rxBuffer.write(chunk,0,chunk.length);
+
             while (true) {
                 byte[] b = rxBuffer.toByteArray();
                 int start = findHeader(b);
@@ -92,17 +257,17 @@ public final class NinebotBleClient {
                     if (b.length > 2) rxBuffer.reset();
                     return;
                 }
+
                 if (start > 0) {
                     rxBuffer.reset();
                     rxBuffer.write(b,start,b.length-start);
                     b = rxBuffer.toByteArray();
                 }
+
                 if (b.length < 3) return;
                 int len = b[2] & 0xFF;
-                // NinebotCrypto wire overhead is 13 bytes total over payload:
-                // 5A A5 LEN + encrypted inner + 4-byte MIC/CRC + 2-byte counter.
-                int total = len + 13;
-                if (total < 9 || total > 270) {
+                int total = len + 13; // NinebotCrypto wire overhead
+                if (total < 13 || total > 270) {
                     rxBuffer.reset();
                     return;
                 }
@@ -118,16 +283,20 @@ public final class NinebotBleClient {
     }
 
     private static int findHeader(byte[] b) {
-        for (int i=0;i+1<b.length;i++) if ((b[i]&0xFF)==0x5A && (b[i+1]&0xFF)==0xA5) return i;
+        for (int i=0; i+1<b.length; i++) {
+            if ((b[i] & 0xFF) == 0x5A && (b[i+1] & 0xFF) == 0xA5) return i;
+        }
         return -1;
     }
 
     private void handleMessage(byte[] wire) {
+        if (crypto == null) return;
+
         byte[] plain = crypto.decrypt(wire);
         SescProtocol.Frame f = SescProtocol.parseBleInner(plain);
         if (f == null) return;
 
-        if (!ready && f.src == 0x21 && f.dst == 0x3E) {
+        if (!ready && f.src == 0x21 && f.dst == SescProtocol.APP_ADDR) {
             if (f.cmd == 0x5B && pairState == PAIR_WAIT_5B) {
                 if (f.payload.length >= 30) {
                     serial = Arrays.copyOfRange(f.payload,16,30);
@@ -140,6 +309,7 @@ public final class NinebotBleClient {
                 }
                 return;
             }
+
             if (f.cmd == 0x5C && pairState == PAIR_WAIT_5C) {
                 if (f.arg == 1) {
                     pairState = PAIR_WAIT_5D;
@@ -148,6 +318,7 @@ public final class NinebotBleClient {
                 }
                 return;
             }
+
             if (f.cmd == 0x5D && pairState == PAIR_WAIT_5D && f.arg == 1) {
                 pairState = PAIR_READY;
                 ready = true;
@@ -162,7 +333,7 @@ public final class NinebotBleClient {
 
     private void queueBytes(byte[] data) {
         synchronized (writeQueue) {
-            for (int p=0;p<data.length;p+=20) {
+            for (int p=0; p<data.length; p+=20) {
                 writeQueue.add(Arrays.copyOfRange(data,p,Math.min(data.length,p+20)));
             }
         }
@@ -174,6 +345,7 @@ public final class NinebotBleClient {
         BluetoothGatt g = gatt;
         BluetoothGattCharacteristic c = tx;
         if (g == null || c == null) return;
+
         byte[] next;
         synchronized (writeQueue) {
             if (writeBusy) return;
@@ -181,10 +353,13 @@ public final class NinebotBleClient {
             if (next == null) return;
             writeBusy = true;
         }
+
         c.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
         c.setValue(next);
         if (!g.writeCharacteristic(c)) {
-            synchronized (writeQueue) { writeBusy = false; }
+            synchronized (writeQueue) {
+                writeBusy = false;
+            }
             handler.postDelayed(this::writeNext,30);
         }
     }
