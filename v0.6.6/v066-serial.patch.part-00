@@ -1,0 +1,94 @@
+diff -ruN '--exclude=build' '--exclude=shu' '--exclude=__pycache__' '--exclude=*.pyc' v066_base/Makefile v066_serial/Makefile
+--- v066_base/Makefile	2026-10-08 15:28:19.000000000 +0000
++++ v066_serial/Makefile	2026-10-08 15:30:57.311695736 +0000
+@@ -3,7 +3,7 @@
+ OBJDUMP ?= llvm-objdump
+ CFLAGS_COMMON = --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Oz -Wall -Wextra -Werror -Isrc
+ LDFLAGS_COMMON = --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -nostdlib -Wl,-T,linker.ld,--gc-sections
+-SRC = src/main.c src/sensorless_control.c src/ninebot_link.c src/iap_update.c src/iap_proto.c src/dashboard_runtime.c
++SRC = src/main.c src/sensorless_control.c src/ninebot_link.c src/iap_update.c src/iap_proto.c src/dashboard_runtime.c src/stock_identity.c
+ SAFE_ELF = build/DeltaESC_G30D_v0_6_6_ble_syncsafe.elf
+ SAFE_BIN = build/DeltaESC_G30D_v0_6_6_ble_syncsafe.bin
+ ACTIVE_ELF = build/DeltaESC_G30D_v0_6_6_ble_observer_zero_vector.elf
+diff -ruN '--exclude=build' '--exclude=shu' '--exclude=__pycache__' '--exclude=*.pyc' v066_base/README.md v066_serial/README.md
+--- v066_base/README.md	2026-10-08 15:28:19.000000000 +0000
++++ v066_serial/README.md	2026-10-08 15:31:42.919755694 +0000
+@@ -14,6 +14,7 @@
+ - Dashboard throttle/brake values are diagnostic only in this step. They do not request torque.
+ - D0-D9 diagnostics and E0-E6/F0-F5 protocol remain present; build identity is \`0x0606\`.
+ - App-originated reads no longer falsely count as dashboard-runtime traffic; the dashboard-seen flag now requires native source \`0x21\`.
++- Preserves the working G30 Bench BLE connection sequence by answering stock ESC register \`0x10\` with the controller's own 14-byte serial, scanned read-only from preserved stock configuration pages. If no valid \`N4G...\` serial is found, the diagnostic flags expose that condition rather than treating the fallback as verified.
+ 
+ ## Safety boundary
+ 
+diff -ruN '--exclude=build' '--exclude=shu' '--exclude=__pycache__' '--exclude=*.pyc' v066_base/src/main.c v066_serial/src/main.c
+--- v066_base/src/main.c	2026-10-08 15:28:19.000000000 +0000
++++ v066_serial/src/main.c	2026-10-08 15:30:57.311921165 +0000
+@@ -4,6 +4,7 @@
+ #include "ninebot_link.h"
+ #include "iap_update.h"
+ #include "dashboard_runtime.h"
++#include "stock_identity.h"
+ 
+ #ifndef POWER_STAGE_ARM_ALLOWED
+ #define POWER_STAGE_ARM_ALLOWED 0
+@@ -88,6 +89,8 @@
+ static uint8_t g_phase_signs;
+ static uint8_t g_phase_direction;
+ static volatile uint8_t g_shu_handoff_refused;
++static uint8_t g_stock_serial[STOCK_SERIAL_LEN]={'N','4','G','S','D','0','0','0','0','0','0','0','0','0'};
++static uint8_t g_stock_serial_found;
+ 
+ extern uint32_t _estack, _sidata, _sdata, _edata, _sbss, _ebss;
+ int main(void);
+@@ -305,7 +308,7 @@
+ 
+ static uint16_t diag_flags(void){
+     uint16_t f=0u;if(g_overcurrent_trips)f|=1u;if(g_control_hard_overruns)f|=2u;if((uint32_t)(g_ms-g_adc_last_ms)>ADC_STALE_MS)f|=4u;
+-    if(ninebot_link_rx_overflows())f|=8u;if(g_last_action_status==ACT_UNSUPPORTED)f|=16u;if(g_cfg_dirty)f|=32u;if(!g_phase_map_valid)f|=64u;f|=128u;if(g_shu_handoff_refused)f|=256u;return f;
++    if(ninebot_link_rx_overflows())f|=8u;if(g_last_action_status==ACT_UNSUPPORTED)f|=16u;if(g_cfg_dirty)f|=32u;if(!g_phase_map_valid)f|=64u;f|=128u;if(g_shu_handoff_refused)f|=256u;if(!g_stock_serial_found)f|=512u;return f;
+ }
+ 
+ static void app_read_response(const ninebot_frame_t *req){
+@@ -313,6 +316,7 @@
+     uint8_t p[32];uint8_t n=0u;
+     for(uint8_t i=0u;i<sizeof p;i++)p[i]=0u;
+     switch(cmd){
++    case 0x10u: for(uint8_t i=0u;i<STOCK_SERIAL_LEN;i++)p[i]=g_stock_serial[i];n=STOCK_SERIAL_LEN;break;
+     case 0x1Au: put_u16(p,FW_BUILD);n=2u;break;
+     case 0xB0u: put_u16(p+8,50u);put_u16(p+10,0u);put_i16(p+22,0);n=32u;break;
+     case 0xD0u: p[0]='D';p[1]='E';p[2]='S';p[3]='C';p[4]=PROTO_MAJOR;p[5]=PROTO_MINOR;put_u16(p+6,FW_BUILD);p[8]=ctrl.state;p[9]=status_flags();put_u16(p+10,current_fault_code());put_u16(p+12,PWM_HZ);put_u16(p+14,CONTROL_HZ);n=16u;break;
+@@ -417,8 +421,9 @@
+ 
+ int main(void){
+     irq_disable();clock_64mhz_hsi();dwt_init();power_hold_init();gate_enable_gpio_init();gate_pins_to_safe_inputs();uart1_debug_init();sensorless_control_init(&ctrl);
++    g_stock_serial_found=stock_identity_find_serial((const uint8_t *)STOCK_IDENTITY_SCAN_BASE,STOCK_IDENTITY_SCAN_BYTES,g_stock_serial);
+     adc1_injected_init();tim1_pwm_and_adc_trigger_init();ninebot_link_init();iap_update_init();systick_init();irq_enable();
+-    uart_puts("DeltaESC G30D v0.6.6 stock-dashboard-runtime + staged-IAP firmware\r\n");
++    uart_puts("DeltaESC G30D v0.6.6 stock-dashboard-runtime + identity + staged-IAP firmware\r\n");
+ #if SENSORLESS_RUN_ALLOWED
+     uart_puts("BUILD: SENSORLESS BENCH; BLE E5 may arm/start only after safety preconditions.\r\n");
+ #elif POWER_STAGE_ARM_ALLOWED
+diff -ruN '--exclude=build' '--exclude=shu' '--exclude=__pycache__' '--exclude=*.pyc' v066_base/src/stock_identity.c v066_serial/src/stock_identity.c
+--- v066_base/src/stock_identity.c	1970-01-01 00:00:00.000000000 +0000
++++ v066_serial/src/stock_identity.c	2026-10-08 15:30:56.610163110 +0000
+@@ -0,0 +1,23 @@
++#include "stock_identity.h"
++
++static uint8_t serial_char_ok(uint8_t c) {
++    return (uint8_t)(((c >= (uint8_t)'0' && c <= (uint8_t)'9') ||
++                     (c >= (uint8_t)'A' && c <= (uint8_t)'Z')) ? 1u : 0u);
++}
++
++uint8_t stock_identity_find_serial(const uint8_t *region, uint32_t length,
++                                   uint8_t out[STOCK_SERIAL_LEN]) {
++    if (!region || !out || length < STOCK_SERIAL_LEN) return 0u;
++    for (uint32_t i = 0u; i <= length - STOCK_SERIAL_LEN; ++i) {
++        if (region[i] != (uint8_t)'N' || region[i + 1u] != (uint8_t)'4' ||
++            region[i + 2u] != (uint8_t)'G') continue;
++        uint8_t ok = 1u;
++        for (uint32_t j = 0u; j < STOCK_SERIAL_LEN; ++j) {
++            if (!serial_char_ok(region[i + j])) { ok = 0u; break; }
++        }
++        if (!ok) continue;
++        for (uint32_t j
