@@ -66,3 +66,9 @@ Current controller status: **recoverable-looking but Bluetooth stock reflash not
 The intended and required recovery path is **Android phone -> BLE -> dashboard -> ESC**, using SHU or a compatible Android recovery tool. ST-Link is **not** the planned recovery/update path for this project and must not be treated as the normal next step.
 
 Next engineering task: determine the exact **BLE/SHU IAP-entry transaction and response sequence** and fix the OTA path so Stock DRV126 can be restored from the Android phone before any further real-controller flash attempt.
+
+## Recovery requirement
+
+The intended recovery/update path is **BLE from the Android phone only**: phone/SHU -> stock dashboard BLE -> G30 dashboard UART -> ESC. ST-Link is not part of the normal recovery or update procedure and must not be used as a substitute for fixing the BLE/IAP path.
+
+The engineering requirement is therefore: DeltaESC must accept a stock-compatible IAP session over the existing dashboard/BLE route and must be returnable to stock DRV126 from the phone.
