@@ -92,7 +92,7 @@ jobs:
         run: |
           cp v0.6.8/tools/{iap_control_powercut_test.c,test_iap_powercut.py} /tmp/v081/tools/
           python3 /tmp/v081/tools/test_iap_powercut.py
-          python3 v0.6.8/tools/test_copy_faults.py
+          python3 v0.6.8/tools/test_stock_copy_faults.py
           python3 v0.6.8/tools/test_stock_error_paths.py
       - name: Existing transport, crypto and dashboard regressions
         working-directory: /tmp/v081
