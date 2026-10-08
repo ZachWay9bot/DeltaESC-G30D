@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "stm32f103_min.h"
 #include "control_diag.h"
+#include "ninebot_diag.h"
 
 #ifndef POWER_STAGE_ARM_ALLOWED
 #define POWER_STAGE_ARM_ALLOWED 0
@@ -199,38 +200,6 @@ static uint32_t gate_safety_check(void) {
     return ok;
 }
 
-static void uart1_debug_init(void) {
-    RCC_APB2ENR |= (1u << 14) | (1u << 3);
-    gpio_cfg_nibble(GPIOB_BASE, 6, 0xB); /* TX AF PP 50 MHz */
-    gpio_cfg_nibble(GPIOB_BASE, 7, 0x4); /* RX floating input */
-    USART_BRR = 556u;
-    USART_CR1 = USART_CR1_UE | USART_CR1_TE | USART_CR1_RE;
-}
-
-static void uart_putc(char c) {
-    while (!(USART_SR & USART_SR_TXE)) {}
-    USART_DR = (uint32_t)(uint8_t)c;
-}
-
-static void uart_puts(const char *s) { while (*s) uart_putc(*s++); }
-
-static void uart_u32(uint32_t v) {
-    char b[10]; unsigned n=0;
-    if (!v) { uart_putc('0'); return; }
-    while (v && n < sizeof b) { b[n++] = (char)('0' + (v % 10u)); v /= 10u; }
-    while (n) uart_putc(b[--n]);
-}
-
-static void uart_hex16(uint16_t v) {
-    static const char h[]="0123456789ABCDEF";
-    for (int s=12; s>=0; s-=4) uart_putc(h[(v >> s) & 0xF]);
-}
-
-static int uart_getc_nonblock(void) {
-    if (!(USART_SR & USART_SR_RXNE)) return -1;
-    return (int)(USART_DR & 0xFFu);
-}
-
 static uint16_t abs16s(int32_t x) {
     if (x < 0) x = -x;
     if (x > 65535) x = 65535;
@@ -326,7 +295,7 @@ static uint32_t arm_preconditions_ok(void) {
     return 1;
 }
 
-static uint32_t power_stage_arm_zero_vector(void) {
+uint32_t power_stage_arm_zero_vector(void) {
     if (!arm_preconditions_ok()) return 0;
 
     /* Establish zero differential voltage before the driver can see PWM. */
@@ -427,58 +396,6 @@ void ADC1_2_IRQHandler(void) {
     if (isr>g_max_isr_cycles) g_max_isr_cycles=isr;
 }
 
-static void reset_stats(void) {
-    g_sample_interval_min=0xFFFFFFFFu;
-    g_sample_interval_max=0;
-    g_max_isr_cycles=0;
-    g_max_control_cycles=0;
-    g_peak_abs_current=0;
-    g_control_hard_overruns=0;
-}
-
-static void report(void) {
-    uart_puts("v0.4 PWM-SYNC ");
-#if POWER_STAGE_ARM_ALLOWED
-    uart_puts("ACTIVE-CAPABLE");
-#else
-    uart_puts("SYNC-SAFE");
-#endif
-    uart_puts(" arm="); uart_u32(g_power_armed);
-    uart_puts(" samples="); uart_u32(g_adc_samples);
-    uart_puts(" dt(min/max/exp)=");
-    uart_u32(g_sample_interval_min==0xFFFFFFFFu?0u:g_sample_interval_min);
-    uart_putc('/'); uart_u32(g_sample_interval_max); uart_putc('/'); uart_u32(PWM_SAMPLE_EXPECT_CYCLES);
-    uart_puts(" ctrl(last/max)="); uart_u32(g_last_control_cycles); uart_putc('/'); uart_u32(g_max_control_cycles);
-    uart_puts(" isr(last/max)="); uart_u32(g_last_isr_cycles); uart_putc('/'); uart_u32(g_max_isr_cycles);
-    uart_puts(" Iabs(last/peak)="); uart_u32(g_last_abs_current); uart_putc('/'); uart_u32(g_peak_abs_current);
-    uart_puts(" hard="); uart_u32(g_control_hard_overruns);
-    uart_puts(" oc="); uart_u32(g_overcurrent_trips);
-    uart_puts(" safe="); uart_u32(g_safety_latched);
-    uart_puts(" raw="); uart_hex16(g_adc_raw[0]); uart_putc(','); uart_hex16(g_adc_raw[1]); uart_putc(','); uart_hex16(g_adc_raw[2]); uart_putc(','); uart_hex16(g_adc_raw[3]);
-    uart_puts("\r\n");
-}
-
-static void handle_command(int ch) {
-    if (ch=='a' || ch=='A') {
-#if POWER_STAGE_ARM_ALLOWED
-        if (g_power_armed) uart_puts("ARM: already armed\r\n");
-        else if (power_stage_arm_zero_vector()) uart_puts("ARM: ZERO-VECTOR PWM ACTIVE\r\n");
-        else uart_puts("ARM: refused by safety preconditions\r\n");
-#else
-        uart_puts("ARM: disabled in SYNC-SAFE build\r\n");
-#endif
-    } else if (ch=='d' || ch=='D') {
-        power_stage_force_disarm();
-        uart_puts("DISARMED\r\n");
-    } else if (ch=='c' || ch=='C') {
-        reset_stats();
-        uart_puts("stats cleared\r\n");
-    } else if (ch=='?' || ch=='h' || ch=='H') {
-        uart_puts("commands: ? status/help, A arm zero-vector (active build only), D disarm, C clear stats\r\n");
-        report();
-    }
-}
-
 int main(void) {
     irq_disable();
     clock_64mhz_hsi();
@@ -486,43 +403,27 @@ int main(void) {
     power_hold_init();
     gate_enable_gpio_init();
     gate_pins_to_safe_inputs();
-    uart1_debug_init();
+    ninebot_diag_init();
     control_diag_init(&ctrl);
     adc1_injected_init();
     tim1_pwm_and_adc_trigger_init();
     systick_init();
     irq_enable();
 
-    uart_puts("DeltaESC G30D clean v0.4 PWM/ADC sync bring-up\r\n");
-#if POWER_STAGE_ARM_ALLOWED
-    uart_puts("BUILD: ACTIVE-CAPABLE, but boots DISARMED. Send A only after scope checks.\r\n");
-#else
-    uart_puts("BUILD: SYNC-SAFE. Power-stage arming compiled out.\r\n");
-#endif
-    uart_puts("TIM1 center 16kHz, ~1us deadtime, ADC1 injected IA/IB/IC/VBUS on TIM1_CH4, control every 4th sample = 4kHz\r\n");
-    uart_puts("PA11 remains GPIO HIGH power-hold; CH4 is internal trigger only.\r\n");
-
     uint32_t next=1000u;
     for (;;) {
-        int ch=uart_getc_nonblock();
-        if (ch>=0) handle_command(ch);
+        ninebot_diag_poll();
 
         if ((int32_t)(g_ms-next)>=0) {
             next+=1000u;
             report();
             if ((uint32_t)(g_ms-g_adc_last_ms)>ADC_STALE_MS) {
-                uart_puts("FAULT: ADC injected trigger stale; bridge forced disarmed\r\n");
                 g_safety_latched=0xA002u;
                 power_stage_force_disarm();
             }
-            if (g_max_control_cycles>CONTROL_WARN_CYCLES) {
-                uart_puts("WARN: 4kHz control reserve below 25%\r\n");
-            }
         }
 
-        if (!gate_safety_check()) {
-            uart_puts("FAULT: PWM safety envelope violated; DISARMED\r\n");
-        }
+        (void)gate_safety_check();
         __asm volatile("wfi");
     }
 }
