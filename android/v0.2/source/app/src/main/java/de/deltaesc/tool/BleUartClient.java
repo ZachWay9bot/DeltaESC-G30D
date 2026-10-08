@@ -25,7 +25,7 @@ final class BleUartClient {
 
     private final Activity activity; private final Listener listener; private final Handler main=new Handler(Looper.getMainLooper());
     private final BluetoothAdapter adapter; private BluetoothLeScanner scanner; private BluetoothGatt gatt;
-    private BluetoothGattCharacteristic rx,tx; private boolean scanning,nusReady,ready,txBusy;
+    private BluetoothGattCharacteristic rx,tx; private boolean scanning,nusReady,ready,txBusy; private int discoveryAttempts;
     private final Map<String,BluetoothDevice> seen=new LinkedHashMap<>(); private final ArrayDeque<byte[]> txQueue=new ArrayDeque<>();
     private NinebotCrypto crypto; private final EncStreamParser encParser=new EncStreamParser();
     private byte[] pairSerial; private int hsStage,hsTries,badMic; private String cryptoName="";
@@ -39,11 +39,11 @@ final class BleUartClient {
     @SuppressLint("MissingPermission") void stopScan(){if(scanning&&scanner!=null&&permissionsGranted())try{scanner.stopScan(scanCallback);}catch(Exception ignored){}scanning=false;}
     @SuppressLint("MissingPermission") void connect(BluetoothDevice d){
         stopScan();disconnect();String n=null;try{n=d.getName();}catch(SecurityException ignored){}
-        cryptoName=(n==null||n.isEmpty())?"NBScooter2020":n;crypto=new NinebotCrypto(cryptoName);encParser.reset();pairSerial=null;badMic=0;hsStage=0;hsTries=0;
+        cryptoName=(n==null||n.isEmpty())?"NBScooter2020":n;crypto=new NinebotCrypto(cryptoName);encParser.reset();pairSerial=null;badMic=0;hsStage=0;hsTries=0;discoveryAttempts=0;
         listener.onConnection(false,"Verbinde "+safeName(d));gatt=d.connectGatt(activity,false,callback,BluetoothDevice.TRANSPORT_LE);
     }
     @SuppressLint("MissingPermission") void disconnect(){
-        main.removeCallbacks(handshakeRetry);ready=false;nusReady=false;txBusy=false;hsStage=0;txQueue.clear();listener.onReady(false);
+        main.removeCallbacks(handshakeRetry);main.removeCallbacks(serviceDiscoveryTimeout);ready=false;nusReady=false;txBusy=false;hsStage=0;discoveryAttempts=0;txQueue.clear();listener.onReady(false);
         if(gatt!=null){try{gatt.disconnect();}catch(Exception ignored){}try{gatt.close();}catch(Exception ignored){}}gatt=null;rx=null;tx=null;
     }
 
@@ -79,11 +79,32 @@ final class BleUartClient {
     private void handleIncoming(byte[] chunk){for(byte[] enc:encParser.push(chunk)){try{handlePlain(crypto.decryptVerified(enc));}catch(SecurityException e){badMic++;listener.onLog("RX verworfen: "+e.getMessage()+" (#"+badMic+")");}catch(Exception e){listener.onLog("RX Crypto Fehler: "+e.getMessage());}}}
     @SuppressLint("MissingPermission") private String safeName(BluetoothDevice d){try{String n=d.getName();return(n==null||n.isEmpty())?d.getAddress():n+" ("+d.getAddress()+")";}catch(SecurityException e){return"BLE Gerät";}}
 
+    @SuppressLint("MissingPermission") private void startServiceDiscovery(BluetoothGatt g){
+        if(g==null)return;
+        discoveryAttempts++;
+        listener.onLog("GATT Service Discovery Start #"+discoveryAttempts);
+        boolean started=false;
+        try{started=g.discoverServices();}catch(Exception e){listener.onLog("discoverServices Exception: "+e.getClass().getSimpleName()+": "+e.getMessage());}
+        if(!started){
+            listener.onLog("discoverServices() abgelehnt");
+            if(discoveryAttempts<3)main.postDelayed(()->{if(g==gatt&&!nusReady)startServiceDiscovery(g);},600);
+            else listener.onConnection(true,"GATT Service Discovery konnte nicht gestartet werden");
+            return;
+        }
+        main.removeCallbacks(serviceDiscoveryTimeout);
+        main.postDelayed(serviceDiscoveryTimeout,8000);
+    }
+    private final Runnable serviceDiscoveryTimeout=new Runnable(){@Override public void run(){
+        if(nusReady||gatt==null)return;
+        listener.onLog("GATT Service Discovery Timeout nach 8 s");
+        listener.onConnection(true,"BLE verbunden, aber Service Discovery ohne Antwort");
+    }};
+
     private final ScanCallback scanCallback=new ScanCallback(){@Override public void onScanResult(int t,ScanResult r){BluetoothDevice d=r.getDevice();String key=d.getAddress();if(seen.containsKey(key))return;boolean interesting=false;String name=null;try{name=d.getName();}catch(SecurityException ignored){}if(name!=null){String low=name.toLowerCase();interesting=low.contains("miscooter")||low.contains("ninebot")||low.contains("scooter");}if(r.getScanRecord()!=null&&r.getScanRecord().getServiceUuids()!=null)for(ParcelUuid u:r.getScanRecord().getServiceUuids())if(NUS_SERVICE.equals(u.getUuid())){interesting=true;break;}if(interesting){seen.put(key,d);listener.onDevice(d,r.getRssi());}}@Override public void onScanFailed(int e){listener.onLog("BLE Scanfehler: "+e);}};
     private final BluetoothGattCallback callback=new BluetoothGattCallback(){
-        @SuppressLint("MissingPermission") @Override public void onConnectionStateChange(BluetoothGatt g,int status,int state){if(state==BluetoothProfile.STATE_CONNECTED){listener.onConnection(true,"BLE verbunden; suche UART-Service");try{g.requestMtu(247);}catch(Exception ignored){}g.discoverServices();}else if(state==BluetoothProfile.STATE_DISCONNECTED){ready=false;nusReady=false;main.removeCallbacks(handshakeRetry);listener.onReady(false);listener.onConnection(false,"Getrennt");try{g.close();}catch(Exception ignored){}if(g==gatt)gatt=null;}}
-        @SuppressLint("MissingPermission") @Override public void onServicesDiscovered(BluetoothGatt g,int status){if(status!=BluetoothGatt.GATT_SUCCESS){listener.onLog("Service discovery fehlgeschlagen: "+status);return;}BluetoothGattService s=g.getService(NUS_SERVICE);if(s==null){listener.onLog("Nordic UART Service nicht gefunden");return;}rx=s.getCharacteristic(NUS_RX);tx=s.getCharacteristic(NUS_TX);if(rx==null||tx==null){listener.onLog("NUS RX/TX fehlt");return;}g.setCharacteristicNotification(tx,true);BluetoothGattDescriptor d=tx.getDescriptor(CCCD);if(d==null){listener.onLog("CCCD fehlt");return;}if(Build.VERSION.SDK_INT>=33)g.writeDescriptor(d,BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);else{d.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);g.writeDescriptor(d);}}
-        @Override public void onDescriptorWrite(BluetoothGatt g,BluetoothGattDescriptor d,int status){if(CCCD.equals(d.getUuid())&&status==BluetoothGatt.GATT_SUCCESS){nusReady=true;startHandshake();}}
+        @SuppressLint("MissingPermission") @Override public void onConnectionStateChange(BluetoothGatt g,int status,int state){listener.onLog("GATT state="+state+" status="+status);if(status!=BluetoothGatt.GATT_SUCCESS){listener.onConnection(false,"GATT Fehler "+status);try{g.close();}catch(Exception ignored){}if(g==gatt)gatt=null;return;}if(state==BluetoothProfile.STATE_CONNECTED){listener.onConnection(true,"BLE verbunden; suche UART-Service");startServiceDiscovery(g);}else if(state==BluetoothProfile.STATE_DISCONNECTED){ready=false;nusReady=false;main.removeCallbacks(handshakeRetry);main.removeCallbacks(serviceDiscoveryTimeout);listener.onReady(false);listener.onConnection(false,"Getrennt");try{g.close();}catch(Exception ignored){}if(g==gatt)gatt=null;}}
+        @SuppressLint("MissingPermission") @Override public void onServicesDiscovered(BluetoothGatt g,int status){main.removeCallbacks(serviceDiscoveryTimeout);listener.onLog("Services discovered status="+status);if(status!=BluetoothGatt.GATT_SUCCESS){listener.onLog("Service discovery fehlgeschlagen: "+status);return;}BluetoothGattService s=g.getService(NUS_SERVICE);if(s==null){listener.onLog("Nordic UART Service nicht gefunden");return;}rx=s.getCharacteristic(NUS_RX);tx=s.getCharacteristic(NUS_TX);if(rx==null||tx==null){listener.onLog("NUS RX/TX fehlt");return;}g.setCharacteristicNotification(tx,true);BluetoothGattDescriptor d=tx.getDescriptor(CCCD);if(d==null){listener.onLog("CCCD fehlt");return;}boolean started;if(Build.VERSION.SDK_INT>=33)started=g.writeDescriptor(d,BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)==android.bluetooth.BluetoothStatusCodes.SUCCESS;else{d.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);started=g.writeDescriptor(d);}if(!started)listener.onLog("CCCD write konnte nicht gestartet werden");else listener.onLog("CCCD write gestartet");}
+        @Override public void onDescriptorWrite(BluetoothGatt g,BluetoothGattDescriptor d,int status){listener.onLog("Descriptor write status="+status);if(CCCD.equals(d.getUuid())&&status==BluetoothGatt.GATT_SUCCESS){nusReady=true;listener.onLog("NUS Notifications aktiv");startHandshake();}}
         @Override public void onCharacteristicWrite(BluetoothGatt g,BluetoothGattCharacteristic c,int status){synchronized(BleUartClient.this){txBusy=false;if(status!=BluetoothGatt.GATT_SUCCESS)listener.onLog("BLE write status="+status);drainQueue();}}
         @Override public void onCharacteristicChanged(BluetoothGatt g,BluetoothGattCharacteristic c){if(NUS_TX.equals(c.getUuid())){byte[] v=c.getValue();if(v!=null)handleIncoming(v.clone());}}
         @Override public void onCharacteristicChanged(BluetoothGatt g,BluetoothGattCharacteristic c,byte[] v){if(NUS_TX.equals(c.getUuid())&&v!=null)handleIncoming(v.clone());}
