@@ -191,6 +191,9 @@ s=once(s,'        statusText.setText("Crypto paired: "',
 s=once(s,'DashBLE Motor 0.3.0','DashBLE Config 0.3.1')
 # Leave 'read_only:true' in the report ONLY when no writes are currently
 # possible; append capability fields in the JSON result instead.
+# The report must not falsely claim a write-enabled v0.8.0 session is read-only.
+s=once(s,'        json=json.substring(0,json.length()-1)',
+         '        json=json.replace("\\\"read_only\\\":true","\\\"read_only\\\":"+(!configAllowed()));\n        json=json.substring(0,json.length()-1)')
 s=once(s,'","+motorTelemetry.jsonFields()+"}"',
        '","+motorTelemetry.jsonFields()+",\\\\"config_guarded\\\\":true,\\\\"config_enabled\\\\":"+configAllowed()+"}"')
 f.write_text(s)
