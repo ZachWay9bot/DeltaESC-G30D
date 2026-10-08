@@ -21,7 +21,7 @@ jobs:
           cp -a /tmp/v061/. /tmp/v062/
           xz -dc v0.6.2/v062.patch.xz | patch -d /tmp/v062 -p4
           cp -a /tmp/v062/. /tmp/v063/
-          xz -dc v0.6.3/v063.patch.xz | patch -d /tmp/v063 -p2
+          xz -dc v0.6.3/v063.patch.xz | patch -d /tmp/v063 -p1
       - name: Build matrix
         working-directory: /tmp/v063
         run: make clean all CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
