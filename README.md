@@ -47,3 +47,14 @@ The next planned stage is calibrated current sensing, phase mapping, low-energy 
 This project is released under GPL-3.0. Sensorless observer architecture is informed by the open-source VESC firmware; hardware mapping is cross-checked against public G30 reverse-engineering work. See the version documentation for specific references.
 
 **Do not treat a successful build as hardware validation.**
+
+## Flash / recovery policy
+
+**Bluetooth-first is the project default.** Normal installation and later firmware updates are intended to use the stock G30 BLE/dashboard path with ScooterHacking Utility and the preserved Ninebot IAP bootloader. ST-Link is recovery-only and is not part of the normal test procedure.
+
+Do **not** treat the current raw v0.4.1 BIN as the preferred user flash artifact. Before hardware release, the clean branch must provide and validate both:
+
+1. a stock-IAP/SHU ZIPv3 package generated from the 0x08001000 application image; and
+2. an exact, checksum-validated IAP-start handoff so a running DeltaESC can return to the preserved stock bootloader for later Bluetooth updates.
+
+Until that handoff is included and preflighted, v0.4.1 remains a development build rather than the Bluetooth-first hardware release candidate.
