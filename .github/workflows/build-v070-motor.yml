@@ -1,0 +1,58 @@
+name: Build DeltaESC G30D v0.7.0 motor core
+on:
+  push:
+    branches: [ "dev/v0.7.0-motor-core" ]
+    paths: [ "v0.7.0/**", ".github/workflows/build-v070-motor.yml" ]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18 llvm-18 xz-utils patch
+      - name: Reconstruct v0.6.5 source
+        run: |
+          mkdir -p /tmp/v061 /tmp/v070
+          tar -xJf v0.6/DeltaESC_G30D_v0_6_source.tar.xz -C /tmp/v061
+          xz -dc v0.6.1/v0611.patch.xz | patch -d /tmp/v061 -p1
+          cp -a /tmp/v061/. /tmp/v070/
+          xz -dc v0.6.2/v062.patch.xz | patch -d /tmp/v070 -p4
+          xz -dc v0.6.3/v063.patch.xz | patch -d /tmp/v070 -p4
+          xz -dc v0.6.4/v064.patch.xz | patch -d /tmp/v070 -p4
+          xz -dc v0.6.5/v065.patch.xz | patch -d /tmp/v070 -p1
+          cp v0.7.0/apply_v070.py /tmp/v070/apply_v070.py
+          python3 /tmp/v070/apply_v070.py
+      - name: Build matrix
+        working-directory: /tmp/v070
+        run: make clean all CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+      - name: Motor-core host test
+        working-directory: /tmp/v070
+        run: |
+          clang-18 -std=c11 -Wall -Wextra -Werror -Isrc tools/motor_core_host_test.c src/sensorless_control.c -o build/motor_core_host_test
+          ./build/motor_core_host_test
+      - name: Size and identity preflight
+        working-directory: /tmp/v070
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          main=Path('src/main.c').read_text()
+          assert '#define FW_BUILD 0x0700u' in main
+          assert 'sensorless_control_set_motor_params' in main
+          for p in Path('build').glob('*.bin'):
+              assert p.stat().st_size <= 0xD000, (p,p.stat().st_size)
+              print(p.name,p.stat().st_size)
+          PY
+      - name: Hashes
+        working-directory: /tmp/v070
+        run: sha256sum build/*.bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-G30D-v0.7.0-motor-core
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            /tmp/v070/build/*.bin
+            /tmp/v070/README.md
