@@ -158,7 +158,7 @@ jobs:
       - name: Overlay E8 dual ADC read-only screen without modifying proven G30 BLE
         run: |
           set -euo pipefail
-          cat android/v0.3.3/e8.b64.part-* | tr -d '\\n\\r ' | base64 -d > /tmp/e8_v033_overlay.tar.gz
+          cat android/v0.3.3/e8.b64.part-* | base64 -d > /tmp/e8_v033_overlay.tar.gz
           echo "bb9090fd64f7296b67ab702ed746cf5a248a6a5baf1087e2bab97aa672703893  /tmp/e8_v033_overlay.tar.gz" | sha256sum -c -
           mkdir -p /tmp/e8_v033_overlay
           tar -xzf /tmp/e8_v033_overlay.tar.gz -C /tmp/e8_v033_overlay
