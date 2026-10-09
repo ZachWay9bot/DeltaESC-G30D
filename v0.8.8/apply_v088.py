@@ -27,6 +27,11 @@ s=one(s,'    const uint32_t jsqr1=ADC_JSQR,jsqr2=ADC2_JSQR;',
         (uint16_t)TIM_ARR(TIM1_BASE),(uint16_t)TIM_CR1(TIM1_BASE),
         (uint16_t)TIM_CCER(TIM1_BASE),(uint16_t)TIM_BDTR(TIM1_BASE),
         (uint16_t)TIM_SR(TIM1_BASE),t0);
+    /* Unexpected motor PWM outputs in a GATE-OFF build are fatal. */
+    if(g_timer_evidence.config_flags & ADC_TIMING_GATE_ENABLED) {
+        if(!g_safety_latched)g_safety_latched=0xA006u;
+        power_stage_force_disarm();
+    }
     const uint32_t jsqr1=ADC_JSQR,jsqr2=ADC2_JSQR;''')
 s=one(s,'    case 0xEAu: /* full JSQR and JEOC state of one completed ADC sample pair */',
 '''    case 0xEBu: /* register evidence, not physical sample time */
