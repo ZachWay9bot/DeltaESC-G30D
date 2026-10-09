@@ -1,0 +1,244 @@
+name: Audit DeltaESC v0.8.6 ADC integrity and atomic E8 diagnostic (SOURCE ONLY)
+on:
+  push:
+    branches: ["dev/v0.8.6-adc-integrity-atomic-telemetry-gateoff"]
+    paths:
+      - "v0.8.6/**"
+      - ".github/workflows/build-v086-adc-integrity.yml"
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned LLVM and build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18 llvm-18 xz-utils patch
+          python3 -m pip install unicorn==2.1.4
+      - name: Reconstruct canonical v0.6.7 firmware
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/v061 /tmp/v086
+          tar -xJf v0.6/DeltaESC_G30D_v0_6_source.tar.xz -C /tmp/v061
+          xz -dc v0.6.1/v0611.patch.xz | patch -d /tmp/v061 -p1
+          cp -a /tmp/v061/. /tmp/v086/
+          xz -dc v0.6.2/v062.patch.xz | patch -d /tmp/v086 -p4
+          xz -dc v0.6.3/v063.patch.xz | patch -d /tmp/v086 -p4
+          xz -dc v0.6.4/v064.patch.xz | patch -d /tmp/v086 -p4
+          xz -dc v0.6.5/v065.patch.xz | patch -d /tmp/v086 -p1
+          cat v0.6.6/v066.patch.part-* > /tmp/v066.patch
+          echo "dfab72dc0bf7869d595e041cb1a797a4ac5f50e2118c5011f99a5d7fc33abd0a  /tmp/v066.patch" | sha256sum -c -
+          patch -d /tmp/v086 -p1 < /tmp/v066.patch
+          cat v0.6.7/v067.patch.part-* > /tmp/v067.patch
+          echo "430666ee2c9967973c5aaec1560385010ab531cc04d5e790ec28cf495a6c18a4  /tmp/v067.patch" | sha256sum -c -
+          patch -d /tmp/v086 -p1 < /tmp/v067.patch
+      - name: Apply v0.6.8-v0.6.10 update and power safety
+        run: |
+          set -euxo pipefail
+          cp v0.6.8/src/iap_control.[ch] /tmp/v086/src/
+          patch -d /tmp/v086 -p1 < v0.6.8/iap_powercut_core.patch
+          python3 v0.6.9/apply_v069.py /tmp/v086
+          patch -d /tmp/v086 -p1 < v0.6.10/iap_retry.patch
+          test -z "$(find /tmp/v086 -name '*.rej' -print -quit)"
+      - name: Reconstruct v0.7.0-v0.7.2 passive motor and DashBLE layers
+        run: |
+          set -euxo pipefail
+          python3 v0.7.0/apply_v070.py /tmp/v086
+          python3 v0.7.1/apply_v071.py /tmp/v086
+          python3 v0.7.2/apply_v072.py /tmp/v086
+      - name: Import v0.8.0 parameterized sensorless motor core
+        run: |
+          set -euxo pipefail
+          echo "4c76c78595117f8b1ec6f7804f335fd091254fc1febb73281f7e13ef8e611e7c  v0.8.0/motor_core_v070_overlay.tar.xz" | sha256sum -c -
+          python3 v0.8.0/apply_v080.py /tmp/v086 v0.8.0/motor_core_v070_overlay.tar.xz
+          mkdir -p /tmp/v080_vendor
+          tar -xJf v0.8.0/motor_core_v070_overlay.tar.xz -C /tmp/v080_vendor
+          cp /tmp/v080_vendor/tools/motor_core_host_test.c /tmp/v086/tools/
+          cp v0.7.2/tools/test_ble_motor_probe.c /tmp/v086/tools/
+      - name: Apply v0.8.1 phone commissioning guard
+        run: python3 v0.8.1/apply_v081.py /tmp/v086
+      - name: Apply v0.8.2 stock current frontend model
+        run: python3 v0.8.2/apply_v082.py /tmp/v086
+      - name: Apply v0.8.3 stock dual-ADC acquisition plan
+        run: python3 v0.8.3/apply_v083.py /tmp/v086
+      - name: Merge magic-gated atomic F0-F5 parameter staging into commissioning firmware
+        run: |
+          python3 v0.8.4/apply_v084.py /tmp/v086
+          cp v0.8.4/tools/motor_config_txn_test.c /tmp/v086/tools/
+      - name: Decode and hash-pin audited live dual-ADC source overlay
+        run: |
+          set -euo pipefail
+          cat v0.8.5/overlay.b64.part-* | base64 -d > /tmp/v086_overlay.tar.xz
+          echo "59ed470aa8708b3e23d8571fb23b59a371b5a14dc09c0930f5b2cba51c0a8ed1  /tmp/v086_overlay.tar.xz" | sha256sum -c -
+          mkdir -p /tmp/v086_overlay
+          tar -xJf /tmp/v086_overlay.tar.xz -C /tmp/v086_overlay
+          python3 /tmp/v086_overlay/apply_v085.py /tmp/v086
+      - name: Apply v0.8.6 sample integrity and atomic E8 overlay (no gate changes)
+        run: |
+          python3 v0.8.6/apply_v086.py /tmp/v086
+          python3 - <<'PY'
+          from pathlib import Path
+          root=Path('/tmp/v086')
+          main=(root/'src/main.c').read_text()
+          make=(root/'Makefile').read_text()
+          assert '#define FW_BUILD 0x0806u' in main
+          assert 'case 0xE8u:' in main and 'case 0xE9u:' in main
+          e8=main.split('case 0xE8u:')[1].split('case 0xE9u:')[0]
+          assert 'irq_disable();' in e8 and 'irq_enable();' in e8
+          assert e8.index('irq_disable();') < e8.index('put_u16(p,g_last_adc1_pair)')
+          assert e8.index('irq_enable();') > e8.index('put_u16(p+14')
+          assert 'quality & ADCQ_BAD_PAIR' in main
+          assert 'power_stage_force_disarm();' in main
+          assert 'g_safety_latched=0xA005u' in main
+          for sentinel in ('#define COMM_CURRENT_SCALE_HW_VALID 0u','#define COMM_GATE_HW_VALID 0u','#define COMM_ADC_TIMING_HW_VALID 0u'):
+            assert sentinel in main
+          assert '-DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0' in make
+          assert 'active: ' not in make and 'bench: ' not in make
+          print('PASS: source interlocks, atomic E8 read, E9 statistics, fail-closed ADC ISR')
+          PY
+      - name: Negative build rejects any gate arming
+        working-directory: /tmp/v086
+        run: |
+          set -euo pipefail
+          if clang-18 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -ffreestanding -Isrc -DPOWER_STAGE_ARM_ALLOWED=1 -DSENSORLESS_RUN_ALLOWED=0 -fsyntax-only src/main.c > /tmp/armed.log 2>&1; then
+            echo "FAIL: dangerous armed compilation succeeded"; exit 1
+          fi
+          grep -F 'must NEVER arm a physical power stage' /tmp/armed.log
+      - name: Build gate-OFF SYNC-SAFE target only
+        working-directory: /tmp/v086
+        run: make clean safe CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+      - name: Test actual six-sector ADC runtime and per-phase offset calibration
+        working-directory: /tmp/v086
+        run: |
+          clang-18 -std=c11 -O1 -Wall -Wextra -Werror -fsanitize=undefined \
+            -fno-sanitize-recover=all -Isrc \
+            src/stock_current_frontend.c src/stock_dual_adc_plan.c \
+            src/stock_dual_adc_runtime.c tools/stock_dual_adc_runtime_host_test.c \
+            -o build/dual_adc_runtime_host
+          build/dual_adc_runtime_host
+          grep -F 'ADC2_JDR1' src/main.c
+          grep -F 'case 0xE8u:' src/main.c
+          grep -F 'ADC_CR2_EXTSEL_SWSTART' src/main.c
+          grep -F 'ADC2_CR2=ADC_CR2_ADON|ADC_CR2_JEXTSEL_JSWSTART|ADC_CR2_JEXTTRIG' src/main.c
+          grep -F '#define COMM_ADC_TIMING_HW_VALID 0u' src/main.c
+          grep -F '#define COMM_GATE_HW_VALID 0u' src/main.c
+          grep -F '#define FW_BUILD 0x0806u' src/main.c
+      - name: Test six-sector ADC sample-integrity, counter saturation and invalid-channel rejection
+        working-directory: /tmp/v086
+        run: |
+          clang-18 -std=c11 -O1 -Wall -Wextra -Werror -fsanitize=undefined \
+            -fno-sanitize-recover=all -Isrc \
+            src/stock_adc_quality.c src/stock_current_frontend.c \
+            tools/stock_adc_quality_host_test.c -o build/host_adc_quality
+          build/host_adc_quality
+      - name: Test stock DRV126 current frontend and dual-ADC plan
+        env:
+          HOST_CC: clang-18
+        run: |
+          python3 v0.8.2/tools/test_stock_current_frontend.py /tmp/v086
+          python3 v0.8.3/tools/test_stock_dual_adc_plan.py /tmp/v086
+      - name: Test commissioning guard truth table
+        env:
+          HOST_CC: clang-18
+        run: python3 v0.8.1/tools/test_commissioning_guard.py /tmp/v086
+      - name: Test motor-core numerical and original passive BLE host regressions
+        working-directory: /tmp/v086
+        run: |
+          for mode in voltage foc sensorless; do
+            if [ "$mode" = voltage ]; then defs="-DMOTOR_VOLTAGE_BENCH=1 -DSENSORLESS_CLOSED_LOOP_ALLOWED=0"; fi
+            if [ "$mode" = foc ]; then defs="-DMOTOR_VOLTAGE_BENCH=0 -DSENSORLESS_CLOSED_LOOP_ALLOWED=0"; fi
+            if [ "$mode" = sensorless ]; then defs="-DMOTOR_VOLTAGE_BENCH=0 -DSENSORLESS_CLOSED_LOOP_ALLOWED=1"; fi
+            clang-18 -std=c11 -O1 -Wall -Wextra -Werror -Wno-misleading-indentation \
+              -fsanitize=undefined -fno-sanitize-recover=all -Isrc $defs \
+              tools/motor_core_host_test.c src/sensorless_control.c -o build/host_$mode
+            build/host_$mode
+          done
+          clang-18 -std=c11 -O1 -Wall -Wextra -Werror -fsanitize=undefined \
+            -fno-sanitize-recover=all -Isrc \
+            tools/test_ble_motor_probe.c src/motor_probe.c src/ble_motor_probe.c \
+            -o build/host_ble
+          build/host_ble
+      - name: Test F0-F5 staged parameter transaction under UBSan
+        working-directory: /tmp/v086
+        run: |
+          clang-18 -std=c11 -O1 -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=all \
+            -Isrc tools/motor_config_txn_test.c src/motor_config_txn.c -o build/transaction_host
+          build/transaction_host
+      - name: Emulate full SYNC-SAFE UART/IAP target with ACK retries
+        env:
+          ARM_NM: llvm-nm-18
+        run: |
+          cp /tmp/v086/build/DeltaESC_G30D_v0_8_6_ble_syncsafe.elf /tmp/v086/build/target_syncsafe.elf
+          cp /tmp/v086/build/DeltaESC_G30D_v0_8_6_ble_syncsafe.bin /tmp/v086/build/target_syncsafe.bin
+          cp v0.6.10/full_target_protocol.py v0.8.5_dual_adc_unicorn.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('v0.8.5_dual_adc_unicorn.py')
+          s=p.read_text()
+          old='elif a==0x40012408:self.w32(a,self.r32(a)&~12)'
+          new='elif a in (0x40012408,0x40012808):self.w32(a,self.r32(a)&~12)'
+          assert s.count(old)==1
+          p.write_text(s.replace(old,new))
+          PY
+          python3 v0.8.5_dual_adc_unicorn.py /tmp/v086 --retry --guard --blocks 130
+      - name: Test actual ARM DashBLE commissioning ABI
+        env:
+          ARM_NM: llvm-nm-18
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('v0.8.4/tools/test_arm_v084.py')
+          target=Path('v0.8.4/tools/test_arm_v085.py')
+          s=p.read_text()
+          assert "b'\\x04\\x08'" in s
+          s=s.replace("b'\\x04\\x08'","b'\\x06\\x08'")
+          old_import="repo/'v0.6.10'/'full_target_protocol.py'"
+          assert old_import in s
+          s=s.replace(old_import,"repo/'v0.8.5_dual_adc_unicorn.py'")
+          target.write_text(s)
+          PY
+          python3 v0.8.4/tools/test_arm_v085.py /tmp/v086
+          python3 - <<'PY'
+          from pathlib import Path
+          import importlib.util
+          s=importlib.util.spec_from_file_location('m','v0.8.5_dual_adc_unicorn.py')
+          m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+          t=m.Target(Path('/tmp/v086').resolve())
+          out=t.packet(1,b'\x10',arg=0xe8)
+          print('E8 target bytes:',out.hex(),flush=True)
+          assert out[2]==16,(len(out),out.hex())
+          assert out[5:7]==b'\x04\xe8',out.hex()
+          assert out[7+11]&2==0,'physical E0 was not simulated'
+          out2=t.packet(1,b'\x10',arg=0xe9)
+          assert out2[2]==16 and out2[5:7]==b'\x04\xe9',out2.hex()
+          print('PASS ARM Ninebot E8 and E9 16B reads + v0.8.6 identity')
+          PY
+      - name: Test staged-IAP and stock bootloader error branches
+        env:
+          HOST_CC: clang-18
+        run: |
+          cp v0.6.8/tools/{iap_control_powercut_test.c,test_iap_powercut.py} /tmp/v086/tools/
+          python3 /tmp/v086/tools/test_iap_powercut.py
+          python3 v0.6.8/tools/test_stock_copy_faults.py
+          python3 v0.6.8/tools/test_stock_error_paths.py
+      - name: Run existing transport and dashboard regressions
+        working-directory: /tmp/v086
+        env:
+          HOST_CC: clang-18
+        run: |
+          python3 tools/test_iap_ack.py
+          python3 tools/test_iap_transport.py
+          python3 tools/test_iap_crypto.py
+          python3 tools/test_dashboard_runtime.py
+      - name: Export SOURCE-ONLY audit, excluding all firmware images
+        run: |
+          tar --exclude=build --exclude=shu --exclude='__pycache__' -C /tmp/v086 -cJf /tmp/DeltaESC_v086_ADC_INTEGRITY_SOURCE_ONLY.tar.xz .
+          sha256sum /tmp/DeltaESC_v086_ADC_INTEGRITY_SOURCE_ONLY.tar.xz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-v0.8.6-ADC-INTEGRITY-SOURCE-ONLY
+          if-no-files-found: error
+          retention-days: 30
+          path: /tmp/DeltaESC_v086_ADC_INTEGRITY_SOURCE_ONLY.tar.xz
