@@ -24,10 +24,16 @@ jobs:
 
       - name: Install Android SDK 35
         env:
-          ANDROID_HOME: /usr/local/lib/android/sdk
-          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+          ANDROID_HOME: /tmp/android-sdk
+          ANDROID_SDK_ROOT: /tmp/android-sdk
         run: |
-          export PATH="$ANDROID_HOME/cmdline-tools/16.0/bin:$ANDROID_HOME/platform-tools:$PATH"
+          set -euxo pipefail
+          mkdir -p "$ANDROID_HOME/cmdline-tools"
+          curl -fL --retry 3 -o /tmp/cmdline-tools.zip \
+            https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tools-unpack
+          mv /tmp/cmdline-tools-unpack/cmdline-tools "$ANDROID_HOME/cmdline-tools/latest"
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
@@ -47,8 +53,8 @@ jobs:
       - name: Verify package identity and canonical bytes
         working-directory: /tmp/g30recovery
         env:
-          ANDROID_HOME: /usr/local/lib/android/sdk
-          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+          ANDROID_HOME: /tmp/android-sdk
+          ANDROID_SDK_ROOT: /tmp/android-sdk
         run: |
           set -euxo pipefail
           test "$(stat -c %s assets/DRV126_stock_app.bin.enc)" = "30080"
