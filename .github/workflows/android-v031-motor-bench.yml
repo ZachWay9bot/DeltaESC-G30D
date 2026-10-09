@@ -55,23 +55,23 @@ jobs:
             'NinebotProtocol.java':'866fb803a439faf78ce50655cf54cae15a4467766826088e0bfa86b8468e84a3'}
           for n,h in hashes.items(): assert hashlib.sha256((root/n).read_bytes()).hexdigest()==h,n
           main=(root/'MainActivity.java').read_text()
-          cmds=(root/'MotorCommands.java').read_text()
-          assert 'deltaBuild==MotorCommands.BUILD_REQUIRED' in main
-          assert 'Teststrom 100..500 mA' in main
-          assert 'E6 STOP / DISARM' in main
-          assert 'private boolean stopSupported(){return stage==4&&deltaDetected;}' in main
-          assert 'sendStopWhenFree(20)' in main
-          assert 'D0–D9 Snapshot' in main
-          assert 'BUILD_REQUIRED=0x0720' in cmds
-          assert 'F5 Persistenz ist in v0.7.2 nicht implementiert' in main
-          assert 'CMD_IAP' not in main and '0x07 BEGIN' not in main
+          proto=(root/'MotorBenchProtocol.java').read_text()
+          assert 'preflightOk' in main and 'offsetReady' in main
+          assert 'BUILD_MOTOR_BENCH_TIMEOUT = 0x0760' in proto
+          assert 'handler.postDelayed(this::emergencyStop,1200)' in main
+          assert 'F0–F4 anwenden (nur RAM)' in main
+          assert '0xF5' not in main and 'IAP' not in main
+          assert 'D0–D9' in main
+          grad=Path('/tmp/app/v031/app/build.gradle').read_text()
+          assert "applicationId 'de.deltaesc.motorbench'" in grad
+          assert "versionName '0.3.1'" in grad
           print('v0.3.1 safety preflight PASS')
           PY
-      - name: Motor command host vectors
+      - name: Motor bench protocol host vectors
         run: |
           mkdir -p /tmp/testclasses
-          javac -d /tmp/testclasses             /tmp/app/v031/app/src/main/java/de/deltaesc/tool/NinebotProtocol.java             /tmp/app/v031/app/src/main/java/de/deltaesc/tool/MotorCommands.java             android/v0.3.1/TestMotorCommands.java
-          java -cp /tmp/testclasses de.deltaesc.tool.TestMotorCommands
+          javac -d /tmp/testclasses             /tmp/app/v031/app/src/main/java/de/deltaesc/tool/NinebotProtocol.java             /tmp/app/v031/app/src/main/java/de/deltaesc/tool/MotorBenchProtocol.java             /tmp/app/v031/tools/TestMotorBenchProtocol.java
+          java -cp /tmp/testclasses de.deltaesc.tool.TestMotorBenchProtocol
       - name: Existing G30 crypto regression vectors
         run: |
           mkdir -p /tmp/cryptoclasses
@@ -84,8 +84,8 @@ jobs:
         run: gradle :app:assembleDebug --stacktrace
       - name: Package
         run: |
-          cp /tmp/app/v031/app/build/outputs/apk/debug/app-debug.apk /tmp/G30_Motor_Bench_v0.3.1.apk
-          tar --exclude=.gradle --exclude=app/build -C /tmp/app -cJf /tmp/G30_Motor_Bench_v0.3.1_SOURCE.tar.xz v031
+          cp /tmp/app/v031/app/build/outputs/apk/debug/app-debug.apk /tmp/G30_Bench_BLE_Motor_v0.3.1.apk
+          tar --exclude=.gradle --exclude=app/build -C /tmp/app -cJf /tmp/G30_Bench_BLE_Motor_v0.3.1_SOURCE.tar.xz v031
           sha256sum /tmp/G30_Motor_Bench_v0.3.1.apk /tmp/G30_Motor_Bench_v0.3.1_SOURCE.tar.xz | tee /tmp/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
