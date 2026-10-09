@@ -70,6 +70,8 @@ jobs:
           assert '(d2[0]&255)!=0' in main and '(d2[3]&255)!=7' in main
           assert 'hard>100||sum>30' in main
           assert 'actionE6()' in proto
+          assert 'if(stage!=4||!deltaDetected)' in main
+          assert 'keine bestätigte DeltaESC-Signatur' in main
           grad=Path('/tmp/app/v031/app/build.gradle').read_text()
           assert "applicationId 'de.deltaesc.motorbench'" in grad
           assert "versionName '0.3.1'" in grad
