@@ -22,6 +22,14 @@ new='case 0xD8:return 12;case 0xD9:return 12;default:return 16;'
 if ms.count(old)!=1: raise RuntimeError('D9 length anchor mismatch')
 mp.write_text(ms.replace(old,new,1))
 assert hashlib.sha256(mp.read_bytes()).hexdigest()=='b4f99d25182bd2c35f15f610410d88f74987cfcc2531328001404c17895db424'
+ms=mp.read_text()
+old_stop='private void tryEmergencyStop(){if(stage!=4){stopWanted=false;benchState.setText("E6 nicht sendbar: nicht verbunden");return;}'
+new_stop='private void tryEmergencyStop(){if(stage!=4||!deltaDetected){stopWanted=false;benchState.setText("E6 nicht sendbar: keine bestätigte DeltaESC-Signatur");return;}'
+if ms.count(old_stop)!=1: raise RuntimeError('E6 signature gate anchor mismatch')
+ms=ms.replace(old_stop,new_stop,1)
+ms=ms.replace('/** G30 bench app: frozen BLE/NinebotCrypto transport, DeltaESC v0.7.3 bench control UI. */','/** G30 bench app: frozen BLE/NinebotCrypto transport, DeltaESC v0.7.6 time-boxed bench control UI. */')
+mp.write_text(ms)
+assert hashlib.sha256(mp.read_bytes()).hexdigest()=='84fe4e2f0ab7c54536f428014c6ef09a7e7a9799ec53991d041366a34710b5d3'
 g=r/'app/build.gradle'
 s=g.read_text().replace("applicationId 'de.deltaesc.motorprobe'","applicationId 'de.deltaesc.motorbench'").replace('versionCode 30','versionCode 31').replace("versionName '0.3.0'","versionName '0.3.1'")
 g.write_text(s)
