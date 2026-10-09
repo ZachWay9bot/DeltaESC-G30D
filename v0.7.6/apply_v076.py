@@ -21,14 +21,11 @@ def one(old,new,label):
         raise SystemExit(label+' anchor mismatch: '+str(s.count(old)))
     s=s.replace(old,new,1)
 
-one('#include "iap_proto.h"',
-    '#include "iap_proto.h"\n#include "motor_bench_watchdog.h"',
-    'include')
 one('#define FW_BUILD 0x0750u',
     '#define FW_BUILD 0x0760u',
     'build id')
 one('#define ADC_STALE_MS                    5u',
-    '#define ADC_STALE_MS                    5u\n#define MOTOR_BENCH_TIMEOUT_MS         1000u',
+    '#define ADC_STALE_MS                    5u\n#define MOTOR_BENCH_TIMEOUT_MS         1000u\nstatic inline uint8_t motor_bench_deadline_reached(uint32_t now,uint32_t deadline){return (uint8_t)(((int32_t)(now-deadline))>=0);}',
     'timeout define')
 one('static uint8_t g_cfg_dirty;',
     'static uint8_t g_cfg_dirty;\nstatic volatile uint8_t g_motor_bench_active;\nstatic volatile uint32_t g_motor_bench_deadline_ms;\nstatic volatile uint16_t g_motor_bench_timeouts;',
