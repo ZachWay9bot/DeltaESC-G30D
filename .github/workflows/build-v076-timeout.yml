@@ -1,0 +1,87 @@
+name: Build v0.7.6 time-boxed motor bench
+on:
+  push:
+    branches: [ "dev/v0.7.6-timeout" ]
+    paths: [ "v0.7.6/**", ".github/workflows/build-v076-timeout.yml" ]
+  workflow_dispatch:
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18 llvm-18 xz-utils patch
+      - name: Reconstruct v0.7.5 and apply v0.7.6
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/v061 /tmp/v076
+          tar -xJf v0.6/DeltaESC_G30D_v0_6_source.tar.xz -C /tmp/v061
+          xz -dc v0.6.1/v0611.patch.xz | patch -d /tmp/v061 -p1
+          cp -a /tmp/v061/. /tmp/v076/
+          xz -dc v0.6.2/v062.patch.xz | patch -d /tmp/v076 -p4
+          xz -dc v0.6.3/v063.patch.xz | patch -d /tmp/v076 -p4
+          xz -dc v0.6.4/v064.patch.xz | patch -d /tmp/v076 -p4
+          xz -dc v0.6.5/v065.patch.xz | patch -d /tmp/v076 -p1
+          cp v0.7.0/apply_v070.py /tmp/v076/apply_v070.py && python3 /tmp/v076/apply_v070.py
+          cp v0.7.2/apply_v072.py /tmp/v076/apply_v072.py && python3 /tmp/v076/apply_v072.py
+          cp v0.7.3/apply_v073.py /tmp/v076/apply_v073.py && python3 /tmp/v076/apply_v073.py
+          cp v0.7.4/apply_v074.py /tmp/v076/apply_v074.py && python3 /tmp/v076/apply_v074.py
+          cp v0.7.5/apply_v075.py /tmp/v076/apply_v075.py && python3 /tmp/v076/apply_v075.py
+          cp v0.7.6/apply_v076.py /tmp/v076/apply_v076.py && python3 /tmp/v076/apply_v076.py
+      - name: Static safety preflight
+        working-directory: /tmp/v076
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          m=Path('src/main.c').read_text()
+          c=Path('src/sensorless_control.c').read_text()
+          assert '#define FW_BUILD 0x0760u' in m
+          assert '#define MOTOR_BENCH_TIMEOUT_MS         1000u' in m
+          assert 'g_motor_bench_deadline_ms=g_ms+MOTOR_BENCH_TIMEOUT_MS' in m
+          assert 'motor_bench_deadline_reached(g_ms,g_motor_bench_deadline_ms)' in m
+          assert 'g_power_armed=0u;g_motor_bench_active=0u; sensorless_control_stop(&ctrl);' in m
+          assert 'put_u16(p+8,MOTOR_BENCH_TIMEOUT_MS)' in m
+          assert 'put_u16(p+10,g_motor_bench_timeouts)' in m
+          assert 'current_ma > 500u' in c
+          assert 'GPIOB_BASE,12' in m and 'TIM_BDTR_BKE' in m
+          assert 'pi_integrate_q15' in c
+          assert 'observer_speed_filt_ehz_q8' in c
+          assert 'g_cfg_r_uohm=170000u' in m and 'g_cfg_l_nh=312000u' in m
+          print('v0.7.6 timeout/safety preflight PASS')
+          PY
+      - name: Build matrix
+        working-directory: /tmp/v076
+        run: make clean all CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+      - name: Existing motor regressions
+        working-directory: /tmp/v076
+        run: |
+          clang-18 -std=c11 -Wall -Wextra -Werror -Isrc tools/motor_core_host_test.c src/sensorless_control.c -o build/motor_core_host_test
+          ./build/motor_core_host_test
+          clang-18 -std=c11 -Wall -Wextra -Werror -fsanitize=undefined -Isrc tools/pi_q15_bench_test.c src/sensorless_control.c -o build/pi_q15_bench_test
+          ./build/pi_q15_bench_test
+          clang-18 -std=c11 -Wall -Wextra -Werror -fsanitize=undefined -Isrc tools/observer_speed_host_test.c src/sensorless_control.c -o build/observer_speed_host_test
+          ./build/observer_speed_host_test
+          clang-18 -std=c11 -Wall -Wextra -Werror -Isrc tools/g30_profile_host_test.c src/sensorless_control.c -o build/g30_profile_host_test
+          ./build/g30_profile_host_test
+      - name: Timeout regression
+        working-directory: /tmp/v076
+        run: |
+          clang-18 -std=c11 -Wall -Wextra -Werror -Isrc tools/motor_bench_watchdog_host_test.c -o build/motor_bench_watchdog_host_test
+          ./build/motor_bench_watchdog_host_test
+      - name: Hash artifacts
+        working-directory: /tmp/v076
+        run: |
+          test $(stat -c%s build/DeltaESC_G30D_v0_7_6_ble_sensorless_bench.bin) -le 53248
+          sha256sum build/*.bin | tee build/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-G30D-v0.7.6-TIMEBOXED-MOTOR-BENCH
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            /tmp/v076/build/DeltaESC_G30D_v0_7_6_ble_sensorless_bench.bin
+            /tmp/v076/build/DeltaESC_G30D_v0_7_6_ble_observer_zero_vector.bin
+            /tmp/v076/build/DeltaESC_G30D_v0_7_6_ble_syncsafe.bin
+            /tmp/v076/build/SHA256SUMS.txt
