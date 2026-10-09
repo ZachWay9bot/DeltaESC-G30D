@@ -15,6 +15,13 @@ put(tools/'TestMotorBenchProtocol.java','eNqVlMGO2jAQhu88hTeHyhGp5QChrFIOaQtSD5V
 assert hashlib.sha256((java/'MainActivity.java').read_bytes()).hexdigest()=='bf33628fc25d252449e1535e8c99d286cc1ae10fcc70b98bca10d6678f085292'
 assert hashlib.sha256((java/'MotorBenchProtocol.java').read_bytes()).hexdigest()=='10916669485c560e214d9d72c8140f6bfeec01e860c31f5fcda945955e082471'
 assert hashlib.sha256((tools/'TestMotorBenchProtocol.java').read_bytes()).hexdigest()=='c59be5046e5e1693129233b75fe7467e66058637075a593b7f396542ad9dc2ac'
+mp=java/'MainActivity.java'
+ms=mp.read_text()
+old='case 0xD8:return 12;case 0xD9:return 8;default:return 16;'
+new='case 0xD8:return 12;case 0xD9:return 12;default:return 16;'
+if ms.count(old)!=1: raise RuntimeError('D9 length anchor mismatch')
+mp.write_text(ms.replace(old,new,1))
+assert hashlib.sha256(mp.read_bytes()).hexdigest()=='b4f99d25182bd2c35f15f610410d88f74987cfcc2531328001404c17895db424'
 g=r/'app/build.gradle'
 s=g.read_text().replace("applicationId 'de.deltaesc.motorprobe'","applicationId 'de.deltaesc.motorbench'").replace('versionCode 30','versionCode 31').replace("versionName '0.3.0'","versionName '0.3.1'")
 g.write_text(s)
