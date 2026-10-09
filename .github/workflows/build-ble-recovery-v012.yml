@@ -1,0 +1,72 @@
+name: Build G30 BLE Recovery DRV126 v0.1.2
+
+on:
+  push:
+    branches: [ "dev/ble-phone-drv126-recovery-v0.1.2" ]
+    paths:
+      - "recovery/v0.1.2/**"
+      - ".github/workflows/build-ble-recovery-v012.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reconstruct exact source bundle
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/g30recovery
+          cat recovery/v0.1.2/bundle.b64.part-* | base64 -d > /tmp/recovery_build_bundle.tar.gz
+          echo "1c01a5610c95de713e6d925a258ef865bffd6f6652cb5ae4d073eeaa3ab2fb1a  /tmp/recovery_build_bundle.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/recovery_build_bundle.tar.gz -C /tmp/g30recovery
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 35
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Recovery safety preflight
+        working-directory: /tmp/g30recovery
+        run: python3 tests/preflight_recovery.py
+
+      - name: Exact DRV126 IAP flow host test
+        working-directory: /tmp/g30recovery
+        run: python3 tests/run_recovery_tests.py
+
+      - name: Build signed APK
+        working-directory: /tmp/g30recovery
+        run: |
+          python3 build.py             --android-jar "$ANDROID_HOME/platforms/android-35/android.jar"             --build-tools "$ANDROID_HOME/build-tools/35.0.0"
+
+      - name: Verify package identity and canonical bytes
+        working-directory: /tmp/g30recovery
+        run: |
+          set -euxo pipefail
+          test "$(stat -c %s assets/DRV126_stock_app.bin.enc)" = "30080"
+          echo "1d41c1259ba5919d923c4c05b489e62a0760dc0003e186378e877a93e8260461  assets/DRV126_stock_app.bin.enc" | sha256sum -c -
+          sha256sum             src/de/ebics/g30bench/BleClient.java             src/de/ebics/g30bench/LegacyCrypto.java             src/de/ebics/g30bench/Packet.java             src/de/ebics/g30bench/WireDecoder.java
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs dist/G30_BLE_Recovery_DRV126_v0.1.2.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging dist/G30_BLE_Recovery_DRV126_v0.1.2.apk
+          sha256sum dist/G30_BLE_Recovery_DRV126_v0.1.2.apk > dist/SHA256SUMS.txt
+          sha256sum assets/DRV126_stock_app.bin.enc >> dist/SHA256SUMS.txt
+          {
+            echo "Recovery target: DeltaESC v0.6.5 only (D0 DESC + build 0x0605 required)"
+            echo "Embedded payload: exact encrypted stock DRV126, 30080 bytes"
+            echo "First hardware step: IAP BEGIN test only; full flash remains locked until ACK 0x0B/result 0"
+            echo "No automatic retries of mutating IAP frames"
+            echo "No motor/config commands and no arbitrary firmware picker"
+          } > dist/RECOVERY_README.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: G30-BLE-Recovery-DRV126-v0.1.2
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            /tmp/g30recovery/dist/G30_BLE_Recovery_DRV126_v0.1.2.apk
+            /tmp/g30recovery/dist/SHA256SUMS.txt
+            /tmp/g30recovery/dist/RECOVERY_README.txt
