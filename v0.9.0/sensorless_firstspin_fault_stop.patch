@@ -1,0 +1,84 @@
+--- a/src/sensorless_control.h
++++ b/src/sensorless_control.h
+@@ -46,6 +46,7 @@
+     uint16_t ccr1;
+     uint16_t ccr2;
+     uint16_t ccr3;
++    uint16_t pwm_arr_last; /* retained to force immediate neutral duty on stop */
+ 
+     uint32_t motor_r_uohm;
+     uint32_t motor_l_nh;
+--- a/src/sensorless_control.c
++++ b/src/sensorless_control.c
+@@ -253,7 +253,7 @@
+     s->motor_r_uohm = 0; s->motor_l_nh = 0; s->motor_flux_uwb = 0; s->motor_params_valid = 0;
+     s->phase_offset_u16 = 0u; s->run_current_ma = DEFAULT_RUN_CURRENT_MA; s->run_iq_counts = ma_to_counts(DEFAULT_RUN_CURRENT_MA);
+     s->current_sum_counts = 0; s->pi_kp_mod_per_count = FALLBACK_KP_MOD_PER_COUNT; s->pi_ki_mod_per_count = FALLBACK_KI_MOD_PER_COUNT;
+-    observer_reset(s); s->ccr1 = s->ccr2 = s->ccr3 = 0;
++    observer_reset(s); s->pwm_arr_last = 1999u; zero_vector(s,s->pwm_arr_last);
+ }
+ 
+ void sensorless_control_set_phase_offset(sensorless_control_t *s, int16_t offset) { s->phase_offset_u16 = (uint16_t)offset; }
+@@ -274,8 +274,10 @@
+ 
+ void sensorless_control_set_drive(sensorless_control_t *s, uint8_t enable) {
+     if (!enable) { sensorless_control_stop(s); return; }
++    /* A latched observer fault cannot be cleared by another drive request. */
++    if (s->fault || s->state == SENSORLESS_FAULT) return;
+     if (!s->drive_request) {
+-        s->drive_request = 1; s->fault = 0; s->state = SENSORLESS_ALIGN; s->state_ticks = 0;
++        s->drive_request = 1; s->state = SENSORLESS_ALIGN; s->state_ticks = 0;
+         s->openloop_step = OPENLOOP_STEP_START; s->openloop_phase = 0; s->control_phase = 0;
+         s->id_int = 0; s->iq_int = 0; observer_reset(s);
+     }
+@@ -284,10 +286,16 @@
+ void sensorless_control_stop(sensorless_control_t *s) {
+     s->drive_request = 0; s->state = SENSORLESS_STOP; s->state_ticks = 0;
+     s->lock_ticks = 0; s->lost_ticks = 0; s->id_int = 0; s->iq_int = 0;
++    /* Zero CCR values would mean 0% duty, not neutral voltage.  Always
++       neutralize to common-mode 50% immediately, without another IRQ.
++       Physical coast still requires the separate, hardware-verified gate kill. */
++    zero_vector(s,s->pwm_arr_last);
+ }
+ 
+ void sensorless_control_step(sensorless_control_t *s, phase_current_counts_t current,
+                              uint16_t vbus_adc, uint16_t pwm_arr, uint8_t power_armed) {
++    if (!pwm_arr) { sensorless_control_stop(s); return; }
++    s->pwm_arr_last = pwm_arr;
+     /* Remove three-shunt common-mode error before Clarke transform. */
+     int32_t sum = (int32_t)current.ia + current.ib + current.ic;
+     s->current_sum_counts = (int16_t)sum;
+@@ -298,12 +306,15 @@
+     int32_t i_alpha = ia;
+     int32_t i_beta = (int32_t)(((int64_t)(ib - ic) * 18919) >> 15); /* (Ib-Ic)/sqrt(3) */
+ 
+-    observer_update(s, i_alpha, i_beta, vbus_adc);
+-    s->phase_error = phase_delta(s->observer_phase, s->openloop_phase);
+-    if (!power_armed || !s->drive_request) {
+-        s->state = SENSORLESS_STOP; s->state_ticks = 0; s->id_int = 0; s->iq_int = 0;
++    /* Do not run the BEMF estimator on unpowered or invalidated inputs. */
++    if (!power_armed || !s->drive_request || s->fault) {
++        if (s->fault) s->state = SENSORLESS_FAULT;
++        else s->state = SENSORLESS_STOP;
++        s->state_ticks = 0; s->id_int = 0; s->iq_int = 0;
+         zero_vector(s, pwm_arr); return;
+     }
++    observer_update(s, i_alpha, i_beta, vbus_adc);
++    s->phase_error = phase_delta(s->observer_phase, s->openloop_phase);
+ 
+     s->state_ticks++;
+     switch ((sensorless_state_id_t)s->state) {
+@@ -356,6 +367,13 @@
+     default:
+         s->drive_request = 0; zero_vector(s, pwm_arr); return;
+     }
++    /* The state machine may LATCH A FAULT inside this switch (observer
++       timeout/loss).  Do not emit one more energized PWM calculation. */
++    if (s->state == SENSORLESS_FAULT || s->fault) {
++        s->drive_request = 0u; s->id_int = 0; s->iq_int = 0;
++        zero_vector(s, pwm_arr);
++        return;
++    }
+ 
+ #if MOTOR_VOLTAGE_BENCH
+     if (s->state == SENSORLESS_ALIGN) {
