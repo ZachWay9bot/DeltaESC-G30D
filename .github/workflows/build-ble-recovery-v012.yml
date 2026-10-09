@@ -22,10 +22,12 @@ jobs:
           echo "1c01a5610c95de713e6d925a258ef865bffd6f6652cb5ae4d073eeaa3ab2fb1a  /tmp/recovery_build_bundle.tar.gz" | sha256sum -c -
           tar -xzf /tmp/recovery_build_bundle.tar.gz -C /tmp/g30recovery
 
-      - uses: android-actions/setup-android@v3
-
       - name: Install Android SDK 35
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
         run: |
+          export PATH="$ANDROID_HOME/cmdline-tools/16.0/bin:$ANDROID_HOME/platform-tools:$PATH"
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
@@ -44,6 +46,9 @@ jobs:
 
       - name: Verify package identity and canonical bytes
         working-directory: /tmp/g30recovery
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
         run: |
           set -euxo pipefail
           test "$(stat -c %s assets/DRV126_stock_app.bin.enc)" = "30080"
