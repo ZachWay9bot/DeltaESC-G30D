@@ -34,14 +34,14 @@ one('stock_adc_quality_check(&g_adc_quality,sector,s1,s2,\n                     
     'stock_adc_quality_check(&g_adc_quality,sector,s1,s2,\n                                 jsqr1,jsqr2,dt_cycles,PWM_SAMPLE_EXPECT_CYCLES)')
 one('put_u16(p+14,(uint16_t)(ADC2_JSQR&0xffffu));',
     'put_u16(p+14,(uint16_t)(g_pair_snapshot.adc2_jsqr&0xffffu));')
-one('        n=16u;break;\n    case 0xE9u: /* passive ADC integrity counters, still no calibrated units */',
+one('        n=16u;break;\n    case 0xE9u: /* read-only acquisition fault statistics */',
     '''        n=16u;break;
     case 0xEAu: /* full JSQR and JEOC state of one completed ADC sample pair */
         irq_disable();
         stock_adc_snapshot_encode_ea(&g_pair_snapshot,p);
         irq_enable();
         n=16u;break;
-    case 0xE9u: /* passive ADC integrity counters, still no calibrated units */''')
+    case 0xE9u: /* read-only acquisition fault statistics */''')
 one('uart_puts("DeltaESC G30D v0.8.5 LIVE DUAL ADC INJECTED + REGULAR VBUS GATES OFF. GATES PERMANENTLY OFF.\\r\\n");',
     'uart_puts("DeltaESC G30D v0.8.7 PAIRED ADC EVIDENCE + E8/E9/EA DIAG. GATES OFF.\\r\\n");')
 p.write_text(s)
