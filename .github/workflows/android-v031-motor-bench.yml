@@ -62,6 +62,14 @@ jobs:
           assert 'F0–F4 anwenden (nur RAM)' in main
           assert '0xF5' not in main and 'IAP' not in main
           assert 'D0–D9' in main
+          assert 'case 0xD9:return 12' in main
+          assert 'deltaBuild!=MotorBenchProtocol.BUILD_MOTOR_BENCH_TIMEOUT' in main
+          assert 'if(!offsetReady)' in main
+          assert 'if(!preflightOk)' in main
+          assert 'idle>20' in main
+          assert '(d2[0]&255)!=0' in main and '(d2[3]&255)!=7' in main
+          assert 'hard>100||sum>30' in main
+          assert 'actionE6()' in proto
           grad=Path('/tmp/app/v031/app/build.gradle').read_text()
           assert "applicationId 'de.deltaesc.motorbench'" in grad
           assert "versionName '0.3.1'" in grad
@@ -86,14 +94,14 @@ jobs:
         run: |
           cp /tmp/app/v031/app/build/outputs/apk/debug/app-debug.apk /tmp/G30_Bench_BLE_Motor_v0.3.1.apk
           tar --exclude=.gradle --exclude=app/build -C /tmp/app -cJf /tmp/G30_Bench_BLE_Motor_v0.3.1_SOURCE.tar.xz v031
-          sha256sum /tmp/G30_Motor_Bench_v0.3.1.apk /tmp/G30_Motor_Bench_v0.3.1_SOURCE.tar.xz | tee /tmp/SHA256SUMS.txt
+          sha256sum /tmp/G30_Bench_BLE_Motor_v0.3.1.apk /tmp/G30_Bench_BLE_Motor_v0.3.1_SOURCE.tar.xz | tee /tmp/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: G30-Motor-Bench-v0.3.1
+          name: G30-Bench-BLE-Motor-v0.3.1
           retention-days: 30
           if-no-files-found: error
           path: |
-            /tmp/G30_Motor_Bench_v0.3.1.apk
-            /tmp/G30_Motor_Bench_v0.3.1_SOURCE.tar.xz
+            /tmp/G30_Bench_BLE_Motor_v0.3.1.apk
+            /tmp/G30_Bench_BLE_Motor_v0.3.1_SOURCE.tar.xz
             /tmp/SHA256SUMS.txt
             android/v0.3.1/README.md
