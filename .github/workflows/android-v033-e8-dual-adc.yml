@@ -1,0 +1,237 @@
+name: DashBLE ADC v0.3.3 E8 read-only dual ADC diagnostic (G30 crypto unchanged)
+on:
+  push:
+    branches: [ "dev/android-v0.3.3-e8-dual-adc-readonly" ]
+    paths:
+      - "android/v0.3.3/**"
+      - ".github/workflows/android-v033-e8-dual-adc.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Reconstruct v0.2 baseline
+        run: |
+          mkdir -p /tmp/app
+          tar -xJf android/DeltaESC_Android_v0_1_source.tar.xz -C /tmp/app
+          mv /tmp/app/DeltaESC_Android_v0_1 /tmp/app/v030
+          cat android/v0.2/chunks/*.b64 | tr -d '\n\r ' | base64 -d > /tmp/android_v02.patch.xz
+          echo "269e9793c3bcbb7abf7cb7cd74d24d460a6cc070eadf9658cec515d76b46d7ec  /tmp/android_v02.patch.xz" | sha256sum -c -
+          xz -dc /tmp/android_v02.patch.xz | patch -d /tmp/app/v030 -p1
+          rm -f /tmp/app/v030/app/src/main/java/de/deltaesc/tool/DeltaEscProtocol.java
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('/tmp/app/v030/app/src/main/java/de/deltaesc/tool/MainActivity.java')
+          s=p.read_text()
+          old='private void readDeltaSnapshot(){if(stage!=4){toast("Nicht angemeldet");return;}int[] r={0xD0,0xD1,0xD8,0xD9};'
+          new='private void readDeltaSnapshot(){if(stage!=4){toast("Nicht angemeldet");return;}if(!deltaDetected){toast("DeltaESC-Signatur fehlt; Snapshot gesperrt");return;}int[] r={0xD0,0xD1,0xD8,0xD9};'
+          assert old in s
+          p.write_text(s.replace(old,new))
+          PY
+
+      - name: Apply v0.2.2 proven GATT transport
+        run: |
+          echo "5ab8ab7a389795c26d7049f1e2e6aeadccf72bfb0e2d3cc08bb8b05de98678d2  android/v0.2.2/v022.patch.xz" | sha256sum -c -
+          xz -dc android/v0.2.2/v022.patch.xz | patch -d /tmp/app/v030 -p1
+
+      - name: Apply v0.2.3 real G30 framing
+        run: |
+          echo "adee921e20c9e183cd2f118f792c198e379286ef4a42614a1bc968128645e504  android/v0.2.3/v023.patch.xz" | sha256sum -c -
+          xz -dc android/v0.2.3/v023.patch.xz | patch -d /tmp/app/v030 -p1
+
+      - name: Static framing and safety preflight
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root=Path('/tmp/app/v030/app/src/main/java/de/deltaesc/tool')
+          proto=(root/'NinebotProtocol.java').read_text()
+          crypto=(root/'NinebotCrypto.java').read_text()
+          ble=(root/'BleUartClient.java').read_text()
+          main=(root/'MainActivity.java').read_text()
+          gradle=Path('/tmp/app/v030/app/build.gradle').read_text()
+          assert 'new byte[payload.length + 7]' in proto
+          assert 'int total=len+13' in proto
+          assert 'frame.length==len+7' in proto
+          assert 'wire.length<13' in crypto
+          assert 'plain.length>=37' in crypto
+          assert 'int expected=(wire[2]&0xFF)+7' in crypto
+          assert 'NUS_CHUNK = 20' in ble
+          assert 'WRITE_TYPE_DEFAULT' in ble
+          assert 'boolean canAcceptFrame()' in ble
+          assert '!ble.canAcceptFrame()' in main
+          assert 'versionName \'0.2.3\'' in gradle
+          assert 'READ ONLY • v0.2.3' in main
+          forbidden=('CMD_IAP','0xE0','0xE1','0xF0','0xF1')
+          # The UI/control source must not grow write-capable tuning/IAP paths.
+          for x in forbidden:
+              assert x not in main, x
+          print('v0.2.3 real-G30 framing/safety preflight: PASS')
+          PY
+
+      - name: Overlay read-only motor diagnostic UI on frozen v0.2.3 crypto
+        run: |
+          python3 android/v0.3.0/apply_v030.py /tmp/app/v030
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          root=Path('/tmp/app/v030/app/src/main/java/de/deltaesc/tool')
+          hashes={
+            'BleUartClient.java':'3bbf0a9e06dd277ef30cecae9baf579f8f843b0e5db505853cfe78c916b14485',
+            'NinebotCrypto.java':'57d88389891ad2fe5dc42dc69748c2a81dc24edc3930081a74ceee45ae035705',
+            'NinebotProtocol.java':'866fb803a439faf78ce50655cf54cae15a4467766826088e0bfa86b8468e84a3'
+          }
+          for name,expected in hashes.items():
+            assert hashlib.sha256((root/name).read_bytes()).hexdigest()==expected, name
+          main=(root/'MainActivity.java').read_text()
+          assert 'motorSupported()' in main and 'deltaBuild>=0x0702' in main
+          assert 'NinebotProtocol.readEsc(register,16)' in main
+          assert 'new MotorTelemetry()' in main and '0xE0' not in main and '0xF0' not in main
+          gradle=Path('/tmp/app/v030/app/build.gradle').read_text()
+          assert "applicationId 'de.deltaesc.motorprobe'" in gradle
+          assert "versionName '0.3.0'" in gradle
+          print('PASS: untouched physical G30 crypto vectors/transport; motor registers are READ ONLY')
+          PY
+
+      - name: Overlay guarded F0-F2 parameter editor (exact DESC build 0800)
+        run: |
+          python3 android/v0.3.1/apply_v031.py /tmp/app/v030
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          root=Path('/tmp/app/v030/app/src/main/java/de/deltaesc/tool')
+          hashes={
+            'BleUartClient.java':'3bbf0a9e06dd277ef30cecae9baf579f8f843b0e5db505853cfe78c916b14485',
+            'NinebotCrypto.java':'57d88389891ad2fe5dc42dc69748c2a81dc24edc3930081a74ceee45ae035705',
+            'NinebotProtocol.java':'866fb803a439faf78ce50655cf54cae15a4467766826088e0bfa86b8468e84a3'
+          }
+          for name,expected in hashes.items():
+            assert hashlib.sha256((root/name).read_bytes()).hexdigest()==expected,name
+          main=(root/'MainActivity.java').read_text()
+          cfg=(root/'MotorConfig.java').read_text()
+          gradle=Path('/tmp/app/v030/app/build.gradle').read_text()
+          assert 'configAllowed()' in main and 'handleMotorConfigAck' in main
+          assert 'MotorConfig.writeFrame' in main and 'MotorConfig.value' in main
+          assert 'READ_ACK' in main and 'configTimeout' in main
+          assert 'REQUIRED_BUILD=0x0800' in cfg and 'FIRST_WRITE=0xF0, LAST_WRITE=0xF2' in cfg
+          assert '0xE5' not in main and '0xE6' not in main
+          assert "applicationId 'de.deltaesc.motorparams'" in gradle
+          assert "versionName '0.3.1'" in gradle
+          print('PASS: guarded F0-F2 writes, no motor commands, original G30 BLE transport byte-identical')
+          PY
+
+      - name: Overlay exact v0.8.4 five-field staged transaction UI
+        run: |
+          python3 android/v0.3.2/apply_v032.py /tmp/app/v030
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          root=Path('/tmp/app/v030/app/src/main/java/de/deltaesc/tool')
+          main=(root/'MainActivity.java').read_text()
+          gradle=Path('/tmp/app/v030/app/build.gradle').read_text()
+          assert 'MotorTxn.permitted' in main and 'handleTxnStatus' in main
+          assert 'F5-Commit' in main or 'MotorTxn.commit()' in main
+          assert 'MotorTxn.abort()' in main and 'MotorTxn.frame(' in main
+          assert 'MotorTxn.STATUS' in main and 'motorAutomatic' in main
+          assert 'sendConfigWrite' not in main and 'proposeMotorParamWrite' not in main
+          assert '0xE5' not in main and '0xE6' not in main
+          assert "applicationId 'de.deltaesc.motorparams2'" in gradle
+          assert "versionName '0.3.2'" in gradle
+          for name,sha in {
+            'BleUartClient.java':'3bbf0a9e06dd277ef30cecae9baf579f8f843b0e5db505853cfe78c916b14485',
+            'NinebotCrypto.java':'57d88389891ad2fe5dc42dc69748c2a81dc24edc3930081a74ceee45ae035705',
+            'NinebotProtocol.java':'866fb803a439faf78ce50655cf54cae15a4467766826088e0bfa86b8468e84a3'
+          }.items():
+            assert hashlib.sha256((root/name).read_bytes()).hexdigest()==sha,name
+          print('PASS exact build 0804 transaction app, G30 crypto byte-identical')
+          PY
+
+      - name: Overlay E8 dual ADC read-only screen without modifying proven G30 BLE
+        run: |
+          set -euo pipefail
+          cat android/v0.3.3/e8.b64.part-* | tr -d '\\n\\r ' | base64 -d > /tmp/e8_v033_overlay.tar.gz
+          echo "bb9090fd64f7296b67ab702ed746cf5a248a6a5baf1087e2bab97aa672703893  /tmp/e8_v033_overlay.tar.gz" | sha256sum -c -
+          mkdir -p /tmp/e8_v033_overlay
+          tar -xzf /tmp/e8_v033_overlay.tar.gz -C /tmp/e8_v033_overlay
+          python3 /tmp/e8_v033_overlay/apply_v033.py /tmp/app/v030
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          root=Path('/tmp/app/v030/app/src/main/java/de/deltaesc/tool')
+          main=(root/'MainActivity.java').read_text()
+          cfg=(root/'MotorTxn.java').read_text()
+          diag=(root/'LiveAdc.java').read_text()
+          grad=Path('/tmp/app/v030/app/build.gradle').read_text()
+          assert 'MotorTxn.permitted(stage==4,deltaDetected,deltaBuild)' in main
+          assert 'LiveAdc.supported(stage==4,deltaDetected,deltaBuild)' in main
+          assert 'REQUIRED_BUILD = 0x0805' in diag
+          assert 'BUILD=0x0804' in cfg
+          assert 'NinebotProtocol.readEsc(LiveAdc.REGISTER,16)' in main
+          assert '0xE5' not in main and '0xE6' not in main
+          assert 'motorAutomatic||adcBusy||adcAuto' in main
+          assert "applicationId 'de.deltaesc.adcdiagnostics'" in grad
+          assert "versionName '0.3.3'" in grad
+          for name,sha in {
+            'BleUartClient.java':'3bbf0a9e06dd277ef30cecae9baf579f8f843b0e5db505853cfe78c916b14485',
+            'NinebotCrypto.java':'57d88389891ad2fe5dc42dc69748c2a81dc24edc3930081a74ceee45ae035705',
+            'NinebotProtocol.java':'866fb803a439faf78ce50655cf54cae15a4467766826088e0bfa86b8468e84a3'
+          }.items():assert hashlib.sha256((root/name).read_bytes()).hexdigest()==sha,name
+          print('PASS v0.3.3 E8 READ-ONLY exact build0805; writing stays build0804; BLE unchanged')
+          PY
+
+      - name: Compile real G30 crypto regression vectors
+        run: |
+          mkdir -p /tmp/testclasses
+          javac -d /tmp/testclasses \
+            /tmp/app/v030/app/src/main/java/de/deltaesc/tool/Hex.java \
+            /tmp/app/v030/app/src/main/java/de/deltaesc/tool/NinebotProtocol.java \
+            /tmp/app/v030/app/src/main/java/de/deltaesc/tool/NinebotCrypto.java \
+            /tmp/app/v030/tools/TestCrypto.java \
+            /tmp/app/v030/tools/TestRealG30Vector.java \
+            /tmp/app/v030/tools/TestRealG30Handshake.java \
+            /tmp/app/v030/tools/TestRealG30FullHandshake.java \
+            /tmp/app/v030/tools/TestRealG30Fragmentation.java \
+            /tmp/app/v030/app/src/main/java/de/deltaesc/tool/MotorTelemetry.java \
+            android/v0.3.0/TestMotorTelemetry.java \
+            /tmp/app/v030/app/src/main/java/de/deltaesc/tool/MotorConfig.java \
+            android/v0.3.1/TestMotorConfig.java \
+            /tmp/app/v030/app/src/main/java/de/deltaesc/tool/MotorTxn.java \
+            android/v0.3.2/TestMotorTxn.java \
+            /tmp/app/v030/app/src/main/java/de/deltaesc/tool/LiveAdc.java \
+            /tmp/e8_v033_overlay/TestLiveAdc.java
+
+      - name: Run real G30 crypto regression vectors
+        run: |
+          for t in TestCrypto TestRealG30Vector TestRealG30Handshake TestRealG30FullHandshake TestRealG30Fragmentation TestMotorTelemetry TestMotorConfig TestMotorTxn TestLiveAdc; do
+            java -cp /tmp/testclasses de.deltaesc.tool.$t
+          done
+
+      - name: Build debug APK
+        working-directory: /tmp/app/v030
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Package source and hashes
+        run: |
+          cp /tmp/app/v030/app/build/outputs/apk/debug/app-debug.apk /tmp/DashBLE_ADC_v0_3_3.apk
+          tar --exclude=.gradle --exclude=app/build -C /tmp/app -cJf /tmp/DashBLE_ADC_v0_3_3_SOURCE.tar.xz v030
+          sha256sum /tmp/DashBLE_ADC_v0_3_3.apk /tmp/DashBLE_ADC_v0_3_3_SOURCE.tar.xz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DashBLE-ADC-v0.3.3-E8-READONLY-G30
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            /tmp/DashBLE_ADC_v0_3_3.apk
+            /tmp/DashBLE_ADC_v0_3_3_SOURCE.tar.xz
+            /tmp/app/v030/README.md
+            /tmp/app/v030/PROTOCOL.md
