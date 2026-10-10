@@ -1,0 +1,592 @@
+diff --git a/Makefile b/Makefile
+index d644f0c..a30cd47 100644
+--- a/Makefile
++++ b/Makefile
+@@ -3,19 +3,19 @@ OBJCOPY ?= llvm-objcopy
+ OBJDUMP ?= llvm-objdump
+ CFLAGS_COMMON = -g3 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Oz -Wall -Wextra -Werror -Isrc
+ LDFLAGS_COMMON = --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -nostdlib -Wl,-T,linker.ld,--gc-sections
+-SRC = src/main.c src/sensorless_control.c src/vesc_ebics_flux.c src/ninebot_link.c src/iap_update.c src/iap_proto.c src/iap_control.c src/dashboard_runtime.c src/power_logic.c src/motor_probe.c src/ble_motor_probe.c src/commissioning_guard.c src/stock_current_frontend.c src/stock_dual_adc_plan.c src/stock_dual_adc_runtime.c src/stock_adc_quality.c src/stock_adc_snapshot.c src/stock_adc_timing.c src/stock_adc_correlated.c src/stock_adc_mode_guard.c src/g30_fixed_scan.c src/motor_config_txn.c src/foc_adc_contract.c src/foc_adc_motor_handoff.c src/motor_id.c src/motor_pipeline.c src/stock_tim1_gate.c src/aeabi_mem.c
+-SAFE_ELF = build/DeltaESC_G30D_v0_9_6_ble_syncsafe.elf
+-SAFE_BIN = build/DeltaESC_G30D_v0_9_6_ble_syncsafe.bin
+-ACTIVE_ELF = build/DeltaESC_G30D_v0_9_6_ble_observer_zero_vector.elf
+-ACTIVE_BIN = build/DeltaESC_G30D_v0_9_6_ble_observer_zero_vector.bin
+-BENCH_ELF = build/DeltaESC_G30D_v0_9_6_ble_sensorless_bench.elf
+-BENCH_BIN = build/DeltaESC_G30D_v0_9_6_ble_sensorless_bench.bin
++SRC = src/main.c src/sensorless_control.c src/vesc_ebics_flux.c src/ninebot_link.c src/iap_update.c src/iap_proto.c src/iap_control.c src/dashboard_runtime.c src/power_logic.c src/motor_probe.c src/ble_motor_probe.c src/commissioning_guard.c src/stock_current_frontend.c src/g30_adc_current_window.c src/g30_adc_current_offsets.c src/stock_dual_adc_plan.c src/stock_dual_adc_runtime.c src/stock_adc_quality.c src/stock_adc_snapshot.c src/stock_adc_timing.c src/stock_adc_correlated.c src/stock_adc_mode_guard.c src/g30_fixed_scan.c src/motor_config_txn.c src/foc_adc_contract.c src/foc_adc_motor_handoff.c src/motor_id.c src/motor_pipeline.c src/stock_tim1_gate.c src/aeabi_mem.c
++SAFE_ELF = build/DeltaESC_G30D_v0_9_7_ble_syncsafe.elf
++SAFE_BIN = build/DeltaESC_G30D_v0_9_7_ble_syncsafe.bin
++ACTIVE_ELF = build/DeltaESC_G30D_v0_9_7_ble_observer_zero_vector.elf
++ACTIVE_BIN = build/DeltaESC_G30D_v0_9_7_ble_observer_zero_vector.bin
++BENCH_ELF = build/DeltaESC_G30D_v0_9_7_ble_sensorless_bench.elf
++BENCH_BIN = build/DeltaESC_G30D_v0_9_7_ble_sensorless_bench.bin
+ all: safe
+ safe: $(SAFE_BIN)
+ build: ; mkdir -p build
+ $(SAFE_ELF): $(SRC) linker.ld | build
+-	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 -DSENSORLESS_CLOSED_LOOP_ALLOWED=1 $(SRC) $(LDFLAGS_COMMON) -Wl,--undefined=motor_id_accept -Wl,--undefined=motor_id_commit -Wl,-Map=build/v0_9_6_syncsafe.map -o $@
++	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 -DSENSORLESS_CLOSED_LOOP_ALLOWED=1 $(SRC) $(LDFLAGS_COMMON) -Wl,--undefined=motor_id_accept -Wl,--undefined=motor_id_commit -Wl,--undefined=g30_adc_current_flags -Wl,--undefined=g30_adc2_ch4_offset_normalize -Wl,-Map=build/v0_9_7_syncsafe.map -o $@
+ $(SAFE_BIN): $(SAFE_ELF)
+ 	$(OBJCOPY) -O binary $< $@
+-	$(OBJDUMP) -h $< > build/v0_9_6_syncsafe_sections.txt
++	$(OBJDUMP) -h $< > build/v0_9_7_syncsafe_sections.txt
+ clean: ; rm -rf build
+diff --git a/src/g30_adc_current_offsets.c b/src/g30_adc_current_offsets.c
+new file mode 100644
+index 0000000..8432938
+--- /dev/null
++++ b/src/g30_adc_current_offsets.c
+@@ -0,0 +1,19 @@
++#include "g30_adc_current_offsets.h"
++uint8_t g30_adc2_ch4_offset_normalize(uint8_t sector,
++    uint16_t adc2_raw, uint16_t adc1_ch4_offset,
++    uint16_t adc2_ch4_offset, uint8_t adc2_ch4_calibrated,
++    uint16_t *normalized) {
++    if (!normalized || adc2_raw>4095u || adc1_ch4_offset>4095u ||
++        adc2_ch4_offset>4095u || sector<1u || sector>6u)
++        return 0u;
++    if (sector!=4u && sector!=5u) {
++        *normalized=adc2_raw;
++        return 1u;
++    }
++    if (!adc2_ch4_calibrated) return 0u;
++    const int32_t result=(int32_t)adc2_raw+
++        (int32_t)adc1_ch4_offset-(int32_t)adc2_ch4_offset;
++    if (result<0 || result>4095) return 0u;
++    *normalized=(uint16_t)result;
++    return 1u;
++}
+diff --git a/src/g30_adc_current_offsets.h b/src/g30_adc_current_offsets.h
+new file mode 100644
+index 0000000..5c24ef2
+--- /dev/null
++++ b/src/g30_adc_current_offsets.h
+@@ -0,0 +1,8 @@
++#pragma once
++#include <stdint.h>
++/* ADC2 CH4 has its OWN offset. ADC1 CH4 zero cannot be used as ADC2 CH4
++ * zero; equal pin number does not imply equal ADC path offset. */
++uint8_t g30_adc2_ch4_offset_normalize(uint8_t sector,
++    uint16_t adc2_raw, uint16_t adc1_ch4_offset,
++    uint16_t adc2_ch4_offset, uint8_t adc2_ch4_calibrated,
++    uint16_t *normalized);
+diff --git a/src/g30_adc_current_window.c b/src/g30_adc_current_window.c
+new file mode 100644
+index 0000000..d00214c
+--- /dev/null
++++ b/src/g30_adc_current_window.c
+@@ -0,0 +1,75 @@
++#include "g30_adc_current_window.h"
++#include "stock_current_frontend.h"
++
++#define G30_ARR 1999u
++#define G30_SAMPLE_TICK 1800u
++#define G30_ADC_SAMPLE_CODE 2u /* 13.5 ADC clocks, RM0008 */
++#define G30_ADC_PRESCALER_BITS (2u << 14) /* PCLK2 / 6 => 10.667 MHz */
++#define G30_ADC_CLOCKS_FOR_CONVERSION 26u /* 13.5 sample + 12.5 conversion */
++#define G30_TIMER_PER_ADC_CLOCK 6u
++#define G30_ADC_CONVERT_TIMER_TICKS (G30_ADC_CLOCKS_FOR_CONVERSION * G30_TIMER_PER_ADC_CLOCK)
++#define G30_DEADTIME_TIMER_TICKS 64u
++#define G30_EXTRA_SETTLE_TICKS 32u
++#define G30_SAFE_LOW_SIDE_MARGIN (G30_ADC_CONVERT_TIMER_TICKS + G30_DEADTIME_TIMER_TICKS + G30_EXTRA_SETTLE_TICKS)
++#define G30_TURNAROUND_MARGIN (G30_ADC_CONVERT_TIMER_TICKS + G30_EXTRA_SETTLE_TICKS)
++#define ADC_DUALMODE_MASK (15u << 16)
++#define ADC_DUALMODE_INJECTED_ONLY (5u << 16)
++#define ADC_JEOCIE (1u << 7)
++#define ADC_ADON (1u << 0)
++#define ADC_JEXTSEL_MASK (7u << 12)
++#define ADC_JEXTSEL_TIM1_CC4 (1u << 12)
++#define ADC_JEXTSEL_SWSTART (7u << 12)
++#define ADC_JEXTTRIG (1u << 15)
++#define TIM_CENTER_MASK (3u << 5)
++#define TIM_CEN (1u << 0)
++#define TIM_CC4E (1u << 12)
++#define TIM_CC4P (1u << 13)
++
++static uint32_t smpr(uint32_t reg, uint8_t channel) {
++    return (reg >> (3u * channel)) & 7u;
++}
++
++uint32_t g30_adc_current_flags(const g30_adc_current_state_t *s) {
++    if (!s) return 0x7fu;
++    uint32_t f=0;
++    if ((s->rcc_cfgr & (3u<<14)) != G30_ADC_PRESCALER_BITS)
++        f |= G30_ADC_F_CLOCK;
++    if ((s->adc1_cr1 & ADC_DUALMODE_MASK) != ADC_DUALMODE_INJECTED_ONLY ||
++        (s->adc2_cr1 & ADC_DUALMODE_MASK) != 0u ||
++        !(s->adc1_cr1 & ADC_JEOCIE))
++        f |= G30_ADC_F_DUAL;
++    if (!(s->adc1_cr2 & (ADC_ADON|ADC_JEXTTRIG)) ||
++        !(s->adc2_cr2 & (ADC_ADON|ADC_JEXTTRIG)) ||
++        (s->adc1_cr2 & (ADC_ADON|ADC_JEXTTRIG)) != (ADC_ADON|ADC_JEXTTRIG) ||
++        (s->adc2_cr2 & (ADC_ADON|ADC_JEXTTRIG)) != (ADC_ADON|ADC_JEXTTRIG) ||
++        (s->adc1_cr2 & ADC_JEXTSEL_MASK) != ADC_JEXTSEL_TIM1_CC4 ||
++        (s->adc2_cr2 & ADC_JEXTSEL_MASK) != ADC_JEXTSEL_SWSTART)
++        f |= G30_ADC_F_TRIGGER;
++    /* All three physical shunt channels CH3/4/5 have identical acquisition
++     * times on both ADCs, no matter which sector selects which pair. */
++    for (uint8_t ch=3u;ch<=5u;ch++) {
++        if (smpr(s->adc1_smpr2,ch)!=G30_ADC_SAMPLE_CODE ||
++            smpr(s->adc2_smpr2,ch)!=G30_ADC_SAMPLE_CODE)
++            f |= G30_ADC_F_SAMPLE;
++    }
++    if (!(s->tim1_cr1 & TIM_CEN) || !(s->tim1_cr1 & TIM_CENTER_MASK) ||
++        s->tim1_arr!=G30_ARR || s->tim1_ccr4!=G30_SAMPLE_TICK ||
++        !(s->tim1_ccer & TIM_CC4E) || (s->tim1_ccer & TIM_CC4P))
++        f |= G30_ADC_F_TIM1;
++    if (s->sector<1u || s->sector>6u) {
++        f |= G30_ADC_F_SECTOR;
++    } else {
++        const stock_adc_pair_t p=stock_current_pair_for_sector(s->sector);
++        const uint16_t ccr[3]={s->tim1_ccr1,s->tim1_ccr2,s->tim1_ccr3};
++        const uint16_t sampled_a=ccr[p.adc1_channel-3u];
++        const uint16_t sampled_b=ccr[p.adc2_channel-3u];
++        /* Works for either compare travel direction: selected LOW-side
++         * shunts have time to settle and complete conversion before the
++         * next PWM edge. For low-side sample topology only. */
++        if (sampled_a > G30_SAMPLE_TICK-G30_SAFE_LOW_SIDE_MARGIN ||
++            sampled_b > G30_SAMPLE_TICK-G30_SAFE_LOW_SIDE_MARGIN ||
++            (G30_ARR-G30_SAMPLE_TICK)<G30_TURNAROUND_MARGIN)
++            f |= G30_ADC_F_WINDOW;
++    }
++    return f;
++}
+diff --git a/src/g30_adc_current_window.h b/src/g30_adc_current_window.h
+new file mode 100644
+index 0000000..ed8d8b2
+--- /dev/null
++++ b/src/g30_adc_current_window.h
+@@ -0,0 +1,29 @@
++#pragma once
++#include <stdint.h>
++
++/* STM32F103/RM0008, G30D 16 kHz centre-aligned PWM profile.
++ * ADC1+ADC2 dual-injected, one rank per ADC, TIM1-CC4 common trigger.
++ * This is a DIGITAL VALIDITY CHECK, not an analogue calibration certificate. */
++typedef struct {
++    uint32_t rcc_cfgr;
++    uint32_t adc1_cr1, adc2_cr1;
++    uint32_t adc1_cr2, adc2_cr2;
++    uint32_t adc1_smpr2, adc2_smpr2;
++    uint16_t tim1_cr1, tim1_ccer;
++    uint16_t tim1_arr, tim1_ccr4;
++    uint16_t tim1_ccr1, tim1_ccr2, tim1_ccr3;
++    uint8_t sector;
++} g30_adc_current_state_t;
++
++enum {
++    G30_ADC_F_CLOCK = 1u<<0,
++    G30_ADC_F_DUAL = 1u<<1,
++    G30_ADC_F_TRIGGER = 1u<<2,
++    G30_ADC_F_SAMPLE = 1u<<3,
++    G30_ADC_F_TIM1 = 1u<<4,
++    G30_ADC_F_WINDOW = 1u<<5,
++    G30_ADC_F_SECTOR = 1u<<6
++};
++/* Zero = internally consistent register and conservative sample aperture.
++ * Nonzero = refuse current feedback for this PWM sector. */
++uint32_t g30_adc_current_flags(const g30_adc_current_state_t *s);
+diff --git a/src/main.c b/src/main.c
+index a04a483..57eef3a 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -11,6 +11,8 @@
+ #include "ble_motor_probe.h"
+ #include "commissioning_guard.h"
+ #include "stock_current_frontend.h"
++#include "g30_adc_current_window.h"
++#include "g30_adc_current_offsets.h"
+ #include "stock_dual_adc_plan.h"
+ #include "stock_dual_adc_runtime.h"
+ #include "stock_adc_quality.h"
+@@ -52,14 +54,14 @@
+ #define MAGIC_UNLOCK 0xC0DEu
+ #define PROTO_MAJOR 0u
+ #define PROTO_MINOR 2u
+-#define FW_BUILD 0x0906u
++#define FW_BUILD 0x0907u
+ #define COMM_DASH_STALE_MS 250u
+ #define COMM_INPUT_IDLE_MAX 3u
+ /* Gate I/O mapping is adopted from STOCK DRV126. This alone does not
+  * calibrate phase currents, validate ADC sample windows, or prove OC protection. */
+-#define COMM_CURRENT_SCALE_HW_VALID 0u
++#define COMM_CURRENT_SCALE_HW_VALID 0u /* physical mA/count unverified, no motor activation */
+ #define COMM_GATE_STOCK_PROFILE_READY 1u /* DRV126 CCER=0x1555 and six TIM1 CHx/CHxN pins */
+-#define COMM_ADC_TIMING_HW_VALID 0u
++#define COMM_ADC_TIMING_HW_VALID 0u /* analogue sampling aperture not motor-qualified */
+ #define COMM_STOCK_CURRENT_MODEL_VALID 1u
+ #define COMM_STOCK_DUAL_ADC_PLAN_VALID 1u
+ #if MOTOR_VOLTAGE_BENCH
+@@ -120,6 +122,8 @@ static motor_pipeline_t g_motor_pipeline;
+ static volatile uint32_t g_motor_irq_sequence;
+ static volatile uint8_t g_offset_cal_active;
+ static volatile uint8_t g_offset_cal_valid;
++static volatile uint16_t g_adc2_ch4_offset;
++static volatile uint8_t g_adc2_ch4_offset_valid;
+ static stock_dual_adc_runtime_t g_dual_adc;
+ static stock_adc_quality_t g_adc_quality;
+ static stock_adc_snapshot_t g_pair_snapshot;
+@@ -255,7 +259,11 @@ static uint8_t motor_hw_select_adc(void *ignored,uint32_t jsqr1,uint32_t jsqr2)
+ 
+ static uint8_t motor_hw_pwm(void *ignored,uint16_t c1,uint16_t c2,uint16_t c3) {
+     (void)ignored;
++    /* Conservative low-side shunt window: all 3 CCRs must leave
++     * TIM1_CC4 enough settle + deadtime + ADC conversion room.
++     * Without this, a future sector switch can invalidate the next sample. */
+     if (c1>PWM_ARR || c2>PWM_ARR || c3>PWM_ARR ||
++        c1>1548u || c2>1548u || c3>1548u ||
+         g_safety_latched || g_dash_brake || g_dash_throttle<=COMM_INPUT_IDLE_MAX)
+         return 0u;
+     if (!g_power_armed && (c1!=PWM_ZERO_CCR ||
+@@ -350,6 +358,34 @@ static void adc1_calibrate_injected_offsets(void) {
+     ADC_SR&=~ADC_SR_JEOC;
+ }
+ 
++/* ADC2 CH4 is used by the active sector-4/5 pair. Sampling ADC1 CH4
++ * during boot does NOT calibrate ADC2 CH4. Do an independent software-
++ * injected conversion with bridge pins inactive before enabling dual mode. */
++static void adc2_calibrate_injected_ch4_offset(void) {
++    uint32_t sum=0u;
++    g_adc2_ch4_offset_valid=0u;
++    ADC2_CR1=0u;
++    ADC2_JSQR=(4u<<15); /* exactly ONE injected rank, ADC2 CH4 */
++    ADC2_CR2=(ADC_CR2_ADON|ADC_CR2_JEXTSEL_JSWSTART|ADC_CR2_JEXTTRIG);
++    for(unsigned i=0u;i<256u;i++) {
++        ADC2_SR &= ~ADC_SR_JEOC;
++        ADC2_CR2 |= ADC_CR2_JSWSTART;
++        const uint32_t start=DWT_CYCCNT;
++        while(!(ADC2_SR & ADC_SR_JEOC)) {
++            if((uint32_t)(DWT_CYCCNT-start)>20000u) {
++                g_safety_latched=0xA011u;
++                return;
++            }
++        }
++        const uint32_t value=ADC2_JDR1;
++        if(value>4095u) { g_safety_latched=0xA011u;return; }
++        sum+=value;
++    }
++    g_adc2_ch4_offset=(uint16_t)(sum>>8);
++    g_adc2_ch4_offset_valid=1u;
++    ADC2_SR &= ~ADC_SR_JEOC;
++}
++
+ /* Boot calibration is deliberately single-ADC CH3/4/5, then BOTH ADCs
+  * are switched into injected simultaneous mode. ADC1 CC4 is the master
+  * trigger and ADC2 uses the SW trigger setting required for slave dual
+@@ -377,6 +413,7 @@ static void adc1_injected_init(void) {
+     ADC2_CR2|=ADC_CR2_RSTCAL;while(ADC2_CR2&ADC_CR2_RSTCAL){}
+     ADC2_CR2|=ADC_CR2_CAL;while(ADC2_CR2&ADC_CR2_CAL){}
+     adc1_calibrate_injected_offsets();
++    if(!g_safety_latched) adc2_calibrate_injected_ch4_offset();
+     uint16_t offsets[3]={g_adc_offset[0],g_adc_offset[1],g_adc_offset[2]};
+     stock_dual_adc_runtime_init(&g_dual_adc,offsets);
+     g30_fixed_scan_init(&g_fixed_scan,offsets);
+@@ -472,11 +509,33 @@ void ADC1_2_IRQHandler(void) {
+         sample.adc1_sr=(uint16_t)sr1;sample.adc2_sr=(uint16_t)sr2;
+         sample.adc1_jdr1=(uint16_t)ADC_JDR1;
+         sample.adc2_jdr1=(uint16_t)ADC2_JDR1;
++        /* ADC2 CH4 needs its own independently acquired zero-current
++         * offset; normalize to the ADC1 CH4 offset used by the count model.
++         * Missing or out-of-range normalization is an ADC fault. */
++        const uint8_t offset_pair_ok=g30_adc2_ch4_offset_normalize(
++             sample.sector,sample.adc2_jdr1,g_adc_offset[1],
++             g_adc2_ch4_offset,g_adc2_ch4_offset_valid,&sample.adc2_jdr1);
+         sample.dual_injected_simultaneous=(uint8_t)(
+             (cr1&STOCK_ADC_MODE_REG_INJEC_SIMULT)==STOCK_ADC_MODE_REG_INJEC_SIMULT);
++        /* Model validity is checked against THE SAME PWM period's sector,
++         * both injected ADC settings and the three CCR duty boundaries.
++         * COMM_ADC_TIMING_HW_VALID remains OFF until analogue qualification. */
++        const g30_adc_current_state_t current_adc_state={
++            .rcc_cfgr=RCC_CFGR,
++            .adc1_cr1=cr1,.adc2_cr1=cr2,
++            .adc1_cr2=ADC_CR2,.adc2_cr2=ADC2_CR2,
++            .adc1_smpr2=ADC_SMPR2,.adc2_smpr2=ADC2_SMPR2,
++            .tim1_cr1=(uint16_t)TIM_CR1(TIM1_BASE),
++            .tim1_ccer=(uint16_t)TIM_CCER(TIM1_BASE),
++            .tim1_arr=(uint16_t)TIM_ARR(TIM1_BASE),
++            .tim1_ccr4=(uint16_t)TIM_CCR4(TIM1_BASE),
++            .tim1_ccr1=(uint16_t)TIM_CCR1(TIM1_BASE),
++            .tim1_ccr2=(uint16_t)TIM_CCR2(TIM1_BASE),
++            .tim1_ccr3=(uint16_t)TIM_CCR3(TIM1_BASE),
++            .sector=sample.sector
++        };
+         sample.sample_window_valid=(uint8_t)(COMM_ADC_TIMING_HW_VALID &&
+-            !(g_timer_evidence.config_flags&(ADC_TIMING_NO_CLOCK|
+-            ADC_TIMING_NOT_CENTER|ADC_TIMING_NO_CC4|ADC_TIMING_BAD_COMPARE)));
++            offset_pair_ok && g30_adc_current_flags(&current_adc_state)==0u);
+         ADC_SR&=~ADC_SR_JEOC; ADC2_SR&=~ADC_SR_JEOC;
+         g_adc_last_ms=g_ms;
+         if ((uint32_t)(g_ms-g_vbus_last_ms)>100u) {
+@@ -939,7 +998,7 @@ int main(void){
+     motor_pipeline_init(&g_motor_pipeline,&ctrl,motor_io,0,PWM_ARR,HARD_OC_COUNTS);
+     motor_id_init(&g_motor_id);motor_config_txn_init(&g_motor_cfg,g_cfg_test_current_ma);motor_probe_init();power_button_init(&g_power_button_state,POWER_BUTTON_LONG_MS);
+     adc1_injected_init();tim1_pwm_and_adc_trigger_init();ninebot_link_init();iap_update_init();systick_init();irq_enable();
+-    uart_puts("DeltaESC G30D v0.9.6 VESC EBICS observer. DISARMED.\r\n");
++    uart_puts("DeltaESC G30D v0.9.7 ADC current alignment. DISARMED.\r\n");
+ #if SENSORLESS_RUN_ALLOWED
+     uart_puts("BUILD: SENSORLESS BENCH; BLE E5 may arm/start only after safety preconditions.\r\n");
+ #elif POWER_STAGE_ARM_ALLOWED
+diff --git a/src/sensorless_control.c b/src/sensorless_control.c
+index feaf469..24322e5 100644
+--- a/src/sensorless_control.c
++++ b/src/sensorless_control.c
+@@ -13,6 +13,7 @@
+  * validate on the G30 hardware than the old provisional fixed-point Ortega port.
+  */
+ #include "sensorless_control.h"
++#include "stock_current_frontend.h"
+ 
+ static const int16_t sin_lut_q15[256] = {
+ #include "sin_q15.inc"
+@@ -28,7 +29,7 @@ static const int16_t sin_lut_q15[256] = {
+ #define SENSORLESS_CLOSED_LOOP_ALLOWED 0
+ #endif
+ 
+-#define CURRENT_MA_PER_COUNT_Q8 12890LL /* provisional ~50.35 mA/count */
++/* Phase-count conversion has ONE definition in stock_current_frontend.c. */
+ #define VBUS_MV_PER_COUNT_Q8     3584LL  /* provisional ~14.0 mV/count */
+ #define CONTROL_HZ               4000u
+ #define ALIGN_TICKS               800u   /* 200 ms */
+@@ -77,11 +78,11 @@ static int16_t cos_q15(uint16_t a) { return sin_lut_q15[(uint8_t)((a >> 8) + 64u
+ static int16_t phase_delta(uint16_t to, uint16_t from) { return (int16_t)(to - from); }
+ 
+ int32_t sensorless_counts_to_ma(int32_t counts) {
+-    return (int32_t)(((int64_t)counts * CURRENT_MA_PER_COUNT_Q8) >> 8);
++    return stock_current_nominal_counts_to_ma(counts);
+ }
+ 
+ static int16_t ma_to_counts(uint16_t ma) {
+-    int32_t counts = (int32_t)(((int64_t)ma << 8) / CURRENT_MA_PER_COUNT_Q8);
++    int32_t counts = (int32_t)stock_current_nominal_ma_to_counts(ma);
+     if (counts < 1) counts = 1;
+     if (counts > MAX_CURRENT_REF_COUNTS) counts = MAX_CURRENT_REF_COUNTS;
+     return (int16_t)counts;
+diff --git a/src/stock_current_frontend.c b/src/stock_current_frontend.c
+index 0b6eb88..6a380f3 100644
+--- a/src/stock_current_frontend.c
++++ b/src/stock_current_frontend.c
+@@ -1,7 +1,7 @@
+ #include "stock_current_frontend.h"
+ 
+-#define DRV126_CURRENT_SCALE_MUL 51575
+-#define DRV126_CURRENT_SCALE_SHIFT 10
++#define G30_NOMINAL_MA_NUM 51575LL
++#define G30_NOMINAL_MA_SHIFT 10
+ 
+ uint32_t stock_current_jsqr_one(uint8_t channel) {
+     return ((uint32_t)(channel & 0x1fu)) << 15;
+@@ -56,6 +56,17 @@ stock_phase_currents_t stock_current_reconstruct_counts(uint8_t sector,
+     return r;
+ }
+ 
++int32_t stock_current_nominal_counts_to_ma(int32_t counts) {
++    /* No 32-bit multiplication overflow, fixed-point sign preserved. */
++    int64_t product = (int64_t)counts * G30_NOMINAL_MA_NUM;
++    return (int32_t)(product / (1LL << G30_NOMINAL_MA_SHIFT));
++}
++int16_t stock_current_nominal_ma_to_counts(uint16_t ma) {
++    int32_t counts = (int32_t)(((uint32_t)ma << G30_NOMINAL_MA_SHIFT) / 51575u);
++    if (counts < 1) counts = 1;
++    if (counts > 32767) counts = 32767;
++    return (int16_t)counts;
++}
+ int32_t stock_current_scaled_unit_from_delta(int32_t adc_delta) {
+-    return (adc_delta * DRV126_CURRENT_SCALE_MUL) >> DRV126_CURRENT_SCALE_SHIFT;
++    return stock_current_nominal_counts_to_ma(adc_delta);
+ }
+diff --git a/src/stock_current_frontend.h b/src/stock_current_frontend.h
+index b7a12d2..2ce7b21 100644
+--- a/src/stock_current_frontend.h
++++ b/src/stock_current_frontend.h
+@@ -19,4 +19,9 @@ stock_phase_currents_t stock_current_reconstruct_counts(uint8_t sector,
+                                                         uint16_t adc1_raw,
+                                                         uint16_t adc2_raw,
+                                                         const uint16_t phase_offset[3]);
++/* Shared nominal conversion used by CURRENT CONTROL and observer.
++ * Provisional until DRV126 analogue shunt/gain interpretation is proven.
++ * 51575/1024 mA/count is NOT a hardware current-calibration guarantee. */
++int32_t stock_current_nominal_counts_to_ma(int32_t counts);
++int16_t stock_current_nominal_ma_to_counts(uint16_t ma);
+ int32_t stock_current_scaled_unit_from_delta(int32_t adc_delta);
+diff --git a/tools/g30_adc_current_offsets_host_test.c b/tools/g30_adc_current_offsets_host_test.c
+new file mode 100644
+index 0000000..64cbafb
+--- /dev/null
++++ b/tools/g30_adc_current_offsets_host_test.c
+@@ -0,0 +1,19 @@
++#include <assert.h>
++#include <stdint.h>
++#include <stdio.h>
++#include "g30_adc_current_offsets.h"
++int main(void) {
++    uint16_t out=0u;
++    for(uint8_t sector=1u;sector<=6u;sector++) {
++        assert(g30_adc2_ch4_offset_normalize(sector,2130u,2040u,2070u,1u,&out));
++        assert(out==((sector==4u||sector==5u)?2100u:2130u));
++        assert(g30_adc2_ch4_offset_normalize(sector,2130u,2040u,2070u,0u,&out)==
++               (uint8_t)((sector!=4u&&sector!=5u)?1u:0u));
++    }
++    assert(!g30_adc2_ch4_offset_normalize(4u,4090u,4095u,2000u,1u,&out));
++    assert(!g30_adc2_ch4_offset_normalize(4u,1u,0u,200u,1u,&out));
++    assert(!g30_adc2_ch4_offset_normalize(0u,2000u,2100u,2100u,1u,&out));
++    assert(!g30_adc2_ch4_offset_normalize(4u,2000u,2100u,2100u,1u,0));
++    puts("PASS ADC2 CH4 independent offset and 6-sector bias normalization");
++    return 0;
++}
+diff --git a/tools/g30_adc_current_window_host_test.c b/tools/g30_adc_current_window_host_test.c
+new file mode 100644
+index 0000000..7bbe8d1
+--- /dev/null
++++ b/tools/g30_adc_current_window_host_test.c
+@@ -0,0 +1,72 @@
++#include <assert.h>
++#include <stdint.h>
++#include <stdio.h>
++#include "g30_adc_current_window.h"
++#include "stock_current_frontend.h"
++
++#define SMPR2 ((2u<<9)|(2u<<12)|(2u<<15))
++static g30_adc_current_state_t fixture(uint8_t sector) {
++    g30_adc_current_state_t s={0};
++    s.rcc_cfgr=(2u<<14);
++    s.adc1_cr1=(5u<<16)|(1u<<7)|(1u<<8);
++    s.adc2_cr1=(1u<<8);
++    s.adc1_cr2=1u|(1u<<12)|(1u<<15);
++    s.adc2_cr2=1u|(7u<<12)|(1u<<15);
++    s.adc1_smpr2=SMPR2;
++    s.adc2_smpr2=SMPR2;
++    s.tim1_cr1=(1u<<0)|(1u<<5)|(1u<<7);
++    s.tim1_ccer=0x1555u;
++    s.tim1_arr=1999u;
++    s.tim1_ccr4=1800u;
++    s.tim1_ccr1=1100u;
++    s.tim1_ccr2=1100u;
++    s.tim1_ccr3=1100u;
++    s.sector=sector;
++    return s;
++}
++static void check_current_model(void) {
++    for (uint8_t sector=1u; sector<=6u;sector++) {
++        const stock_adc_pair_t pair=stock_current_pair_for_sector(sector);
++        assert(pair.adc1_channel!=pair.adc2_channel);
++        assert(pair.adc1_channel>=3u&&pair.adc1_channel<=5u);
++        assert(pair.adc2_channel>=3u&&pair.adc2_channel<=5u);
++        const uint16_t offset[3]={2040u,2070u,2080u};
++        const uint16_t v1=(uint16_t)(offset[pair.adc1_channel-3u]+100u);
++        const uint16_t v2=(uint16_t)(offset[pair.adc2_channel-3u]-40u);
++        const stock_phase_currents_t v=stock_current_reconstruct_counts(sector,v1,v2,offset);
++        assert((int32_t)v.ia+v.ib+v.ic==0);
++        assert(v.ia>=-140 && v.ia<=140);
++        assert(v.ib>=-140 && v.ib<=140);
++        assert(v.ic>=-140 && v.ic<=140);
++        g30_adc_current_state_t s=fixture(sector);
++        assert(g30_adc_current_flags(&s)==0u);
++        s.tim1_ccr1=1700u;s.tim1_ccr2=1700u;s.tim1_ccr3=1700u;
++        assert(g30_adc_current_flags(&s)&G30_ADC_F_WINDOW);
++    }
++    assert(stock_current_nominal_counts_to_ma(100)==5036);
++    assert(stock_current_nominal_counts_to_ma(-100)==-5036);
++    assert(stock_current_nominal_ma_to_counts(500)==9);
++    assert(stock_current_scaled_unit_from_delta(100)==stock_current_nominal_counts_to_ma(100));
++}
++int main(void) {
++    check_current_model();
++    g30_adc_current_state_t s=fixture(1u);
++    assert(g30_adc_current_flags(&s)==0u);
++    s.rcc_cfgr=0u;assert(g30_adc_current_flags(&s)&G30_ADC_F_CLOCK);s=fixture(1u);
++    s.adc1_cr1=0u;assert(g30_adc_current_flags(&s)&G30_ADC_F_DUAL);s=fixture(1u);
++    s.adc2_cr1=(1u<<16);assert(g30_adc_current_flags(&s)&G30_ADC_F_DUAL);s=fixture(1u);
++    s.adc1_cr2=1u;assert(g30_adc_current_flags(&s)&G30_ADC_F_TRIGGER);s=fixture(1u);
++    s.adc2_cr2=1u;assert(g30_adc_current_flags(&s)&G30_ADC_F_TRIGGER);s=fixture(1u);
++    s.adc2_smpr2^=(1u<<12);assert(g30_adc_current_flags(&s)&G30_ADC_F_SAMPLE);s=fixture(1u);
++    s.tim1_ccer|=(1u<<13);assert(g30_adc_current_flags(&s)&G30_ADC_F_TIM1);s=fixture(1u);
++    s.tim1_ccer&=~(1u<<12);assert(g30_adc_current_flags(&s)&G30_ADC_F_TIM1);s=fixture(1u);
++    s.tim1_cr1&=~(3u<<5);assert(g30_adc_current_flags(&s)&G30_ADC_F_TIM1);s=fixture(1u);
++    s.tim1_ccr4=1750u;assert(g30_adc_current_flags(&s)&G30_ADC_F_TIM1);s=fixture(1u);
++    s.sector=0u;assert(g30_adc_current_flags(&s)&G30_ADC_F_SECTOR);s=fixture(1u);
++    s.tim1_ccr2=1549u;assert(g30_adc_current_flags(&s)&G30_ADC_F_WINDOW);s=fixture(1u);
++    s.tim1_ccr3=1549u;assert(g30_adc_current_flags(&s)&G30_ADC_F_WINDOW);s=fixture(1u);
++    s.tim1_ccr1=1549u;assert(g30_adc_current_flags(&s)==0u); /* A not sampled in sector 1 */
++    assert(g30_adc_current_flags(NULL)!=0u);
++    puts("PASS G30D ADC timing + window + 6 sectors + nominal-current sign symmetry");
++    return 0;
++}
+diff --git a/tools/run_v097_tests.sh b/tools/run_v097_tests.sh
+new file mode 100755
+index 0000000..dc89439
+--- /dev/null
++++ b/tools/run_v097_tests.sh
+@@ -0,0 +1,73 @@
++#!/usr/bin/env bash
++# Software-only checks. No external hardware, no flashing, no motor enable.
++set -euo pipefail
++cd "$(dirname "$0")/.."
++python3 tools/pinmap_power_regression_test.py
++make safe CC="${ARM_CC:-clang}" OBJCOPY="${ARM_OBJCOPY:-llvm-objcopy}" OBJDUMP="${ARM_OBJDUMP:-llvm-objdump}"
++TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
++checks=(
++  'first_spin_safety_host_test.c sensorless_control.c vesc_ebics_flux.c'
++  'foc_adc_contract_host_test.c foc_adc_contract.c stock_current_frontend.c'
++  'foc_adc_motor_handoff_host_test.c foc_adc_motor_handoff.c sensorless_control.c vesc_ebics_flux.c'
++  'motor_id_host_test.c motor_id.c sensorless_control.c vesc_ebics_flux.c'
++  'sensorless_plant_host_test.c sensorless_control.c vesc_ebics_flux.c'
++  'motor_core_host_test.c sensorless_control.c vesc_ebics_flux.c'
++  'power_logic_host_test.c power_logic.c'
++  'iap_ack_host_test.c iap_proto.c'
++  'iap_transport_host_test.c iap_proto.c'
++  'stock_adc_timing_host_test.c stock_adc_timing.c'
++  'stock_adc_quality_host_test.c stock_adc_quality.c stock_current_frontend.c'
++  'stock_adc_snapshot_host_test.c stock_adc_snapshot.c stock_current_frontend.c'
++  'stock_dual_adc_runtime_host_test.c stock_dual_adc_runtime.c stock_dual_adc_plan.c stock_current_frontend.c'
++  'test_g30_fixed_scan.c g30_fixed_scan.c'
++  'test_stock_adc_mode_guard.c stock_adc_mode_guard.c stock_dual_adc_plan.c stock_current_frontend.c'
++  'test_ble_motor_probe.c motor_probe.c ble_motor_probe.c'
++)
++checks+=('motor_pipeline_host_test.c motor_pipeline.c foc_adc_contract.c stock_current_frontend.c sensorless_control.c vesc_ebics_flux.c')
++checks+=('stock_tim1_gate_host_test.c stock_tim1_gate.c')
++checks+=('vesc_ebics_flux_host_test.c vesc_ebics_flux.c')
++checks+=('g30_adc_current_window_host_test.c g30_adc_current_window.c stock_current_frontend.c')
++checks+=('g30_adc_current_offsets_host_test.c g30_adc_current_offsets.c')
++for check in "${checks[@]}"; do
++  read -ra files <<< "$check"
++  test="${files[0]}"; args=()
++  for f in "${files[@]:1}"; do args+=("src/$f"); done
++  # Sensorless now calls the same physical-count model as ADC; avoid
++  # duplicate objects for tests already naming stock_current_frontend.c.
++  if [[ " $check " != *" stock_current_frontend.c "* ]]; then args+=("src/stock_current_frontend.c"); fi
++  extra_flags=()
++  if [ "$test" = sensorless_plant_host_test.c ] || [ "$test" = motor_pipeline_host_test.c ]; then
++      extra_flags+=(-DSENSORLESS_CLOSED_LOOP_ALLOWED=1)
++  fi
++  gcc -std=c11 -O1 -g -fsanitize=undefined -Isrc "${extra_flags[@]}" "tools/$test" "${args[@]}" -lm -o "$TMP/${test%.c}"
++  "$TMP/${test%.c}"
++  echo "PASS: $test"
++done
++for flags in '-DPOWER_STAGE_ARM_ALLOWED=1 -DSENSORLESS_RUN_ALLOWED=0' '-DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=1'; do
++  # shellcheck disable=SC2086
++  if "${ARM_CC:-clang}" --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -Isrc $flags -c src/main.c -o "$TMP/bad.o" >"$TMP/reject.log" 2>&1; then
++    echo 'FAIL: unexpectedly permitted motor power build' >&2; exit 1
++  fi
++  grep -q 'DRV126 gate profile ready; powered build still requires valid ADC timing and current scaling' "$TMP/reject.log"
++  echo "PASS: motor-power compile rejection $flags"
++done
++if [ "$(stat -c %s build/DeltaESC_G30D_v0_9_7_ble_syncsafe.bin)" -ge 53248 ]; then
++  echo 'FAIL: exceeds G30 active application region' >&2; exit 1
++fi
++if command -v llvm-nm >/dev/null 2>&1; then
++  llvm-nm build/DeltaESC_G30D_v0_9_7_ble_syncsafe.elf | grep -q 'motor_id_accept'
++  llvm-nm build/DeltaESC_G30D_v0_9_7_ble_syncsafe.elf | grep -q 'motor_id_commit'
++  if llvm-nm -u build/DeltaESC_G30D_v0_9_7_ble_syncsafe.elf | grep -E '__aeabi_(f|d|[ui]?ldiv)'; then echo 'FAIL: floating point / 64-bit division in Cortex-M3 link' >&2; exit 1; fi
++fi
++# Keep the complete symbol table in a file to avoid SIGPIPE with pipefail.
++llvm-objdump -t build/DeltaESC_G30D_v0_9_7_ble_syncsafe.elf > "$TMP/v097_symbols.txt"
++if ! grep -q 'g30_adc_current_flags' "$TMP/v097_symbols.txt"; then
++  echo 'FAIL: ADC timing contract is not linked into Cortex-M3 ELF' >&2; exit 1
++fi
++if ! grep -q 'g30_adc2_ch4_offset_normalize' "$TMP/v097_symbols.txt"; then
++  echo 'FAIL: ADC2 channel offset normalization is not linked into Cortex-M3 ELF' >&2; exit 1
++fi
++if ! grep -q 'case 0xF7u:' src/main.c; then
++  echo 'FAIL: Motor ID read-only status missing' >&2; exit 1
++fi
++echo 'PASS: ADC-current integration tests (not a hardware/flash release)'
