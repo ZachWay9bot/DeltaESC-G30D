@@ -1,0 +1,681 @@
+diff --git a/Makefile b/Makefile
+index f7cf545..568a36e 100644
+--- a/Makefile
++++ b/Makefile
+@@ -3,19 +3,19 @@ OBJCOPY ?= llvm-objcopy
+ OBJDUMP ?= llvm-objdump
+ CFLAGS_COMMON = -g3 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Oz -Wall -Wextra -Werror -Isrc
+ LDFLAGS_COMMON = --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -nostdlib -Wl,-T,linker.ld,--gc-sections
+-SRC = src/main.c src/sensorless_control.c src/ninebot_link.c src/iap_update.c src/iap_proto.c src/iap_control.c src/dashboard_runtime.c src/power_logic.c src/motor_probe.c src/ble_motor_probe.c src/commissioning_guard.c src/stock_current_frontend.c src/stock_dual_adc_plan.c src/stock_dual_adc_runtime.c src/stock_adc_quality.c src/stock_adc_snapshot.c src/stock_adc_timing.c src/stock_adc_correlated.c src/stock_adc_mode_guard.c src/g30_fixed_scan.c src/motor_config_txn.c src/foc_adc_contract.c src/foc_adc_motor_handoff.c src/motor_id.c
+-SAFE_ELF = build/DeltaESC_G30D_v0_9_3_ble_syncsafe.elf
+-SAFE_BIN = build/DeltaESC_G30D_v0_9_3_ble_syncsafe.bin
+-ACTIVE_ELF = build/DeltaESC_G30D_v0_9_3_ble_observer_zero_vector.elf
+-ACTIVE_BIN = build/DeltaESC_G30D_v0_9_3_ble_observer_zero_vector.bin
+-BENCH_ELF = build/DeltaESC_G30D_v0_9_3_ble_sensorless_bench.elf
+-BENCH_BIN = build/DeltaESC_G30D_v0_9_3_ble_sensorless_bench.bin
++SRC = src/main.c src/sensorless_control.c src/ninebot_link.c src/iap_update.c src/iap_proto.c src/iap_control.c src/dashboard_runtime.c src/power_logic.c src/motor_probe.c src/ble_motor_probe.c src/commissioning_guard.c src/stock_current_frontend.c src/stock_dual_adc_plan.c src/stock_dual_adc_runtime.c src/stock_adc_quality.c src/stock_adc_snapshot.c src/stock_adc_timing.c src/stock_adc_correlated.c src/stock_adc_mode_guard.c src/g30_fixed_scan.c src/motor_config_txn.c src/foc_adc_contract.c src/foc_adc_motor_handoff.c src/motor_id.c src/motor_pipeline.c src/aeabi_mem.c
++SAFE_ELF = build/DeltaESC_G30D_v0_9_4_ble_syncsafe.elf
++SAFE_BIN = build/DeltaESC_G30D_v0_9_4_ble_syncsafe.bin
++ACTIVE_ELF = build/DeltaESC_G30D_v0_9_4_ble_observer_zero_vector.elf
++ACTIVE_BIN = build/DeltaESC_G30D_v0_9_4_ble_observer_zero_vector.bin
++BENCH_ELF = build/DeltaESC_G30D_v0_9_4_ble_sensorless_bench.elf
++BENCH_BIN = build/DeltaESC_G30D_v0_9_4_ble_sensorless_bench.bin
+ all: safe
+ safe: $(SAFE_BIN)
+ build: ; mkdir -p build
+ $(SAFE_ELF): $(SRC) linker.ld | build
+-	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 $(SRC) $(LDFLAGS_COMMON) -Wl,--undefined=motor_id_accept -Wl,--undefined=motor_id_commit -Wl,-Map=build/v0_9_3_syncsafe.map -o $@
++	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 -DSENSORLESS_CLOSED_LOOP_ALLOWED=1 $(SRC) $(LDFLAGS_COMMON) -Wl,--undefined=motor_id_accept -Wl,--undefined=motor_id_commit -Wl,-Map=build/v0_9_4_syncsafe.map -o $@
+ $(SAFE_BIN): $(SAFE_ELF)
+ 	$(OBJCOPY) -O binary $< $@
+-	$(OBJDUMP) -h $< > build/v0_9_3_syncsafe_sections.txt
++	$(OBJDUMP) -h $< > build/v0_9_4_syncsafe_sections.txt
+ clean: ; rm -rf build
+diff --git a/src/aeabi_mem.c b/src/aeabi_mem.c
+new file mode 100644
+index 0000000..f13fbd2
+--- /dev/null
++++ b/src/aeabi_mem.c
+@@ -0,0 +1,7 @@
++#include <stdint.h>
++/* Cortex-M3 freestanding (no libc): compiler-emitted EABI zero-fill helper.
++ * Never touch peripheral registers: called for local RAM structures only. */
++void __aeabi_memclr4(void *dest, uint32_t bytes) {
++    volatile uint8_t *p=(volatile uint8_t *)dest;
++    for(uint32_t i=0u;i<bytes;i++) p[i]=0u;
++}
+diff --git a/src/main.c b/src/main.c
+index 9b16650..d6e89fe 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -2,6 +2,7 @@
+ #include "stm32f103_min.h"
+ #include "sensorless_control.h"
+ #include "motor_id.h"
++#include "motor_pipeline.h"
+ #include "ninebot_link.h"
+ #include "iap_update.h"
+ #include "power_logic.h"
+@@ -50,7 +51,7 @@
+ #define MAGIC_UNLOCK 0xC0DEu
+ #define PROTO_MAJOR 0u
+ #define PROTO_MINOR 2u
+-#define FW_BUILD 0x0903u
++#define FW_BUILD 0x0904u
+ #define COMM_DASH_STALE_MS 250u
+ #define COMM_INPUT_IDLE_MAX 3u
+ /* Hardware qualification flags remain false pending real G30D power-stage evidence. */
+@@ -59,8 +60,8 @@
+ #define COMM_ADC_TIMING_HW_VALID 0u
+ #define COMM_STOCK_CURRENT_MODEL_VALID 1u
+ #define COMM_STOCK_DUAL_ADC_PLAN_VALID 1u
+-#if MOTOR_VOLTAGE_BENCH || SENSORLESS_CLOSED_LOOP_ALLOWED
+-#error "v0.8.0 no active motor variants: software integration only"
++#if MOTOR_VOLTAGE_BENCH
++#error "v0.9.4: motor-voltage build not allowed"
+ #endif
+ #if POWER_STAGE_ARM_ALLOWED || SENSORLESS_RUN_ALLOWED
+ #error "v0.9.3: motor power blocked until real G30D pinout, gate/BKIN polarity and shunt timing are independently validated"
+@@ -108,6 +109,8 @@ volatile uint8_t  g_control_div4;
+ static sensorless_control_t ctrl;
+ /* The stage is IDLE on target: no motor-identification actuation is reachable. */
+ static motor_id_t g_motor_id;
++static motor_pipeline_t g_motor_pipeline;
++static volatile uint32_t g_motor_irq_sequence;
+ static volatile uint8_t g_offset_cal_active;
+ static volatile uint8_t g_offset_cal_valid;
+ static stock_dual_adc_runtime_t g_dual_adc;
+@@ -188,9 +191,6 @@ static void clock_64mhz_hsi(void) {
+ static void dwt_init(void) { COREDEBUG_DEMCR |= (1u << 24); DWT_CYCCNT = 0u; DWT_CTRL |= 1u; }
+ static void systick_init(void) { SYST_RVR = (SYSCLK_HZ / 1000u) - 1u; SYST_CVR = 0u; SYST_CSR = 7u; }
+ 
+-#if POWER_STAGE_ARM_ALLOWED
+-static void delay_cycles(uint32_t cycles) { uint32_t s=DWT_CYCCNT; while ((uint32_t)(DWT_CYCCNT-s)<cycles) {} }
+-#endif
+ 
+ static void power_hold_init(void) {
+     RCC_APB2ENR |= (1u << 0) | (1u << 2) | (1u << 3) | (1u << 4);
+@@ -215,9 +215,75 @@ static void gate_pins_to_tim1_af(void) {
+ #endif
+ /* PB1 is BEMF_C on the G30D board, NOT a gate-enable output.
+  * Never configure or drive PB1 as part of the motor power path. */
++/* Physical gate isolation is shared by STOP, BRAKE, throttle idle,
++ * observer fault, ADC fault, shutdown, and dashboard watchdog. Never
++ * confuse the 50% duty software zero vector with hardware coast. */
+ static void power_stage_force_disarm(void) {
+-    TIM_CCER(TIM1_BASE)&=~GATE_CCER_MASK; gate_pins_to_safe_inputs();
+-    g_power_armed=0u; sensorless_control_stop(&ctrl);
++    TIM_CCER(TIM1_BASE)&=~GATE_CCER_MASK;
++    gate_pins_to_safe_inputs();
++    __asm volatile("dsb" ::: "memory");
++    if (g_power_armed) {
++        /* Restore the disabled bridge's two-rank read-only ADC diagnostics. */
++        ADC_JSQR=G30_FIXED_JSQR_A;
++        ADC2_JSQR=G30_FIXED_JSQR_B;
++    }
++    g_power_armed=0u;
++    g_motor_pipeline.powered=0u;
++    g_motor_pipeline.adc.pending=0u;
++    sensorless_control_stop(&ctrl);
++}
++
++static void motor_hw_gate_off(void *ignored) {
++    (void)ignored; power_stage_force_disarm();
++}
++
++static uint8_t motor_hw_select_adc(void *ignored,uint32_t jsqr1,uint32_t jsqr2) {
++    (void)ignored;
++    /* One injected rank on each ADC, both driven by the same TIM1 CC4
++     * event. Called only after JEOC is captured/cleared or with IRQ masked. */
++    ADC_JSQR=jsqr1; ADC2_JSQR=jsqr2;
++    __asm volatile("dsb" ::: "memory");
++    return (uint8_t)(ADC_JSQR==jsqr1 && ADC2_JSQR==jsqr2);
++}
++
++static uint8_t motor_hw_pwm(void *ignored,uint16_t c1,uint16_t c2,uint16_t c3) {
++    (void)ignored;
++    if (c1>PWM_ARR || c2>PWM_ARR || c3>PWM_ARR ||
++        g_safety_latched || g_dash_brake || g_dash_throttle<=COMM_INPUT_IDLE_MAX)
++        return 0u;
++    if (!g_power_armed && (c1!=PWM_ZERO_CCR ||
++                           c2!=PWM_ZERO_CCR || c3!=PWM_ZERO_CCR))
++        return 0u; /* cannot write torque CCR after asynchronous gate kill */
++    /* Preload registers are enabled for all channels; the timer's update
++     * boundary applies the triple instead of toggling outputs mid-period. */
++    TIM_CCR1(TIM1_BASE)=c1;
++    TIM_CCR2(TIM1_BASE)=c2;
++    TIM_CCR3(TIM1_BASE)=c3;
++    return 1u;
++}
++
++static uint8_t motor_hw_arm(void *ignored) {
++    (void)ignored;
++#if POWER_STAGE_ARM_ALLOWED
++    if (!COMM_CURRENT_SCALE_HW_VALID || !COMM_GATE_HW_VALID ||
++        !COMM_ADC_TIMING_HW_VALID || g_safety_latched ||
++        !g_dash_seen || g_dash_brake ||
++        g_dash_throttle<=COMM_INPUT_IDLE_MAX ||
++        (uint32_t)(g_ms-g_adc_last_ms)>ADC_STALE_MS ||
++        (uint32_t)(g_ms-g_vbus_last_ms)>100u)
++        return 0u;
++    TIM_CCR1(TIM1_BASE)=PWM_ZERO_CCR;
++    TIM_CCR2(TIM1_BASE)=PWM_ZERO_CCR;
++    TIM_CCR3(TIM1_BASE)=PWM_ZERO_CCR;
++    ADC_SR&=~ADC_SR_JEOC;
++    ADC2_SR&=~ADC_SR_JEOC;
++    gate_pins_to_tim1_af();
++    TIM_CCER(TIM1_BASE)|=GATE_CCER_MASK;
++    g_power_armed=1u;
++    return 1u;
++#else
++    return 0u; /* no reachable physical gate arm in source-only builds */
++#endif
+ }
+ static void schedule_poweroff(uint32_t delay_ms) {
+     power_stage_force_disarm();
+@@ -236,9 +302,8 @@ static uint32_t gate_safety_check(void) {
+     if (!(ccer&ADC_CCER_MASK)) ok=0u;
+     if (!(TIM_BDTR(TIM1_BASE)&TIM_BDTR_MOE)) ok=0u;
+     if (g_power_armed) {
+-        /* Power hardware remains unqualified: even an unexpected software
+-           arm bit must fault instead of trusting PB1 as an enable. */
+-        ok=0u;
++        if (!g_motor_pipeline.powered || !COMM_GATE_HW_VALID ||
++            !COMM_CURRENT_SCALE_HW_VALID || !COMM_ADC_TIMING_HW_VALID) ok=0u;
+         if ((ccer&GATE_CCER_MASK)!=GATE_CCER_MASK) ok=0u;
+         if (gate_pin_mode_word_a()!=0xBBBu || gate_pin_mode_word_b()!=0xBBBu) ok=0u;
+     } else {
+@@ -348,21 +413,6 @@ static void tim1_pwm_and_adc_trigger_init(void) {
+     TIM_EGR(TIM1_BASE)=TIM_EGR_UG; TIM_SR(TIM1_BASE)=0u; TIM_CR1(TIM1_BASE)=TIM_CR1_CMS_0|TIM_CR1_ARPE|TIM_CR1_CEN;
+ }
+ 
+-#if POWER_STAGE_ARM_ALLOWED
+-static uint32_t arm_preconditions_ok(void) {
+-    if(g_ms<ARM_BOOT_DELAY_MS||g_adc_samples<ARM_MIN_ADC_SAMPLES||g_safety_latched)return 0u;
+-    if((uint32_t)(g_ms-g_adc_last_ms)>ADC_STALE_MS||g_last_abs_current>ARM_IDLE_CURRENT_COUNTS)return 0u;
+-    if(g_adc_raw[3]<50u||g_adc_raw[3]>4050u)return 0u; return 1u;
+-}
+-static uint32_t power_stage_arm_zero_vector(void) {
+-    if(!arm_preconditions_ok())return 0u;
+-    TIM_CCR1(TIM1_BASE)=PWM_ZERO_CCR; TIM_CCR2(TIM1_BASE)=PWM_ZERO_CCR; TIM_CCR3(TIM1_BASE)=PWM_ZERO_CCR;
+-    gate_pins_to_tim1_af(); TIM_CCER(TIM1_BASE)|=GATE_CCER_MASK; delay_cycles(SYSCLK_HZ/1000u);
+-    if(g_last_abs_current>ARM_IDLE_CURRENT_COUNTS||g_safety_latched){power_stage_force_disarm();return 0u;}
+-    /* No verified gate-enable topology; this path is compile-forbidden. */
+-    g_power_armed=1u; if(!gate_safety_check())return 0u; return 1u;
+-}
+-#endif
+ 
+ void Reset_Handler(void) {
+     /* Do not depend on a specific stock-bootloader VTOR handoff. */
+@@ -375,8 +425,10 @@ void Reset_Handler(void) {
+ void Default_Handler(void){g_safety_latched=0xDEAD0001u;power_stage_force_disarm();for(;;){}}
+ void SysTick_Handler(void) {
+     g_ms++;
++    motor_pipeline_watchdog(&g_motor_pipeline,g_ms,COMM_DASH_STALE_MS);
+     const uint8_t button_pressed=(uint8_t)((GPIO_IDR(POWER_BUTTON_GPIO_BASE)&(1u<<POWER_BUTTON_PIN))!=0u);
+     if(power_button_step(&g_power_button_state,button_pressed,(uint8_t)iap_update_active())) {
++        motor_pipeline_stop(&g_motor_pipeline,MOTOR_STOP_DASH);
+         g_poweroff_requested=1u;
+         g_poweroff_deadline_ms=g_ms;
+     }
+@@ -396,6 +448,56 @@ void ADC1_2_IRQHandler(void) {
+         (uint16_t)TIM_ARR(TIM1_BASE),(uint16_t)TIM_CR1(TIM1_BASE),
+         (uint16_t)TIM_CCER(TIM1_BASE),(uint16_t)TIM_BDTR(TIM1_BASE),
+         (uint16_t)TIM_SR(TIM1_BASE),t0);
++    if (g_power_armed) {
++        /* ACTIVE-FIRMWARE ROUTE (compiled but deliberately unreachable in
++         * GATE-OFF builds). The same event supplies both ADC injected JDR1s.
++         * No fixed two-rank diagnostic value is permitted here. */
++        foc_adc_sample_t sample={0};
++        sample.sequence=++g_motor_irq_sequence;
++        sample.sector=g_motor_pipeline.adc.expected_sector;
++        sample.adc1_jsqr=jsqr1; sample.adc2_jsqr=jsqr2;
++        sample.adc1_sr=(uint16_t)sr1;sample.adc2_sr=(uint16_t)sr2;
++        sample.adc1_jdr1=(uint16_t)ADC_JDR1;
++        sample.adc2_jdr1=(uint16_t)ADC2_JDR1;
++        sample.dual_injected_simultaneous=(uint8_t)(
++            (cr1&STOCK_ADC_MODE_REG_INJEC_SIMULT)==STOCK_ADC_MODE_REG_INJEC_SIMULT);
++        sample.sample_window_valid=(uint8_t)(COMM_ADC_TIMING_HW_VALID &&
++            !(g_timer_evidence.config_flags&(ADC_TIMING_NO_CLOCK|
++            ADC_TIMING_NOT_CENTER|ADC_TIMING_NO_CC4|ADC_TIMING_BAD_COMPARE)));
++        ADC_SR&=~ADC_SR_JEOC; ADC2_SR&=~ADC_SR_JEOC;
++        g_adc_last_ms=g_ms;
++        if ((uint32_t)(g_ms-g_vbus_last_ms)>100u) {
++            if (!g_safety_latched)g_safety_latched=0xA00Au;
++            motor_pipeline_stop(&g_motor_pipeline,MOTOR_STOP_ADC);
++        } else if (!motor_pipeline_on_adc(&g_motor_pipeline,&sample,g_adc_raw[3])) {
++            if (!g_safety_latched)
++                g_safety_latched=(g_motor_pipeline.last_stop_reason==MOTOR_STOP_FAULT)?
++                                    0xA00Bu:0xA00Au;
++            /* The common stop path has ALREADY removed hardware gates. */
++        } else {
++            const stock_phase_currents_t z=g_motor_pipeline.last_phase;
++            uint16_t peak=abs16s(z.ia),v=abs16s(z.ib);
++            if (v>peak)peak=v;v=abs16s(z.ic);if(v>peak)peak=v;
++            g_last_abs_current=peak;
++            if (peak>g_peak_abs_current)g_peak_abs_current=peak;
++            if (peak>HARD_OC_COUNTS) {
++                g_overcurrent_trips++;
++                g_safety_latched=0xA00Bu;
++                motor_pipeline_stop(&g_motor_pipeline,MOTOR_STOP_FAULT);
++            }
++            if ((g_motor_irq_sequence&3u)==0u)g_control_ticks++;
++        }
++        g_adc_samples++;
++        const uint32_t cost=DWT_CYCCNT-t0;
++        g_last_isr_cycles=cost;
++        if (cost>g_max_isr_cycles)g_max_isr_cycles=cost;
++        if (cost>CONTROL_HARD_CYCLES) {
++            g_control_hard_overruns++;
++            g_safety_latched=0xA00Cu;
++            motor_pipeline_stop(&g_motor_pipeline,MOTOR_STOP_FAULT);
++        }
++        return;
++    }
+     if(g_timer_evidence.config_flags&ADC_TIMING_GATE_ENABLED){
+         if(!g_safety_latched)g_safety_latched=0xA006u;
+         power_stage_force_disarm();
+@@ -690,12 +792,22 @@ static void app_write_action(const ninebot_frame_t *f){
+         g_cfg_test_current_ma=ma;
+ #if POWER_STAGE_ARM_ALLOWED
+         if(g_offset_cal_active){action_ack(f,cmd,ACT_BUSY);return;}
+-        if(commissioning_guard_mask()!=0u){action_ack(f,cmd,ACT_UNSAFE);return;}
+-        if(!g_power_armed&&!power_stage_arm_zero_vector()){action_ack(f,cmd,ACT_UNSAFE);return;}
+-  #if SENSORLESS_RUN_ALLOWED
+-        sensorless_control_set_drive(&ctrl,1u);
+-  #endif
+-        action_ack(f,cmd,ACT_OK);return;
++        /* E1 commissioning is idle-only. E5 is an explicit motion request,
++           therefore the throttle-not-idle bit is the sole exception. */
++        if((commissioning_guard_mask() & ~COMM_GUARD_THROTTLE_NOT_IDLE)!=0u){
++            action_ack(f,cmd,ACT_UNSAFE);return;
++        }
++        /* E5 is the only authenticated motor-start request. Interrupts
++           remain masked across initial ADC rank programming and gate arm. */
++        irq_disable();
++        g_motor_irq_sequence=0u;
++        const uint8_t armed=motor_pipeline_start(&g_motor_pipeline,
++            (const uint16_t *)g_adc_offset,COMM_GATE_HW_VALID &&
++            COMM_CURRENT_SCALE_HW_VALID,COMM_ADC_TIMING_HW_VALID,
++            g_dash_throttle,g_dash_brake,
++            (uint8_t)(g_dash_seen && (uint32_t)(g_ms-g_dash_last_ms)<=COMM_DASH_STALE_MS),g_ms);
++        irq_enable();
++        action_ack(f,cmd,armed?ACT_OK:ACT_UNSAFE);return;
+ #else
+         action_ack(f,cmd,ACT_UNSUPPORTED);return;
+ #endif
+@@ -766,6 +878,7 @@ static uint8_t handle_stock_dashboard(const ninebot_frame_t *f){
+     uint8_t throttle=0u,brake=0u;
+     if(dashboard_decode_adc(f,&throttle,&brake)){
+         g_dash_throttle=throttle;g_dash_brake=brake;
++        motor_pipeline_input(&g_motor_pipeline,throttle,brake,1u,g_ms);
+         return 1u;
+     }
+     if(dashboard_is_status_request(f)){
+@@ -807,9 +920,13 @@ static void handle_debug_command(int ch){
+ }
+ 
+ int main(void){
+-    irq_disable();power_hold_init();clock_64mhz_hsi();dwt_init();gate_pins_to_safe_inputs();uart1_debug_init();sensorless_control_init(&ctrl);motor_id_init(&g_motor_id);motor_config_txn_init(&g_motor_cfg,g_cfg_test_current_ma);motor_probe_init();power_button_init(&g_power_button_state,POWER_BUTTON_LONG_MS);
++    irq_disable();power_hold_init();clock_64mhz_hsi();dwt_init();gate_pins_to_safe_inputs();uart1_debug_init();sensorless_control_init(&ctrl);
++    const motor_pipeline_io_t motor_io={motor_hw_arm,motor_hw_gate_off,
++                                         motor_hw_select_adc,motor_hw_pwm};
++    motor_pipeline_init(&g_motor_pipeline,&ctrl,motor_io,0,PWM_ARR,HARD_OC_COUNTS);
++    motor_id_init(&g_motor_id);motor_config_txn_init(&g_motor_cfg,g_cfg_test_current_ma);motor_probe_init();power_button_init(&g_power_button_state,POWER_BUTTON_LONG_MS);
+     adc1_injected_init();tim1_pwm_and_adc_trigger_init();ninebot_link_init();iap_update_init();systick_init();irq_enable();
+-    uart_puts("DeltaESC G30D v0.9.2 FOC ADC CONTRACT. GATES OFF.\r\n");
++    uart_puts("DeltaESC G30D v0.9.4 MOTOR PIPELINE. GATES OFF.\r\n");
+ #if SENSORLESS_RUN_ALLOWED
+     uart_puts("BUILD: SENSORLESS BENCH; BLE E5 may arm/start only after safety preconditions.\r\n");
+ #elif POWER_STAGE_ARM_ALLOWED
+diff --git a/src/motor_pipeline.c b/src/motor_pipeline.c
+new file mode 100644
+index 0000000..1796a60
+--- /dev/null
++++ b/src/motor_pipeline.c
+@@ -0,0 +1,134 @@
++#include "motor_pipeline.h"
++#include "stock_current_frontend.h"
++
++#define THROTTLE_IDLE_MAX 3u
++
++void motor_pipeline_init(motor_pipeline_t *p, sensorless_control_t *foc,
++                         motor_pipeline_io_t io, void *ctx, uint16_t arr,
++                         uint16_t limit) {
++    *p = (motor_pipeline_t){0};
++    foc_adc_contract_init(&p->adc);
++    p->foc = foc; p->io = io; p->io_ctx = ctx; p->arr = arr;
++    p->current_hard_limit_counts=limit;
++}
++
++void motor_pipeline_stop(motor_pipeline_t *p, uint8_t reason) {
++    if (!p) return;
++    /* Hardware off FIRST; 50% CCR is NOT motor OFF. */
++    if (p->io.gate_off) p->io.gate_off(p->io_ctx);
++    p->powered = 0u;
++    p->adc.pending = 0u;
++    p->adc_qualified = 0u;
++    p->last_stop_reason = reason;
++    if (reason==MOTOR_STOP_ADC || reason==MOTOR_STOP_FAULT ||
++        reason==MOTOR_STOP_PWM) p->fault_latched=1u;
++    if (p->foc) sensorless_control_stop(p->foc);
++}
++
++uint8_t motor_pipeline_start(motor_pipeline_t *p, const uint16_t offsets[3],
++                             uint8_t gate_ok, uint8_t adc_ok,
++                             uint8_t throttle, uint8_t brake,
++                             uint8_t dash_ok, uint32_t now_ms) {
++    if (!p || !p->foc) return 0u;
++    if (p->powered || !p->io.gate_off || !p->io.arm ||
++        !p->io.set_adc_pair || !p->io.set_pwm || !offsets ||
++        !gate_ok || !adc_ok || !dash_ok || brake || p->fault_latched ||
++        !p->current_hard_limit_counts ||
++        throttle <= THROTTLE_IDLE_MAX ||
++        p->foc->fault || p->foc->state == SENSORLESS_FAULT ||
++        !p->foc->motor_params_valid || !p->arr) {
++        motor_pipeline_stop(p, MOTOR_STOP_QUALIFICATION);
++        return 0u;
++    }
++    /* In particular, no old fault may be cleared merely by restarting. */
++    if (!foc_adc_contract_reset(&p->adc, 1u)) {
++        motor_pipeline_stop(p, MOTOR_STOP_FAULT); return 0u;
++    }
++    for (unsigned i=0u;i<3u;i++) p->offsets[i]=offsets[i];
++    p->last_sector=1u; p->next_sequence=1u; p->sample_divider=0u;
++    p->last_dashboard_ms=now_ms;
++    p->adc_qualified=1u;
++    if (!foc_adc_contract_prepare(&p->adc,p->last_sector,1u,p->offsets,1u) ||
++        !p->io.set_adc_pair(p->io_ctx,p->adc.expected_jsqr1,p->adc.expected_jsqr2) ||
++        !p->io.set_pwm(p->io_ctx,(uint16_t)((p->arr+1u)/2u),
++                       (uint16_t)((p->arr+1u)/2u),(uint16_t)((p->arr+1u)/2u))) {
++        motor_pipeline_stop(p, MOTOR_STOP_ADC); return 0u;
++    }
++    sensorless_control_set_drive(p->foc,1u);
++    if (!p->foc->drive_request || !p->io.arm(p->io_ctx)) {
++        motor_pipeline_stop(p, MOTOR_STOP_QUALIFICATION); return 0u;
++    }
++    p->powered=1u;
++    p->last_stop_reason=MOTOR_STOP_NONE;
++    return 1u;
++}
++
++void motor_pipeline_input(motor_pipeline_t *p, uint8_t throttle,
++                          uint8_t brake, uint8_t dashboard_valid,
++                          uint32_t now_ms) {
++    if (!p) return;
++    if (p->powered && (!dashboard_valid || brake || throttle<=THROTTLE_IDLE_MAX)) {
++        motor_pipeline_stop(p,!dashboard_valid?MOTOR_STOP_DASH:
++                           brake?MOTOR_STOP_BRAKE:MOTOR_STOP_THROTTLE);
++        return;
++    }
++    if (dashboard_valid) p->last_dashboard_ms=now_ms;
++}
++
++void motor_pipeline_watchdog(motor_pipeline_t *p, uint32_t now_ms,
++                             uint32_t dash_timeout_ms) {
++    if (p && p->powered &&
++        (uint32_t)(now_ms-p->last_dashboard_ms)>dash_timeout_ms)
++        motor_pipeline_stop(p,MOTOR_STOP_DASH);
++}
++
++uint8_t motor_pipeline_on_adc(motor_pipeline_t *p, foc_adc_sample_t *s,
++                              uint16_t vbus_adc) {
++    if (!p || !p->powered) return 0u;
++    if (!s || !p->adc_qualified || p->foc->fault ||
++        p->foc->state==SENSORLESS_FAULT ||
++        s->sequence!=p->next_sequence) {
++        motor_pipeline_stop(p,MOTOR_STOP_ADC); return 0u;
++    }
++    foc_adc_result_t current;
++    if (!foc_adc_contract_complete(&p->adc,s,&current)) {
++        motor_pipeline_stop(p,MOTOR_STOP_ADC); return 0u;
++    }
++    p->last_phase=current.counts;
++    /* Enforce the raw-count hard trip BEFORE FOC and TIM1 CCR writes.
++     * Not a calibrated ampere limit and not a substitute for hardware BKIN. */
++    int32_t a=current.counts.ia,b=current.counts.ib,c=current.counts.ic;
++    if(a<0)a=-a; if(b<0)b=-b; if(c<0)c=-c;
++    if(a>p->current_hard_limit_counts || b>p->current_hard_limit_counts ||
++       c>p->current_hard_limit_counts) {
++        motor_pipeline_stop(p,MOTOR_STOP_FAULT); return 0u;
++    }
++    if (++p->sample_divider>=4u) {
++        p->sample_divider=0u;
++        const phase_current_counts_t phase={current.counts.ia,current.counts.ib,current.counts.ic};
++        sensorless_control_step(p->foc,phase,vbus_adc,p->arr,1u);
++        if (p->foc->fault || !p->foc->drive_request ||
++            p->foc->state==SENSORLESS_FAULT ||
++            p->foc->state==SENSORLESS_STOP) {
++            motor_pipeline_stop(p,MOTOR_STOP_FAULT); return 0u;
++        }
++        if (!p->powered) return 0u; /* asynchronous brake/timeout won */
++        if (p->foc->ccr1>p->arr || p->foc->ccr2>p->arr || p->foc->ccr3>p->arr ||
++            !p->io.set_pwm(p->io_ctx,p->foc->ccr1,p->foc->ccr2,p->foc->ccr3)) {
++            motor_pipeline_stop(p,MOTOR_STOP_PWM); return 0u;
++        }
++    }
++    /* The sector used for the *next* sample belongs to the PWM vector
++     * already written, not the ADC sample we just consumed. */
++    if (!p->powered) return 0u; /* no new ADC plan after gate kill */
++    const uint8_t next_sector=stock_current_sector_from_ab(
++        p->foc->v_alpha_prev,p->foc->v_beta_prev);
++    ++p->next_sequence;
++    if (!foc_adc_contract_prepare(&p->adc,next_sector,p->next_sequence,p->offsets,1u) ||
++        !p->io.set_adc_pair(p->io_ctx,p->adc.expected_jsqr1,p->adc.expected_jsqr2)) {
++        motor_pipeline_stop(p,MOTOR_STOP_ADC); return 0u;
++    }
++    if (!p->powered) return 0u;
++    p->last_sector=next_sector;
++    return 1u;
++}
+diff --git a/src/motor_pipeline.h b/src/motor_pipeline.h
+new file mode 100644
+index 0000000..512933e
+--- /dev/null
++++ b/src/motor_pipeline.h
+@@ -0,0 +1,60 @@
++#pragma once
++#include <stdint.h>
++#include "foc_adc_contract.h"
++#include "sensorless_control.h"
++
++/* One owner for ADC -> reconstructed phase currents -> sensorless FOC/SVPWM
++ * -> TIM1 CCR preloads -> physically isolated gate channels.
++ * This interface models the entire path; hardware acceptance is an external
++ * mandatory qualification, not inferred from source-code compilation.
++ */
++typedef struct {
++    uint8_t (*arm)(void *ctx);
++    void (*gate_off)(void *ctx);
++    uint8_t (*set_adc_pair)(void *ctx, uint32_t jsqr1, uint32_t jsqr2);
++    uint8_t (*set_pwm)(void *ctx, uint16_t c1, uint16_t c2, uint16_t c3);
++} motor_pipeline_io_t;
++
++enum {
++    MOTOR_STOP_NONE=0u, MOTOR_STOP_THROTTLE=1u, MOTOR_STOP_BRAKE=2u,
++    MOTOR_STOP_DASH=3u, MOTOR_STOP_ADC=4u, MOTOR_STOP_FAULT=5u,
++    MOTOR_STOP_PWM=6u, MOTOR_STOP_QUALIFICATION=7u
++};
++typedef struct {
++    foc_adc_contract_t adc;
++    motor_pipeline_io_t io;
++    sensorless_control_t *foc;
++    void *io_ctx;
++    uint32_t next_sequence;
++    uint32_t last_dashboard_ms;
++    uint16_t arr;
++    uint16_t current_hard_limit_counts;
++    uint16_t offsets[3];
++    stock_phase_currents_t last_phase;
++    uint8_t powered;
++    uint8_t sample_divider;
++    uint8_t last_sector;
++    uint8_t last_stop_reason;
++    uint8_t adc_qualified;
++    uint8_t fault_latched;
++} motor_pipeline_t;
++
++void motor_pipeline_init(motor_pipeline_t *p, sensorless_control_t *foc,
++                         motor_pipeline_io_t io, void *io_ctx, uint16_t arr,
++                         uint16_t hard_current_limit_counts);
++/* Caller supplies independently-established power-stage and ADC-window
++ * qualification. No lab safety claim is made by this Boolean interface. */
++uint8_t motor_pipeline_start(motor_pipeline_t *p, const uint16_t offsets[3],
++                             uint8_t gate_qualified, uint8_t adc_qualified,
++                             uint8_t throttle, uint8_t brake,
++                             uint8_t dashboard_valid, uint32_t now_ms);
++/* gate_off is performed BEFORE any software neutral-vector calculation. */
++void motor_pipeline_stop(motor_pipeline_t *p, uint8_t reason);
++void motor_pipeline_input(motor_pipeline_t *p, uint8_t throttle,
++                          uint8_t brake, uint8_t dashboard_valid, uint32_t now_ms);
++void motor_pipeline_watchdog(motor_pipeline_t *p, uint32_t now_ms,
++                             uint32_t dash_timeout_ms);
++/* Must be called exactly once for each completed TIM1-triggered injected
++ * ADC1+ADC2 one-rank event; never from the two-rank diagnostic mode. */
++uint8_t motor_pipeline_on_adc(motor_pipeline_t *p, foc_adc_sample_t *sample,
++                              uint16_t vbus_adc);
+diff --git a/tools/motor_pipeline_host_test.c b/tools/motor_pipeline_host_test.c
+new file mode 100644
+index 0000000..d341f0a
+--- /dev/null
++++ b/tools/motor_pipeline_host_test.c
+@@ -0,0 +1,76 @@
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include "motor_pipeline.h"
++#include "stock_current_frontend.h"
++
++typedef struct {
++    unsigned gate_on, gate_off, pwm_writes, adc_routes;
++    uint16_t c1,c2,c3;
++    uint32_t adc1_jsqr,adc2_jsqr;
++    unsigned reject_pwm,reject_adc,reject_arm;
++    unsigned event_seq;
++} fake_hw_t;
++static void ensure(unsigned v,const char *what){if(!v){fprintf(stderr,"FAILED %s\n",what);exit(1);}}
++static uint8_t arm(void *ctx){fake_hw_t *h=ctx;if(h->reject_arm)return 0;h->gate_on=1;return 1;}
++static void off(void *ctx){fake_hw_t *h=ctx;h->gate_on=0;h->gate_off++;}
++static uint8_t route(void *ctx,uint32_t a,uint32_t b){fake_hw_t *h=ctx;if(h->reject_adc)return 0;h->adc1_jsqr=a;h->adc2_jsqr=b;h->adc_routes++;return 1;}
++static uint8_t pwm(void *ctx,uint16_t a,uint16_t b,uint16_t c){fake_hw_t *h=ctx;if(h->reject_pwm)return 0;ensure(a<=1999&&b<=1999&&c<=1999,"PWM duty bounds");h->c1=a;h->c2=b;h->c3=c;h->pwm_writes++;return 1;}
++static foc_adc_sample_t sample(motor_pipeline_t *p, fake_hw_t *h){
++    (void)h;
++    const stock_adc_pair_t pair=stock_current_pair_for_sector(p->adc.expected_sector);
++    ensure(p->adc.expected_jsqr1==stock_current_jsqr_one(pair.adc1_channel),"ADC1 sector route");
++    ensure(p->adc.expected_jsqr2==stock_current_jsqr_one(pair.adc2_channel),"ADC2 sector route");
++    foc_adc_sample_t s={0};s.sequence=++h->event_seq;s.sector=p->adc.expected_sector;
++    s.adc1_jsqr=h->adc1_jsqr;s.adc2_jsqr=h->adc2_jsqr;
++    s.adc1_sr=4u;s.adc2_sr=4u;s.adc1_jdr1=2048;s.adc2_jdr1=2048;
++    s.dual_injected_simultaneous=1;s.sample_window_valid=1;return s;
++}
++static void ready(motor_pipeline_t *p,sensorless_control_t *c,fake_hw_t *h){
++    sensorless_control_init(c);
++    ensure(sensorless_control_set_motor_params(c,200000,300000,5000),"motor params");
++    motor_pipeline_io_t io={arm,off,route,pwm};
++    motor_pipeline_init(p,c,io,h,1999u,700u);
++}
++int main(void){
++    const uint16_t offsets[3]={2048,2048,2048};
++    for(unsigned kind=0;kind<10;kind++){
++        fake_hw_t hw={0};motor_pipeline_t p;sensorless_control_t c;ready(&p,&c,&hw);
++        ensure(!motor_pipeline_start(&p,offsets,0,1,80,0,1,0),"qualification denies gate");
++        ensure(!hw.gate_on,"unqualified never arms");
++        ensure(motor_pipeline_start(&p,offsets,1,1,80,0,1,1),"qualified mock start");
++        ensure(hw.gate_on && p.powered,"mock arm happened");
++        for(unsigned n=0;n<16;n++){
++            foc_adc_sample_t s=sample(&p,&hw);
++            ensure(motor_pipeline_on_adc(&p,&s,2700u),"full ADC reconstruction to FOC SVPWM to PWM");
++        }
++        ensure(hw.pwm_writes>=5,"FOC output wrote PWM");
++        ensure(hw.adc_routes>=17,"ADC channels rescheduled each sector");
++        if(kind==0){motor_pipeline_input(&p,0,0,1,5);ensure(p.last_stop_reason==MOTOR_STOP_THROTTLE,"throttle coast");}
++        if(kind==1){motor_pipeline_input(&p,80,1,1,5);ensure(p.last_stop_reason==MOTOR_STOP_BRAKE,"brake coast");}
++        if(kind==2){motor_pipeline_input(&p,80,0,0,5);ensure(p.last_stop_reason==MOTOR_STOP_DASH,"dashboard invalid coast");}
++        if(kind==3){motor_pipeline_watchdog(&p,260,250);ensure(p.last_stop_reason==MOTOR_STOP_DASH,"watchdog coast");}
++        if(kind==4){foc_adc_sample_t s=sample(&p,&hw);s.adc2_sr=0;ensure(!motor_pipeline_on_adc(&p,&s,2700),"ADC JEOC fault");ensure(p.last_stop_reason==MOTOR_STOP_ADC,"ADC coast");}
++        if(kind==5){foc_adc_sample_t s=sample(&p,&hw);s.sample_window_valid=0;ensure(!motor_pipeline_on_adc(&p,&s,2700),"ADC window fault");ensure(p.last_stop_reason==MOTOR_STOP_ADC,"window coast");}
++        if(kind==6){hw.reject_pwm=1;for(unsigned n=0;n<4;n++){foc_adc_sample_t s=sample(&p,&hw);(void)motor_pipeline_on_adc(&p,&s,2700);}ensure(p.last_stop_reason==MOTOR_STOP_PWM,"PWM write fault coast");}
++        if(kind==7){hw.reject_adc=1;foc_adc_sample_t s=sample(&p,&hw);ensure(!motor_pipeline_on_adc(&p,&s,2700),"ADC routing write refused");ensure(p.last_stop_reason==MOTOR_STOP_ADC,"ADC routing coast");}
++        if(kind==8){c.fault=3;foc_adc_sample_t s=sample(&p,&hw);ensure(!motor_pipeline_on_adc(&p,&s,2700),"observer fault refused");ensure(p.last_stop_reason==MOTOR_STOP_ADC,"observer coast");}
++        if(kind==9){
++            /* 2048+750 is below ADC rail but reconstructed current over
++             * 700 must be rejected *before* PWM for that FOC tick. */
++            unsigned oldpwm=hw.pwm_writes;
++            foc_adc_sample_t s=sample(&p,&hw);s.adc1_jdr1=2798;
++            ensure(!motor_pipeline_on_adc(&p,&s,2700),"overcurrent rejected");
++            ensure(hw.pwm_writes==oldpwm,"no PWM following current trip");
++            ensure(p.last_stop_reason==MOTOR_STOP_FAULT,"overcurrent coast");
++        }
++        ensure(!p.powered&&!hw.gate_on&&hw.gate_off>0,"gate physically off before returning");
++        ensure(c.state==SENSORLESS_STOP&&!c.drive_request,"FOC stopped");
++        if(kind>=4){
++            ensure(!motor_pipeline_start(&p,offsets,1,1,80,0,1,1),"fault remains latched");
++            ensure(!hw.gate_on,"latched fault never re-arms");
++        }
++    }
++    puts("PASS: ADC->sector reconstruction->sensorless FOC/SVPWM->TIM1 callback->gate with 10 stop/fault cases");
++    return 0;
++}
+diff --git a/tools/run_v094_tests.sh b/tools/run_v094_tests.sh
+new file mode 100644
+index 0000000..9c4e2a0
+--- /dev/null
++++ b/tools/run_v094_tests.sh
+@@ -0,0 +1,57 @@
++#!/usr/bin/env bash
++# Software-only checks. No external hardware, no flashing, no motor enable.
++set -euo pipefail
++cd "$(dirname "$0")/.."
++python3 tools/pinmap_power_regression_test.py
++make safe CC="${ARM_CC:-clang}" OBJCOPY="${ARM_OBJCOPY:-llvm-objcopy}" OBJDUMP="${ARM_OBJDUMP:-llvm-objdump}"
++TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
++checks=(
++  'first_spin_safety_host_test.c sensorless_control.c'
++  'foc_adc_contract_host_test.c foc_adc_contract.c stock_current_frontend.c'
++  'foc_adc_motor_handoff_host_test.c foc_adc_motor_handoff.c sensorless_control.c'
++  'motor_id_host_test.c motor_id.c sensorless_control.c'
++  'sensorless_plant_host_test.c sensorless_control.c'
++  'motor_core_host_test.c sensorless_control.c'
++  'power_logic_host_test.c power_logic.c'
++  'iap_ack_host_test.c iap_proto.c'
++  'iap_transport_host_test.c iap_proto.c'
++  'stock_adc_timing_host_test.c stock_adc_timing.c'
++  'stock_adc_quality_host_test.c stock_adc_quality.c stock_current_frontend.c'
++  'stock_adc_snapshot_host_test.c stock_adc_snapshot.c stock_current_frontend.c'
++  'stock_dual_adc_runtime_host_test.c stock_dual_adc_runtime.c stock_dual_adc_plan.c stock_current_frontend.c'
++  'test_g30_fixed_scan.c g30_fixed_scan.c'
++  'test_stock_adc_mode_guard.c stock_adc_mode_guard.c stock_dual_adc_plan.c stock_current_frontend.c'
++  'test_ble_motor_probe.c motor_probe.c ble_motor_probe.c'
++)
++checks+=('motor_pipeline_host_test.c motor_pipeline.c foc_adc_contract.c stock_current_frontend.c sensorless_control.c')
++for check in "${checks[@]}"; do
++  read -ra files <<< "$check"
++  test="${files[0]}"; args=()
++  for f in "${files[@]:1}"; do args+=("src/$f"); done
++  extra_flags=()
++  if [ "$test" = sensorless_plant_host_test.c ] || [ "$test" = motor_pipeline_host_test.c ]; then
++      extra_flags+=(-DSENSORLESS_CLOSED_LOOP_ALLOWED=1)
++  fi
++  gcc -std=c11 -O1 -g -fsanitize=undefined -Isrc "${extra_flags[@]}" "tools/$test" "${args[@]}" -lm -o "$TMP/${test%.c}"
++  "$TMP/${test%.c}"
++  echo "PASS: $test"
++done
++for flags in '-DPOWER_STAGE_ARM_ALLOWED=1 -DSENSORLESS_RUN_ALLOWED=0' '-DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=1'; do
++  # shellcheck disable=SC2086
++  if "${ARM_CC:-clang}" --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -Isrc $flags -c src/main.c -o "$TMP/bad.o" >"$TMP/reject.log" 2>&1; then
++    echo 'FAIL: unexpectedly permitted motor power build' >&2; exit 1
++  fi
++  grep -q 'v0.9.3: motor power blocked' "$TMP/reject.log"
++  echo "PASS: motor-power compile rejection $flags"
++done
++if [ "$(stat -c %s build/DeltaESC_G30D_v0_9_4_ble_syncsafe.bin)" -ge 53248 ]; then
++  echo 'FAIL: exceeds G30 active application region' >&2; exit 1
++fi
++if command -v llvm-nm >/dev/null 2>&1; then
++  llvm-nm build/DeltaESC_G30D_v0_9_4_ble_syncsafe.elf | grep -q 'motor_id_accept'
++  llvm-nm build/DeltaESC_G30D_v0_9_4_ble_syncsafe.elf | grep -q 'motor_id_commit'
++fi
++if ! grep -q 'case 0xF7u:' src/main.c; then
++  echo 'FAIL: Motor ID read-only status missing' >&2; exit 1
++fi
++echo 'PASS: source-only software checks (not a hardware/flash release)' 
