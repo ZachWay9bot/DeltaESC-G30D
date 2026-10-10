@@ -1,3 +1,5 @@
+> **Development update (2026-10-10):** [DeltaESC v0.9.3 Motor-ID R/L/Flux source branch](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/dev/v0.9.3-motor-id-rlflux-gateoff) adds Cortex-M3 forced-linked estimator, read-only 0xF7 status and 15 local regression groups. **Source-only, physical MOSFET outputs disabled; no real R/L/Flux motor-detect run, no 10S first-spin approval.** SHFW on the scooter remains unchanged.
+
 # DeltaESC-G30D
 
 > [!CAUTION]
