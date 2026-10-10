@@ -7,6 +7,9 @@
 > **Do not flash a development SHU ZIP to the valuable stock controller yet.**
 > No end-to-end Bluetooth installation + confirmed Bluetooth rollback or torque-producing motor run has been proven on this exact controller. CI success is software verification, not hardware validation.
 
+> [!WARNING]
+> **GPIO correction after v0.9.0:** That frozen source still reads the power button on **PA12 active-low** and changes **PB1** as though it were a gate enable. Prior DRV126 disassembly/schematic cross-check instead identifies **PC14 (LQFP48 physical pin 3), active-high**, **PA11 power-hold**, and **PB1 BEMF_C**. The v0.9.0 code must not be used as a basis for physical testing without this correction. A locally Cortex-M3-built, host-tested **v0.9.1 source-only** correction is on [the separate development branch](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/dev/v0.9.1-pc14-pb1-power-stage-safety). Physical gate/BKIN/shunt and live-power behavior remain unverified. **No flash or motor approval.**
+>
 ## Canonical development references (2026-10-09)
 
 The default `main` branch is a **repository index**, not the latest firmware. Do not select firmware by looking at the default branch or by choosing the highest version number alone.
