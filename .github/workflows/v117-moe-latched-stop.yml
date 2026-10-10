@@ -1,0 +1,125 @@
+name: DeltaESC v0.9.17 EBiCS MOE latched emergency stop source-only
+on:
+  push:
+    branches: [dev/v0.9.17-ebics-moe-latched-stop-sourceonly]
+    paths: ['v0.9.17/**','.github/workflows/v117-moe-latched-stop.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  cortex-m3-id-vector:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compiler packages
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y clang-18 llvm-18 gcc
+          sudo ln -sf "$(command -v llvm-objdump-18)" /usr/local/bin/llvm-objdump
+      - name: Reconstruct the versioned source chain
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p base source
+          gh run download 37996878172 --repo "${{ github.repository }}" --name DeltaESC-v0.9.0-FIRSTSPIN-STOP-SAFETY-GATEOFF-SOURCE-ONLY --dir base
+          echo 'b66dc23226b18d8936c4d526f3a78d69e6b8c927e40ecc4c2dc84277ceee89d4  base/DeltaESC_v090_FIRSTSPIN_STOP_SAFETY_GATEOFF_SOURCE_ONLY.tar.xz' | sha256sum -c -
+          tar -xJf base/DeltaESC_v090_FIRSTSPIN_STOP_SAFETY_GATEOFF_SOURCE_ONLY.tar.xz -C source
+          apply() {
+            python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]).read_bytes();sys.stdout.buffer.write(p if p.endswith(b"\n") else p+b"\n")' "$1" | patch -s --batch --forward -d source -p1
+          }
+          apply v0.9.1/v091_pinmap_safety.patch
+          cp v0.9.1/tools/pinmap_power_regression_test.py source/tools/
+          cp v0.9.1/tools/run_v091_tests.sh source/tools/
+          apply v0.9.2/v092_foc_adc_contract.patch
+          apply v0.9.3/v093_motor_id.patch
+          apply v0.9.4/v094_motor_pipeline.patch
+          apply v0.9.5/v095_drv126_gate.patch
+          apply v0.9.6/v096_vesc_ebics_port.patch
+          apply v0.9.7/v097_adc_current_only.patch
+          # v0.9.8 also changes a README absent from the original frozen v0.9.0 archive.
+          # Exclude README hunks only; replay every source and test change.
+          python3 - <<'PY' > /tmp/v098-source-only.patch
+          import pathlib,re,sys
+          s=pathlib.Path('v0.9.8/v098_ADC_DRV126_REFERENCE.patch').read_text()
+          for chunk in re.split(r'(?=^diff --git )',s,flags=re.M):
+              if re.search(r'^diff --git a/README_',chunk,re.M):
+                  continue
+              sys.stdout.write(chunk if chunk.endswith(chr(10)) else chunk+chr(10))
+          PY
+          apply /tmp/v098-source-only.patch
+          apply v0.9.9/v099_AUTO_MOTOR_DETECT.patch
+          apply v0.9.10/v100_motor_id_vector.patch
+          apply v0.9.11/v101_motor_id_adc_feedback.patch
+          apply v0.9.12/v102_LIVE_MOTOR_ID.patch
+          apply v0.9.13/v103_DRIVEN_FLUX.patch
+          apply v0.9.14/v114_VESC_METHOD_FROM_v113.patch
+      - name: Replay exact v0.9.14 VESC-adapted motor-detect profile
+        run: |
+          set -euo pipefail
+          cd source
+          make clean
+          ARM_CC=clang-18 ARM_OBJCOPY=llvm-objcopy-18 ARM_OBJDUMP=llvm-objdump-18 bash tools/run_v114_tests.sh
+          test "$(stat -c %s build/DeltaESC_G30D_v0_9_14_ble_syncsafe.bin)" -lt 53248
+          grep -Fq '#define FW_BUILD 0x0914u' src/main.c
+          grep -Fq '#define COMM_CURRENT_SCALE_HW_VALID 0u' src/main.c
+          grep -Fq '#define COMM_ADC_TIMING_HW_VALID 0u' src/main.c
+          grep -Fq 'const motor_id_auto_io_t id_io={motor_id_hw_vector_mv,motor_id_hw_gate_off,0};' src/main.c
+          grep -Fq 'motor_id_adc_feedback_capture(' src/main.c
+          grep -Fq 'TIM1_UP_IRQHandler' src/main.c
+          grep -Fq 'motor_id_auto_tick(&g_motor_id_auto,t0/' src/main.c
+          grep -Fq '#define ID_BENCH_MAX_ACTIVE_MS 2500u' src/main.c
+          grep -Fq '#define ID_BENCH_MAX_TOTAL_MS 3600u' src/main.c
+          grep -Fq 'AUTO_L_SAMPLES 24u' src/motor_id_auto.c
+          grep -Fq 'AUTO_FLUX_RAMP_US 950000u' src/motor_id_auto.c
+          grep -Fq 'out->applied_at_us=f->active_command_cycle/' src/motor_id_adc_feedback.c
+          test "$(stat -c %s build/DeltaESC_G30D_v0_9_14_motor_id_bench.bin)" -lt 53248
+          echo 'v0.9.14 VESC-method firmware: 26 host test groups, both ARM images and real motor-ID-only E7 build linked.'
+
+      - name: v0.9.16 exhaustive BDTR policy host test
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -Iv0.9.16/src v0.9.16/tools/tim1_bdtr_guard_host_test.c -o /tmp/test_bdtr
+          /tmp/test_bdtr
+      - name: Apply fail-on-drift gate-safe overlay, and build source-only image
+        run: |
+          set -euo pipefail
+          python3 v0.9.16/tools/apply_v116.py source
+          cd source
+          make clean
+          make safe CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+          test "$(stat -c %s build/DeltaESC_G30D_v0_9_16_ble_syncsafe.bin)" -lt 53248
+          grep -Fq '#define FW_BUILD 0x0916u' src/main.c
+          grep -Fq 'tim1_bdtr_guard_preinit(' src/main.c
+          grep -Fq 'tim1_bdtr_guard_passive(' src/main.c
+          grep -Fq 'NO MOTOR BENCH' src/main.c
+          if make id-bench CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18 > /tmp/bad-bench.log 2>&1; then
+            echo 'ERROR: unexpectedly allowed a live E7 motor-bench image' >&2
+            exit 1
+          fi
+          grep -Fq 'v0.9.16 NO MOTOR BENCH' /tmp/bad-bench.log
+          echo 'PASS: safe ARM Cortex-M3 build; full live E7 bench build rejected'
+
+      - name: v0.9.17 emergency MOE and no-rearm host tests
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -Iv0.9.16/src -Iv0.9.17/src v0.9.17/tools/tim1_emergency_stop_host_test.c -o /tmp/test_moe
+          /tmp/test_moe
+      - name: v0.9.17 overlay and Cortex-M3 build
+        run: |
+          set -euo pipefail
+          python3 v0.9.17/tools/apply_v117.py source
+          cd source
+          make clean
+          make safe CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+          test "$(stat -c %s build/DeltaESC_G30D_v0_9_17_ble_syncsafe.bin)" -lt 53248
+          grep -Fq '#define FW_BUILD 0x0917u' src/main.c
+          grep -Fq 'g_gate_kill_latched=1u;' src/main.c
+          grep -Fq 'TIM_BDTR(TIM1_BASE)&=(uint32_t)~D_GUARD_MOE;' src/main.c
+          grep -Fq 'return confirmed;' src/main.c
+          if make id-bench CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18 > /tmp/reject.log 2>&1; then
+            echo 'FAIL: v0.9.17 accidentally linked powered Motor-ID E7' >&2
+            exit 1
+          fi
+          grep -Fq 'v0.9.17 SOURCE-ONLY' /tmp/reject.log
+          echo 'PASS: safe firmware builds; emergency latch tests pass; motor images forbidden'
