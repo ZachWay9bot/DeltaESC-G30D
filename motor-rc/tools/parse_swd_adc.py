@@ -15,6 +15,8 @@ ADDR = {
     "ADC1_SQR3": 0x40012434, "ADC1_JSQR": 0x40012438,
     "ADC2_SQR1": 0x4001282C, "ADC2_SQR2": 0x40012830,
     "ADC2_SQR3": 0x40012834, "ADC2_JSQR": 0x40012838,
+    "ADC1_CR1": 0x40012404, "ADC1_CR2": 0x40012408,
+    "ADC2_CR1": 0x40012804, "ADC2_CR2": 0x40012808,
     "GPIOA_CRL": 0x40010800, "GPIOB_CRL": 0x40010C00,
     "TIM1_CCER": 0x40012C20, "TIM1_BDTR": 0x40012C44,
 }
@@ -68,13 +70,33 @@ def audit(regs: dict[str,int]) -> dict:
                 "observed_registers":sorted(regs)}
     outputs={"complete":True,"signal_type":"UNVERIFIED"}
     for adc in ("ADC1","ADC2"):
-        regular=regular_channels(*(regs[f"{adc}_{tag}"] for tag in
-                                   ("SQR1","SQR2","SQR3")))
-        injected=injected_channels(regs[f"{adc}_JSQR"])
-        outputs[adc]={"regular_channels":regular,"regular_pins":
+        cr2=regs.get(f"{adc}_CR2")
+        # When ADON=0 a zeroed SQR/JSQR is NOT a measurement on CH0.
+        # Unknown CR2 means sequencing may be described but never "running".
+        running=(cr2 is not None and bool(cr2 & 1))
+        if running:
+            regular=regular_channels(*(regs[f"{adc}_{tag}"] for tag in
+                                       ("SQR1","SQR2","SQR3")))
+            injected=injected_channels(regs[f"{adc}_JSQR"])
+        else:
+            regular=[]
+            injected=[]
+        outputs[adc]={"enabled_at_capture":running,
+                      "cr2_present":cr2 is not None,
+                      "regular_channels":regular,"regular_pins":
                       [ADC_PINS.get(c,"UNKNOWN") for c in regular],
                       "injected_channels":injected,"injected_pins":
                       [ADC_PINS.get(c,"UNKNOWN") for c in injected]}
+    sampled=set(outputs["ADC1"]["regular_channels"]+
+                outputs["ADC1"]["injected_channels"]+
+                outputs["ADC2"]["regular_channels"]+
+                outputs["ADC2"]["injected_channels"])
+    outputs["PB1_ADC9_actually_selected"]=9 in sampled
+    if "TIM1_CCER" in regs:
+        outputs["TIM1_motor_ccer_channels_active"]=(regs["TIM1_CCER"] & 0x0555)!=0
+    if "TIM1_BDTR" in regs:
+        outputs["TIM1_BDTR_MOE"]=(regs["TIM1_BDTR"] & 0x8000)!=0
+        outputs["TIM1_BDTR_AOE"]=(regs["TIM1_BDTR"] & 0x4000)!=0
     if "GPIOA_CRL" in regs:
         outputs["GPIOA_CRL"]={
             "PA3_analog":input_analog(regs["GPIOA_CRL"],3),
