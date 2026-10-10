@@ -1,7 +1,7 @@
 name: G30 Motor Bench v0.3.2 for v0.7.2
 on:
   push:
-    branches: [ "dev/android-v0.3.2-v072-motor-bench" ]
+    branches: [ "dev/android-v0.3.3-v072-motor-bench" ]
     paths:
       - "android/v0.3.2/**"
       - "android/v0.3.1/**"
@@ -64,6 +64,11 @@ jobs:
           assert 'handler.postDelayed(this::emergencyStop,1200)' in main
           assert 'F0–F4 anwenden (nur RAM)' in main
           assert '0xF5' not in main and 'IAP' not in main
+          assert 'FW Auto-STOP' not in main
+          assert 'Firmware stoppt nach 1,0 s' not in main
+          assert 'if(r.arg==0xE5)handler.postDelayed(this::emergencyStop,1200)' in main
+          assert 'if(pendingWrite>=0){pendingWrite=-1;' in main
+          assert 'hard!=100||sum!=30' in main
           assert 'D0–D9' in main
           assert 'case 0xD9:return 12' in main
           assert 'deltaBuild!=MotorBenchProtocol.BUILD_MOTOR_BENCH_V072' in main
@@ -77,7 +82,7 @@ jobs:
           assert 'keine bestätigte DeltaESC-Signatur' in main
           grad=Path('/tmp/app/v031/app/build.gradle').read_text()
           assert "applicationId 'de.deltaesc.motorbench072'" in grad
-          assert "versionName '0.3.2'" in grad
+          assert "versionName '0.3.3'" in grad
           print('v0.3.1 safety preflight PASS')
           PY
       - name: Motor bench protocol host vectors
@@ -97,16 +102,16 @@ jobs:
         run: gradle :app:assembleDebug --stacktrace
       - name: Package
         run: |
-          cp /tmp/app/v031/app/build/outputs/apk/debug/app-debug.apk /tmp/G30_Bench_BLE_Motor_v0.3.2_v072.apk
-          tar --exclude=.gradle --exclude=app/build -C /tmp/app -cJf /tmp/G30_Bench_BLE_Motor_v0.3.2_v072_SOURCE.tar.xz v031
-          sha256sum /tmp/G30_Bench_BLE_Motor_v0.3.2_v072.apk /tmp/G30_Bench_BLE_Motor_v0.3.2_v072_SOURCE.tar.xz | tee /tmp/SHA256SUMS.txt
+          cp /tmp/app/v031/app/build/outputs/apk/debug/app-debug.apk /tmp/G30_Bench_BLE_Motor_v0.3.3_v072.apk
+          tar --exclude=.gradle --exclude=app/build -C /tmp/app -cJf /tmp/G30_Bench_BLE_Motor_v0.3.3_v072_SOURCE.tar.xz v031
+          sha256sum /tmp/G30_Bench_BLE_Motor_v0.3.3_v072.apk /tmp/G30_Bench_BLE_Motor_v0.3.3_v072_SOURCE.tar.xz | tee /tmp/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: G30-Bench-BLE-Motor-v0.3.2-v072
+          name: G30-Bench-BLE-Motor-v0.3.3-v072
           retention-days: 30
           if-no-files-found: error
           path: |
-            /tmp/G30_Bench_BLE_Motor_v0.3.2_v072.apk
-            /tmp/G30_Bench_BLE_Motor_v0.3.2_v072_SOURCE.tar.xz
+            /tmp/G30_Bench_BLE_Motor_v0.3.3_v072.apk
+            /tmp/G30_Bench_BLE_Motor_v0.3.3_v072_SOURCE.tar.xz
             /tmp/SHA256SUMS.txt
             android/v0.3.2/README.md
