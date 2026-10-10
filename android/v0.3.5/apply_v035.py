@@ -65,7 +65,7 @@ control='''
                     if(stage==4 && deltaDetected &&
                        deltaBuild==MotorBenchProtocol.BUILD_MOTOR_ID_0913 &&
                        offsetReady && ble.canAcceptFrame()){
-                        ble.write(MotorIdBenchProtocol.start());
+                        sendEncrypted(MotorIdBenchProtocol.start(),"MOTOR-ID E7");
                     }
                 }).show();
         });
@@ -83,7 +83,7 @@ control='''
                 final int reg=regs[idx];
                 handler.postDelayed(()->{
                     if(stage==4 && ble.canAcceptFrame())
-                        ble.write(MotorIdBenchProtocol.status(reg));
+                        sendEncrypted(MotorIdBenchProtocol.status(reg),"MOTOR-ID STATUS "+Integer.toHexString(reg));
                 }, idx*350L);
             }
         });
@@ -100,7 +100,7 @@ final class MotorIdBenchProtocol {
   static final int BUILD=0x0913, START=0xE7, STOP=0xE6;
   static byte[] start(){return NinebotProtocol.build(NinebotProtocol.PHONE,NinebotProtocol.ESC,0x03,START,new byte[]{(byte)0xDE,(byte)0xC0,0x49,0x4D});}
   static byte[] stop(){return NinebotProtocol.build(NinebotProtocol.PHONE,NinebotProtocol.ESC,0x03,STOP,new byte[0]);}
-  static byte[] status(int reg){if(reg<0xF7||reg>0xF9)throw new IllegalArgumentException("status page");return NinebotProtocol.build(NinebotProtocol.PHONE,NinebotProtocol.ESC,0x02,reg,new byte[]{16});}
+  static byte[] status(int reg){if(reg<0xF7||reg>0xF9)throw new IllegalArgumentException("status page");return NinebotProtocol.build(NinebotProtocol.PHONE,NinebotProtocol.ESC,0x02,reg,new byte[]{(byte)(reg==0xF9?18:16)});}
 }
 ''')
 g=r/'app/build.gradle'
