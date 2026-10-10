@@ -99,14 +99,14 @@ jobs:
         run: |
           cp /tmp/app/v031/app/build/outputs/apk/debug/app-debug.apk /tmp/G30_Bench_BLE_Motor_v0.3.2_v072.apk
           tar --exclude=.gradle --exclude=app/build -C /tmp/app -cJf /tmp/G30_Bench_BLE_Motor_v0.3.2_v072_SOURCE.tar.xz v031
-          sha256sum /tmp/G30_Bench_BLE_Motor_v0.3.1.apk /tmp/G30_Bench_BLE_Motor_v0.3.1_SOURCE.tar.xz | tee /tmp/SHA256SUMS.txt
+          sha256sum /tmp/G30_Bench_BLE_Motor_v0.3.2_v072.apk /tmp/G30_Bench_BLE_Motor_v0.3.2_v072_SOURCE.tar.xz | tee /tmp/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
           name: G30-Bench-BLE-Motor-v0.3.2-v072
           retention-days: 30
           if-no-files-found: error
           path: |
-            /tmp/G30_Bench_BLE_Motor_v0.3.1.apk
-            /tmp/G30_Bench_BLE_Motor_v0.3.1_SOURCE.tar.xz
+            /tmp/G30_Bench_BLE_Motor_v0.3.2_v072.apk
+            /tmp/G30_Bench_BLE_Motor_v0.3.2_v072_SOURCE.tar.xz
             /tmp/SHA256SUMS.txt
             android/v0.3.2/README.md
