@@ -22,6 +22,15 @@ int main(void) {
     assert(!tim1_bdtr_guard_passive(0xCD40u,0x40u,0x1000u));
     assert(!tim1_bdtr_guard_passive(0x8C40u,0x40u,0x1555u));
     assert(!tim1_bdtr_guard_passive(0x8C40u,0x40u,0x3000u));
-    puts("PASS: TIM1 BDTR 65,536 variants, CCER 65,536 variants, stock 0xCD40 veto");
+    assert(tim1_bdtr_guard_gpio_down(0x888u,0x888u,0u,0u));
+    assert(!tim1_bdtr_guard_gpio_down(0x444u,0x888u,0u,0u));
+    assert(!tim1_bdtr_guard_gpio_down(0x888u,0x444u,0u,0u));
+    for(uint32_t i=0;i<65536u;i++) {
+        assert(tim1_bdtr_guard_gpio_down(0x888u,0x888u,(uint16_t)i,0u)
+             ==((i&0x0700u)==0u));
+        assert(tim1_bdtr_guard_gpio_down(0x888u,0x888u,0u,(uint16_t)i)
+             ==((i&0xE000u)==0u));
+    }
+    puts("PASS: TIM1 BDTR+CCER 65,536 values each; pull-down ODR; stock 0xCD40 veto");
     return 0;
 }
