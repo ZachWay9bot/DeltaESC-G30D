@@ -36,9 +36,8 @@ jobs:
       - name: Apply exact checked v0.9.1 source patch and pass tests
         run: |
           patch -d source -p1 < v0.9.1/v091_pinmap_safety.patch
-          (cd source && python3 tools/pinmap_power_regression_test.py)
-          (cd source && make safe CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18)
-          (cd source && gcc -std=c11 -O2 -Wall -Wextra -Werror -fsanitize=undefined -Isrc tools/power_logic_host_test.c src/power_logic.c -o /tmp/power_logic_host && /tmp/power_logic_host)
+          cp v0.9.1/tools/run_v091_tests.sh source/tools/
+          (cd source && ARM_CC=clang-18 ARM_OBJCOPY=llvm-objcopy-18 ARM_OBJDUMP=llvm-objdump-18 bash tools/run_v091_tests.sh)
       - name: Motor-power and sensorless binaries must be impossible to compile
         run: |
           if (cd source && clang-18 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -Isrc -DPOWER_STAGE_ARM_ALLOWED=1 -DSENSORLESS_RUN_ALLOWED=0 -c src/main.c -o /tmp/bad_motor.o); then
