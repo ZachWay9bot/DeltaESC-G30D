@@ -1,0 +1,507 @@
+--- a/Makefile
++++ b/Makefile
+@@ -3,19 +3,19 @@
+ OBJDUMP ?= llvm-objdump
+ CFLAGS_COMMON = -g3 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Oz -Wall -Wextra -Werror -Isrc
+ LDFLAGS_COMMON = --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -nostdlib -Wl,-T,linker.ld,--gc-sections
+-SRC = src/main.c src/sensorless_control.c src/ninebot_link.c src/iap_update.c src/iap_proto.c src/iap_control.c src/dashboard_runtime.c src/power_logic.c src/motor_probe.c src/ble_motor_probe.c src/commissioning_guard.c src/stock_current_frontend.c src/stock_dual_adc_plan.c src/stock_dual_adc_runtime.c src/stock_adc_quality.c src/stock_adc_snapshot.c src/stock_adc_timing.c src/stock_adc_correlated.c src/stock_adc_mode_guard.c src/g30_fixed_scan.c src/motor_config_txn.c src/foc_adc_contract.c src/foc_adc_motor_handoff.c
+-SAFE_ELF = build/DeltaESC_G30D_v0_9_2_ble_syncsafe.elf
+-SAFE_BIN = build/DeltaESC_G30D_v0_9_2_ble_syncsafe.bin
+-ACTIVE_ELF = build/DeltaESC_G30D_v0_9_2_ble_observer_zero_vector.elf
+-ACTIVE_BIN = build/DeltaESC_G30D_v0_9_2_ble_observer_zero_vector.bin
+-BENCH_ELF = build/DeltaESC_G30D_v0_9_2_ble_sensorless_bench.elf
+-BENCH_BIN = build/DeltaESC_G30D_v0_9_2_ble_sensorless_bench.bin
++SRC = src/main.c src/sensorless_control.c src/ninebot_link.c src/iap_update.c src/iap_proto.c src/iap_control.c src/dashboard_runtime.c src/power_logic.c src/motor_probe.c src/ble_motor_probe.c src/commissioning_guard.c src/stock_current_frontend.c src/stock_dual_adc_plan.c src/stock_dual_adc_runtime.c src/stock_adc_quality.c src/stock_adc_snapshot.c src/stock_adc_timing.c src/stock_adc_correlated.c src/stock_adc_mode_guard.c src/g30_fixed_scan.c src/motor_config_txn.c src/foc_adc_contract.c src/foc_adc_motor_handoff.c src/motor_id.c
++SAFE_ELF = build/DeltaESC_G30D_v0_9_3_ble_syncsafe.elf
++SAFE_BIN = build/DeltaESC_G30D_v0_9_3_ble_syncsafe.bin
++ACTIVE_ELF = build/DeltaESC_G30D_v0_9_3_ble_observer_zero_vector.elf
++ACTIVE_BIN = build/DeltaESC_G30D_v0_9_3_ble_observer_zero_vector.bin
++BENCH_ELF = build/DeltaESC_G30D_v0_9_3_ble_sensorless_bench.elf
++BENCH_BIN = build/DeltaESC_G30D_v0_9_3_ble_sensorless_bench.bin
+ all: safe
+ safe: $(SAFE_BIN)
+ build: ; mkdir -p build
+ $(SAFE_ELF): $(SRC) linker.ld | build
+-	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 $(SRC) $(LDFLAGS_COMMON) -Wl,-Map=build/v0_9_2_syncsafe.map -o $@
++	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 $(SRC) $(LDFLAGS_COMMON) -Wl,--undefined=motor_id_accept -Wl,--undefined=motor_id_commit -Wl,-Map=build/v0_9_3_syncsafe.map -o $@
+ $(SAFE_BIN): $(SAFE_ELF)
+ 	$(OBJCOPY) -O binary $< $@
+-	$(OBJDUMP) -h $< > build/v0_9_2_syncsafe_sections.txt
++	$(OBJDUMP) -h $< > build/v0_9_3_syncsafe_sections.txt
+ clean: ; rm -rf build
+--- a/src/main.c
++++ b/src/main.c
+@@ -1,6 +1,7 @@
+ #include <stdint.h>
+ #include "stm32f103_min.h"
+ #include "sensorless_control.h"
++#include "motor_id.h"
+ #include "ninebot_link.h"
+ #include "iap_update.h"
+ #include "power_logic.h"
+@@ -49,7 +50,7 @@
+ #define MAGIC_UNLOCK 0xC0DEu
+ #define PROTO_MAJOR 0u
+ #define PROTO_MINOR 2u
+-#define FW_BUILD 0x0902u
++#define FW_BUILD 0x0903u
+ #define COMM_DASH_STALE_MS 250u
+ #define COMM_INPUT_IDLE_MAX 3u
+ /* Hardware qualification flags remain false pending real G30D power-stage evidence. */
+@@ -62,7 +63,7 @@
+ #error "v0.8.0 no active motor variants: software integration only"
+ #endif
+ #if POWER_STAGE_ARM_ALLOWED || SENSORLESS_RUN_ALLOWED
+-#error "v0.9.2: motor power blocked until real G30D pinout, gate/BKIN polarity and shunt timing are independently validated"
++#error "v0.9.3: motor power blocked until real G30D pinout, gate/BKIN polarity and shunt timing are independently validated"
+ #endif
+ #define STOCK_COMPAT_FW_WORD 0x0420u
+ #define POWER_HOLD_PIN 11u
+@@ -105,6 +106,8 @@
+ volatile uint8_t  g_control_div4;
+ 
+ static sensorless_control_t ctrl;
++/* The stage is IDLE on target: no motor-identification actuation is reachable. */
++static motor_id_t g_motor_id;
+ static volatile uint8_t g_offset_cal_active;
+ static volatile uint8_t g_offset_cal_valid;
+ static stock_dual_adc_runtime_t g_dual_adc;
+@@ -629,6 +632,15 @@
+         put_u32(p+8,g_cfg_r_uohm);
+         put_u32(p+12,g_cfg_l_nh);
+         n=16u;break;
++    case 0xF7u: /* v0.9.3 read-only Motor-ID stage/result; never starts test */
++        p[0]=g_motor_id.state;
++        p[1]=g_motor_id.fault;
++        p[2]=g_motor_id.result.valid;
++        p[3]=0u; /* external power-stage qualification NOT granted */
++        put_u32(p+4,g_motor_id.result.r_uohm);
++        put_u32(p+8,g_motor_id.result.l_nh);
++        put_u32(p+12,g_motor_id.result.flux_uwb);
++        n=16u;break;
+     case 0xDAu: case 0xDBu: case 0xDCu: case 0xDDu: case 0xDEu: case 0xDFu:
+         n=ble_motor_probe_read(cmd,p);break;
+     default: n=0u;break;
+@@ -795,7 +807,7 @@
+ }
+ 
+ int main(void){
+-    irq_disable();power_hold_init();clock_64mhz_hsi();dwt_init();gate_pins_to_safe_inputs();uart1_debug_init();sensorless_control_init(&ctrl);motor_config_txn_init(&g_motor_cfg,g_cfg_test_current_ma);motor_probe_init();power_button_init(&g_power_button_state,POWER_BUTTON_LONG_MS);
++    irq_disable();power_hold_init();clock_64mhz_hsi();dwt_init();gate_pins_to_safe_inputs();uart1_debug_init();sensorless_control_init(&ctrl);motor_id_init(&g_motor_id);motor_config_txn_init(&g_motor_cfg,g_cfg_test_current_ma);motor_probe_init();power_button_init(&g_power_button_state,POWER_BUTTON_LONG_MS);
+     adc1_injected_init();tim1_pwm_and_adc_trigger_init();ninebot_link_init();iap_update_init();systick_init();irq_enable();
+     uart_puts("DeltaESC G30D v0.9.2 FOC ADC CONTRACT. GATES OFF.\r\n");
+ #if SENSORLESS_RUN_ALLOWED
+--- a/src/motor_id.c
++++ b/src/motor_id.c
+@@ -0,0 +1,156 @@
++#include "motor_id.h"
++#include <stddef.h>
++
++#define ID_MIN_SAMPLES 8u
++#define ID_MAX_STAGE_US 3000000u
++#define ID_MAX_DT_US 100000u
++/* Absolute bounds mirror the existing sensorless parameter ABI. */
++#define ID_R_MIN 1000u
++#define ID_R_MAX 2000000u
++#define ID_L_MIN 1000u
++#define ID_L_MAX 5000000u
++#define ID_FLUX_MIN 100u
++#define ID_FLUX_MAX 1000000u
++
++/* No libgcc/compiler-rt assumed on the bare-metal F103. Clang otherwise
++ * emits __aeabi_uldivmod for uint64_t/uint32_t and a host-only suite
++ * can falsely claim the embedded firmware links. We bound overflow and use
++ * a 32-step long division with 64-bit remainder to keep it generic. */
++static uint32_t divide_u64_u32(uint64_t numerator, uint32_t denominator) {
++    if (!denominator || (numerator >> 32) >= denominator) return 0xffffffffu;
++    uint32_t quotient=0u;
++    uint32_t remainder=(uint32_t)(numerator>>32);
++    for(int bit=31;bit>=0;--bit) {
++        uint64_t shifted=((uint64_t)remainder<<1)|(((uint32_t)numerator>>(unsigned)bit)&1u);
++        if(shifted >= denominator) {
++            shifted-=denominator;
++            quotient|=1u<<(unsigned)bit;
++        }
++        remainder=(uint32_t)shifted;
++    }
++    return quotient;
++}
++
++static uint8_t fail(motor_id_t *m, uint8_t why) {
++    m->fault=(uint8_t)(m->fault|why);
++    m->state=MOTOR_ID_FAULT;
++    m->result.valid=0u;
++    m->result.r_uohm=0u;
++    m->result.l_nh=0u;
++    m->result.flux_uwb=0u;
++    return 0u;
++}
++static uint32_t abs_i32(int32_t v) {return v<0?(uint32_t)(-(int64_t)v):(uint32_t)v;}
++static void reset_accumulator(motor_id_t *m) {
++    m->sum=0u; m->samples=0u; m->elapsed_stage_us=0u;
++    m->min_value=0xffffffffu; m->max_value=0u;
++}
++void motor_id_init(motor_id_t *m) {
++    if (!m) return;
++    volatile uint8_t *p=(volatile uint8_t *)m;
++    for(uint32_t i=0u;i<(uint32_t)sizeof(*m);i++)p[i]=0u;
++    m->state=MOTOR_ID_IDLE;
++}
++void motor_id_abort(motor_id_t *m) {
++    if(!m) return;
++    (void)fail(m,MOTOR_ID_ABORT);
++}
++uint8_t motor_id_begin(motor_id_t *m, const motor_id_qualification_t *q) {
++    if (!m) return 0u;
++    motor_id_init(m);
++    if (!q || !q->gate_shutdown_verified || !q->current_scale_verified ||
++        !q->sample_timing_verified || !q->bus_sense_verified ||
++        !q->overcurrent_protection_verified || !q->wheel_unloaded)
++        return fail(m,MOTOR_ID_BAD_QUALIFICATION);
++    m->state=MOTOR_ID_RESISTANCE;reset_accumulator(m);
++    return 1u;
++}
++static uint8_t complete_stage(motor_id_t *m) {
++    if(m->samples<ID_MIN_SAMPLES) return 1u;
++    /* Reject samples whose variation is > +/-20% of their mean. */
++    uint32_t avg=divide_u64_u32(m->sum,m->samples);
++    if (!avg || (uint64_t)(m->max_value-m->min_value)*5u > avg)
++        return fail(m,MOTOR_ID_INCONSISTENT);
++    switch(m->state) {
++    case MOTOR_ID_RESISTANCE:
++        m->result.r_uohm=avg; m->result.samples_r=m->samples;
++        m->state=MOTOR_ID_INDUCTANCE; break;
++    case MOTOR_ID_INDUCTANCE:
++        m->result.l_nh=avg; m->result.samples_l=m->samples;
++        m->state=MOTOR_ID_FLUX;break;
++    case MOTOR_ID_FLUX:
++        m->result.flux_uwb=avg; m->result.samples_flux=m->samples;
++        m->result.valid=1u;m->state=MOTOR_ID_READY;break;
++    default: return fail(m,MOTOR_ID_BAD_SAMPLE);
++    }
++    reset_accumulator(m);
++    return 1u;
++}
++uint8_t motor_id_accept(motor_id_t *m, const motor_id_sample_t *s) {
++    if(!m || m->state==MOTOR_ID_FAULT || m->state==MOTOR_ID_IDLE || m->state==MOTOR_ID_READY)
++        return 0u;
++    if(!s || s->fault_active || s->brake_active || s->stop_requested || !s->samples_synchronized)
++        return fail(m,MOTOR_ID_BAD_SAMPLE);
++    if(m->seen_seq && s->sequence!=m->last_seq+1u)
++        return fail(m,MOTOR_ID_SEQUENCE);
++    if(s->stage!=m->state || !s->elapsed_us || s->elapsed_us>ID_MAX_DT_US)
++        return fail(m,MOTOR_ID_BAD_SAMPLE);
++    if(m->elapsed_stage_us>ID_MAX_STAGE_US-s->elapsed_us)
++        return fail(m,MOTOR_ID_TIMEOUT);
++    m->elapsed_stage_us+=s->elapsed_us;
++    m->last_seq=s->sequence;m->seen_seq=1u;
++    uint32_t value=0u;
++    uint64_t numerator=0u;
++    uint32_t denominator=0u;
++    if(m->state==MOTOR_ID_RESISTANCE) {
++        /* Locked motor, steady current: R = V/I. Reject zero/reversed current,
++         * excessive test current and a still-turning rotor. */
++        if(s->electrical_speed_mrad_s!=0u ||
++           abs_i32(s->current_ma)<200u || abs_i32(s->current_ma)>2000u ||
++           s->current_ma<0 || s->voltage_mv<=0 || s->voltage_mv>3000)
++            return fail(m,MOTOR_ID_RANGE);
++        numerator=(uint64_t)(uint32_t)s->voltage_mv*1000000u;
++        denominator=(uint32_t)s->current_ma;
++    } else if(m->state==MOTOR_ID_INDUCTANCE) {
++        /* One current derivative interval, with previously determined R.
++         * L = (V - I*R) * dt / di. Values use mV,mA,us,nH. */
++        if(s->electrical_speed_mrad_s!=0u ||
++           s->current_ma<0 || s->current_ma>2000 ||
++           s->previous_current_ma<0 || s->previous_current_ma>2000 ||
++           s->current_ma<=s->previous_current_ma ||
++           s->voltage_mv<=0 || s->voltage_mv>3000)
++            return fail(m,MOTOR_ID_RANGE);
++        uint32_t di=(uint32_t)(s->current_ma-s->previous_current_ma);
++        uint32_t resistive_mv=divide_u64_u32((uint64_t)(uint32_t)s->current_ma*m->result.r_uohm,1000000u);
++        int64_t inductive_mv=(int64_t)s->voltage_mv-resistive_mv;
++        if(inductive_mv<1 || di<1) return fail(m,MOTOR_ID_RANGE);
++        numerator=(uint64_t)inductive_mv*s->elapsed_us*1000u;
++        denominator=di;
++    } else {
++        /* E = omega_e * lambda, electrical speed in mrad/s.
++         * Magnitudes only: direction/sign separately qualified. */
++        if(s->electrical_speed_mrad_s<1000u || s->electrical_speed_mrad_s>200000u ||
++           s->bemf_mv<10u || s->bemf_mv>60000u ||
++           abs_i32(s->current_ma)>100u)
++            return fail(m,MOTOR_ID_RANGE);
++        numerator=(uint64_t)s->bemf_mv*1000000u;
++        denominator=s->electrical_speed_mrad_s;
++    }
++    if(!denominator) return fail(m,MOTOR_ID_RANGE);
++    value=divide_u64_u32(numerator,denominator);
++    if(value==0xffffffffu) return fail(m,MOTOR_ID_RANGE);
++    uint32_t lo=m->state==MOTOR_ID_RESISTANCE?ID_R_MIN:(m->state==MOTOR_ID_INDUCTANCE?ID_L_MIN:ID_FLUX_MIN);
++    uint32_t hi=m->state==MOTOR_ID_RESISTANCE?ID_R_MAX:(m->state==MOTOR_ID_INDUCTANCE?ID_L_MAX:ID_FLUX_MAX);
++    if(value<lo || value>hi) return fail(m,MOTOR_ID_RANGE);
++    m->sum+=value;
++    if(value<m->min_value)m->min_value=value;
++    if(value>m->max_value)m->max_value=value;
++    m->samples++;
++    return complete_stage(m);
++}
++uint8_t motor_id_commit(const motor_id_t *m, sensorless_control_t *c) {
++    if(!m || !c || m->state!=MOTOR_ID_READY || m->fault || !m->result.valid ||
++       c->drive_request || c->state!=SENSORLESS_STOP || c->fault) return 0u;
++    return sensorless_control_set_motor_params(c,m->result.r_uohm,
++                                               m->result.l_nh,m->result.flux_uwb);
++}
+--- a/src/motor_id.h
++++ b/src/motor_id.h
+@@ -0,0 +1,81 @@
++#pragma once
++#include <stdint.h>
++#include "sensorless_control.h"
++
++/* v0.9.3: Hardware-neutral motor parameter identification from externally
++ * calibrated measurement tuples. Does NOT command PWM, energize phases, or
++ * infer electrical gain/polarity. Admission requires independent evidence.
++ * Quantities are millivolt, milliampere, microseconds, mrad/s, microohm,
++ * nanohenry and micro-weber, all 32-bit integer at the external interface.
++ */
++typedef enum {
++    MOTOR_ID_IDLE=0, MOTOR_ID_RESISTANCE=1, MOTOR_ID_INDUCTANCE=2,
++    MOTOR_ID_FLUX=3, MOTOR_ID_READY=4, MOTOR_ID_FAULT=5
++} motor_id_stage_t;
++
++enum {
++    MOTOR_ID_BAD_QUALIFICATION=1u<<0,
++    MOTOR_ID_BAD_SAMPLE=1u<<1,
++    MOTOR_ID_TIMEOUT=1u<<2,
++    MOTOR_ID_INCONSISTENT=1u<<3,
++    MOTOR_ID_RANGE=1u<<4,
++    MOTOR_ID_SEQUENCE=1u<<5,
++    MOTOR_ID_ABORT=1u<<6
++};
++
++typedef struct {
++    uint8_t gate_shutdown_verified;      /* independent physical kill path */
++    uint8_t current_scale_verified;      /* ADC raw -> signed mA */
++    uint8_t sample_timing_verified;      /* ADC and PWM event alignment */
++    uint8_t bus_sense_verified;          /* actual applied phase voltage */
++    uint8_t overcurrent_protection_verified;
++    uint8_t wheel_unloaded;
++} motor_id_qualification_t;
++
++typedef struct {
++    uint32_t sequence;            /* strictly contiguous, wraps */
++    uint32_t elapsed_us;          /* elapsed since previous tuple */
++    uint8_t stage;                /* must match requested stage */
++    uint8_t brake_active;
++    uint8_t stop_requested;
++    uint8_t fault_active;
++    uint8_t samples_synchronized;
++    int32_t voltage_mv;          /* actual phase voltage (signed) */
++    int32_t current_ma;          /* actual phase current (signed) */
++    int32_t previous_current_ma; /* sampled at the previous timestamp */
++    uint32_t bemf_mv;            /* calibrated phase back-EMF */
++    uint32_t electrical_speed_mrad_s; /* not mechanical speed */
++} motor_id_sample_t;
++
++typedef struct {
++    uint32_t r_uohm;
++    uint32_t l_nh;
++    uint32_t flux_uwb;
++    uint32_t samples_r;
++    uint32_t samples_l;
++    uint32_t samples_flux;
++    uint8_t valid;
++} motor_id_result_t;
++
++typedef struct {
++    motor_id_result_t result;
++    uint64_t sum;
++    uint32_t samples;
++    uint32_t last_seq;
++    uint32_t elapsed_stage_us;
++    uint32_t min_value;
++    uint32_t max_value;
++    uint8_t seen_seq;
++    uint8_t state;
++    uint8_t fault;
++} motor_id_t;
++
++void motor_id_init(motor_id_t *m);
++/* No actuation. Returns false if the safety qualifications are absent. */
++uint8_t motor_id_begin(motor_id_t *m, const motor_id_qualification_t *q);
++/* Returns 1 for accepted tuple, 0 on fault/refusal. */
++uint8_t motor_id_accept(motor_id_t *m, const motor_id_sample_t *s);
++/* Returns true ONLY on completion of all three stages. */
++uint8_t motor_id_commit(const motor_id_t *m, sensorless_control_t *c);
++/* Abort always zeroes parameter validity; an explicit new begin is required. */
++void motor_id_abort(motor_id_t *m);
+--- a/tools/motor_id_host_test.c
++++ b/tools/motor_id_host_test.c
+@@ -0,0 +1,57 @@
++#include "motor_id.h"
++#include <stdio.h>
++#include <string.h>
++#define T(x) do {if(!(x)){printf("FAIL line %d: %s\n",__LINE__,#x);return 1;}}while(0)
++static const motor_id_qualification_t qualified={1,1,1,1,1,1};
++static motor_id_sample_t make(uint32_t seq,uint8_t stage){
++    motor_id_sample_t s={0};s.sequence=seq;s.stage=stage;s.elapsed_us=1000;s.samples_synchronized=1;
++    if(stage==MOTOR_ID_RESISTANCE){s.voltage_mv=500;s.current_ma=1000;}
++    if(stage==MOTOR_ID_INDUCTANCE){s.voltage_mv=1000;s.current_ma=1000;s.previous_current_ma=900;}
++    if(stage==MOTOR_ID_FLUX){s.bemf_mv=200;s.electrical_speed_mrad_s=10000;}
++    return s;
++}
++static int nominal(void){
++    motor_id_t m;sensorless_control_t c={0};sensorless_control_init(&c);
++    T(motor_id_begin(&m,&qualified));
++    for(uint32_t i=0;i<24u;i++){
++        uint8_t stage=i<8?MOTOR_ID_RESISTANCE:(i<16?MOTOR_ID_INDUCTANCE:MOTOR_ID_FLUX);
++        motor_id_sample_t s=make(i+1u,stage);T(motor_id_accept(&m,&s));
++    }
++    T(m.result.valid && m.state==MOTOR_ID_READY && !m.fault);
++    T(m.result.r_uohm==500000u && m.result.l_nh==5000000u && m.result.flux_uwb==20000u);
++    T(m.result.samples_r==8 && m.result.samples_l==8 && m.result.samples_flux==8);
++    T(motor_id_commit(&m,&c) && c.motor_params_valid);
++    sensorless_control_set_drive(&c,1);
++    T(!motor_id_commit(&m,&c));
++    T(!motor_id_accept(&m,&(motor_id_sample_t){0}));
++    motor_id_abort(&m);T(!m.result.valid && m.state==MOTOR_ID_FAULT && !motor_id_commit(&m,&c));
++    return 0;
++}
++static int faults(void){
++    motor_id_t m;motor_id_sample_t s;
++    motor_id_qualification_t q=qualified;q.gate_shutdown_verified=0;
++    T(!motor_id_begin(&m,&q) && m.fault==MOTOR_ID_BAD_QUALIFICATION);
++    T(motor_id_begin(&m,&qualified));s=make(1,MOTOR_ID_RESISTANCE);
++    s.brake_active=1;T(!motor_id_accept(&m,&s) && m.state==MOTOR_ID_FAULT);
++    T(motor_id_begin(&m,&qualified));s=make(1,MOTOR_ID_RESISTANCE);
++    T(motor_id_accept(&m,&s));s.sequence=3;
++    T(!motor_id_accept(&m,&s) && m.fault==MOTOR_ID_SEQUENCE);
++    T(motor_id_begin(&m,&qualified));s=make(1,MOTOR_ID_RESISTANCE);s.current_ma=0;
++    T(!motor_id_accept(&m,&s) && m.fault==MOTOR_ID_RANGE);
++    T(motor_id_begin(&m,&qualified));s=make(1,MOTOR_ID_RESISTANCE);s.electrical_speed_mrad_s=1000;
++    T(!motor_id_accept(&m,&s) && m.fault==MOTOR_ID_RANGE);
++    T(motor_id_begin(&m,&qualified));s=make(1,MOTOR_ID_RESISTANCE);s.elapsed_us=0;
++    T(!motor_id_accept(&m,&s) && m.fault==MOTOR_ID_BAD_SAMPLE);
++    T(motor_id_begin(&m,&qualified));
++    for(unsigned i=0;i<7;i++){s=make(i+1,MOTOR_ID_RESISTANCE);T(motor_id_accept(&m,&s));}
++    s=make(8,MOTOR_ID_RESISTANCE);s.voltage_mv=1000;
++    T(!motor_id_accept(&m,&s) && m.fault==MOTOR_ID_INCONSISTENT);
++    T(motor_id_begin(&m,&qualified));s=make(0xffffffffu,MOTOR_ID_RESISTANCE);
++    T(motor_id_accept(&m,&s));s.sequence=0u;T(motor_id_accept(&m,&s));
++    T(motor_id_begin(&m,&qualified));s=make(1,MOTOR_ID_INDUCTANCE);
++    T(!motor_id_accept(&m,&s) && m.fault==MOTOR_ID_BAD_SAMPLE);
++    T(motor_id_begin(&m,&qualified));s=make(1,MOTOR_ID_RESISTANCE);s.stop_requested=1;
++    T(!motor_id_accept(&m,&s) && m.fault==MOTOR_ID_BAD_SAMPLE);
++    return 0;
++}
++int main(void){if(nominal()||faults())return 1;puts("PASS motor ID: R/L/flux synthetic units, 3-stage flow, guarded commit, abort, faults");return 0;}
+--- a/tools/pinmap_power_regression_test.py
++++ b/tools/pinmap_power_regression_test.py
+@@ -16,7 +16,7 @@
+     'PA11 power latch': '#define POWER_HOLD_PIN 11u' in s and 'GPIO_BSRR(GPIOA_BASE) = (1u << POWER_HOLD_PIN);' in s,
+     'PB1 never configured or written': not any(re.search(x,s) for x in [r'gpio_cfg_nibble\(GPIOB_BASE\s*,\s*1\s*,',r'GPIO_(?:BSRR|BRR)\(GPIOB_BASE\)\s*=\s*\(1u\s*<<\s*1\)',r'GPIO_ODR\(GPIOB_BASE\)\s*&\s*\(1u\s*<<\s*1\)']),
+     'No PB1 gate control': 'gate_enable_gpio_init' not in s,
+-    'All motor builds compile-forbidden': '#if POWER_STAGE_ARM_ALLOWED || SENSORLESS_RUN_ALLOWED' in s and '#error "v0.9.2:' in s,
++    'All motor builds compile-forbidden': '#if POWER_STAGE_ARM_ALLOWED || SENSORLESS_RUN_ALLOWED' in s and '#error "v0.9.3:' in s,
+     'Gate channels disabled at init': 'TIM_CCER(TIM1_BASE)=ADC_CCER_MASK;' in s,
+     'No motor hardware qualified': all((f'#define {x} 0u') in s for x in ['COMM_CURRENT_SCALE_HW_VALID','COMM_GATE_HW_VALID','COMM_ADC_TIMING_HW_VALID']),
+     'Power logic semantic name corrected': 'pressed_sample' in h and 'pressed_sample' in logic,
+--- a/tools/run_v092_tests.sh
++++ b/tools/run_v092_tests.sh
+@@ -1,43 +0,0 @@
+-#!/usr/bin/env bash
+-# Software-only checks. No external hardware, no flashing, no motor enable.
+-set -euo pipefail
+-cd "$(dirname "$0")/.."
+-python3 tools/pinmap_power_regression_test.py
+-make safe CC="${ARM_CC:-clang}" OBJCOPY="${ARM_OBJCOPY:-llvm-objcopy}" OBJDUMP="${ARM_OBJDUMP:-llvm-objdump}"
+-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+-checks=(
+-  'first_spin_safety_host_test.c sensorless_control.c'
+-  'foc_adc_contract_host_test.c foc_adc_contract.c stock_current_frontend.c'
+-  'foc_adc_motor_handoff_host_test.c foc_adc_motor_handoff.c sensorless_control.c'
+-  'motor_core_host_test.c sensorless_control.c'
+-  'power_logic_host_test.c power_logic.c'
+-  'iap_ack_host_test.c iap_proto.c'
+-  'iap_transport_host_test.c iap_proto.c'
+-  'stock_adc_timing_host_test.c stock_adc_timing.c'
+-  'stock_adc_quality_host_test.c stock_adc_quality.c stock_current_frontend.c'
+-  'stock_adc_snapshot_host_test.c stock_adc_snapshot.c stock_current_frontend.c'
+-  'stock_dual_adc_runtime_host_test.c stock_dual_adc_runtime.c stock_dual_adc_plan.c stock_current_frontend.c'
+-  'test_g30_fixed_scan.c g30_fixed_scan.c'
+-  'test_stock_adc_mode_guard.c stock_adc_mode_guard.c stock_dual_adc_plan.c stock_current_frontend.c'
+-  'test_ble_motor_probe.c motor_probe.c ble_motor_probe.c'
+-)
+-for check in "${checks[@]}"; do
+-  read -ra files <<< "$check"
+-  test="${files[0]}"; args=()
+-  for f in "${files[@]:1}"; do args+=("src/$f"); done
+-  gcc -std=c11 -O1 -g -fsanitize=undefined -Isrc "tools/$test" "${args[@]}" -lm -o "$TMP/${test%.c}"
+-  "$TMP/${test%.c}"
+-  echo "PASS: $test"
+-done
+-for flags in '-DPOWER_STAGE_ARM_ALLOWED=1 -DSENSORLESS_RUN_ALLOWED=0' '-DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=1'; do
+-  # shellcheck disable=SC2086
+-  if "${ARM_CC:-clang}" --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -Isrc $flags -c src/main.c -o "$TMP/bad.o" >"$TMP/reject.log" 2>&1; then
+-    echo 'FAIL: unexpectedly permitted motor power build' >&2; exit 1
+-  fi
+-  grep -q 'v0.9.2: motor power blocked' "$TMP/reject.log"
+-  echo "PASS: motor-power compile rejection $flags"
+-done
+-if [ "$(stat -c %s build/DeltaESC_G30D_v0_9_2_ble_syncsafe.bin)" -ge 53248 ]; then
+-  echo 'FAIL: exceeds G30 active application region' >&2; exit 1
+-fi
+-echo 'PASS: source-only software checks (not a hardware/flash release)'
+--- a/tools/run_v093_tests.sh
++++ b/tools/run_v093_tests.sh
+@@ -0,0 +1,51 @@
++#!/usr/bin/env bash
++# Software-only checks. No external hardware, no flashing, no motor enable.
++set -euo pipefail
++cd "$(dirname "$0")/.."
++python3 tools/pinmap_power_regression_test.py
++make safe CC="${ARM_CC:-clang}" OBJCOPY="${ARM_OBJCOPY:-llvm-objcopy}" OBJDUMP="${ARM_OBJDUMP:-llvm-objdump}"
++TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
++checks=(
++  'first_spin_safety_host_test.c sensorless_control.c'
++  'foc_adc_contract_host_test.c foc_adc_contract.c stock_current_frontend.c'
++  'foc_adc_motor_handoff_host_test.c foc_adc_motor_handoff.c sensorless_control.c'
++  'motor_id_host_test.c motor_id.c sensorless_control.c'
++  'motor_core_host_test.c sensorless_control.c'
++  'power_logic_host_test.c power_logic.c'
++  'iap_ack_host_test.c iap_proto.c'
++  'iap_transport_host_test.c iap_proto.c'
++  'stock_adc_timing_host_test.c stock_adc_timing.c'
++  'stock_adc_quality_host_test.c stock_adc_quality.c stock_current_frontend.c'
++  'stock_adc_snapshot_host_test.c stock_adc_snapshot.c stock_current_frontend.c'
++  'stock_dual_adc_runtime_host_test.c stock_dual_adc_runtime.c stock_dual_adc_plan.c stock_current_frontend.c'
++  'test_g30_fixed_scan.c g30_fixed_scan.c'
++  'test_stock_adc_mode_guard.c stock_adc_mode_guard.c stock_dual_adc_plan.c stock_current_frontend.c'
++  'test_ble_motor_probe.c motor_probe.c ble_motor_probe.c'
++)
++for check in "${checks[@]}"; do
++  read -ra files <<< "$check"
++  test="${files[0]}"; args=()
++  for f in "${files[@]:1}"; do args+=("src/$f"); done
++  gcc -std=c11 -O1 -g -fsanitize=undefined -Isrc "tools/$test" "${args[@]}" -lm -o "$TMP/${test%.c}"
++  "$TMP/${test%.c}"
++  echo "PASS: $test"
++done
++for flags in '-DPOWER_STAGE_ARM_ALLOWED=1 -DSENSORLESS_RUN_ALLOWED=0' '-DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=1'; do
++  # shellcheck disable=SC2086
++  if "${ARM_CC:-clang}" --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -Isrc $flags -c src/main.c -o "$TMP/bad.o" >"$TMP/reject.log" 2>&1; then
++    echo 'FAIL: unexpectedly permitted motor power build' >&2; exit 1
++  fi
++  grep -q 'v0.9.3: motor power blocked' "$TMP/reject.log"
++  echo "PASS: motor-power compile rejection $flags"
++done
++if [ "$(stat -c %s build/DeltaESC_G30D_v0_9_3_ble_syncsafe.bin)" -ge 53248 ]; then
++  echo 'FAIL: exceeds G30 active application region' >&2; exit 1
++fi
++if command -v llvm-nm >/dev/null 2>&1; then
++  llvm-nm build/DeltaESC_G30D_v0_9_3_ble_syncsafe.elf | grep -q 'motor_id_accept'
++  llvm-nm build/DeltaESC_G30D_v0_9_3_ble_syncsafe.elf | grep -q 'motor_id_commit'
++fi
++if ! grep -q 'case 0xF7u:' src/main.c; then
++  echo 'FAIL: Motor ID read-only status missing' >&2; exit 1
++fi
++echo 'PASS: source-only software checks (not a hardware/flash release)' 
