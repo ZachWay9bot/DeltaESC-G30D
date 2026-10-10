@@ -27,7 +27,7 @@ replace(root/"app/build.gradle","0913","0914")
 replace(root/"app/build.gradle","versionCode 35","versionCode 36")
 replace(root/"app/build.gradle","versionName '0.3.5'","versionName '0.3.6'")
 test=root/"tools/TestMotorBenchProtocol.java"
-if test.exists():
+if test.exists() and "0913" in test.read_text():
     replace(test,"0913","0914")
 main=(j/"MainActivity.java").read_text()
 proto=(j/"MotorBenchProtocol.java").read_text()
