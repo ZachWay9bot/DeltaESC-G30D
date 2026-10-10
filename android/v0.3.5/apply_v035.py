@@ -30,9 +30,17 @@ s=main.read_text().replace('BUILD_MOTOR_BENCH_V072','BUILD_MOTOR_ID_0913')
 s=change_once(s,'setContentView(buildUi());','setContentView(buildUi());addMotorIdBenchControls();')
 # Prevent any copy implying the 0x0720 E5 features are a 0x0913 control.
 s=s.replace('v0.7.2','v0.9.13').replace('0x0720','0x0913')
+# v0.9.13 supports E7 Motor Detect; E5 is not the control being tested.
+s=change_once(s,'Button start=button("E5 MOTOR-TEST starten",v->confirmMotorStart());start.setLayoutParams(full());root.addView(start);','// E5 old manual drive bench button omitted for 0x0913')
+s=change_once(s,'v0.3.3 App','v0.3.5 App')
+# Decode motor-detect response pages in the existing crypto-verified RX handler.
+s=change_once(s,'if(f.cmd!=NinebotProtocol.READ_ACK)return;',
+                'if(f.cmd!=NinebotProtocol.READ_ACK)return;\n        if(f.arg>=0xF7&&f.arg<=0xF9){String value=MotorIdBenchProtocol.describe(f.arg,f.payload);if(motorIdResultText!=null)motorIdResultText.setText(value);append("MOTOR-ID "+value);return;}')
+
 # One session has to be visibly confirmed by the user. The app cannot know if
 # the wheel is actually clear, so the firmware still checks all actual guards.
 control='''
+    private android.widget.TextView motorIdResultText;
     private void addMotorIdBenchControls(){
         android.view.View v=((android.view.ViewGroup)findViewById(android.R.id.content)).getChildAt(0);
         if(v instanceof android.widget.ScrollView)
@@ -44,6 +52,7 @@ control='''
         heading.setText("DELTAESC 0x0913: AUTO R / L / FLUX");
         heading.setTextSize(18);heading.setTextColor(android.graphics.Color.WHITE);
         root.addView(heading);
+        motorIdResultText=mono("F7/F8/F9 noch nicht gelesen");root.addView(motorIdResultText);
         android.widget.Button start=new android.widget.Button(this);
         start.setText("Motor Detect starten (E7)");
         start.setAllCaps(false);
@@ -101,6 +110,22 @@ final class MotorIdBenchProtocol {
   static byte[] start(){return NinebotProtocol.build(NinebotProtocol.PHONE,NinebotProtocol.ESC,0x03,START,new byte[]{(byte)0xDE,(byte)0xC0,0x49,0x4D});}
   static byte[] stop(){return NinebotProtocol.build(NinebotProtocol.PHONE,NinebotProtocol.ESC,0x03,STOP,new byte[0]);}
   static byte[] status(int reg){if(reg<0xF7||reg>0xF9)throw new IllegalArgumentException("status page");return NinebotProtocol.build(NinebotProtocol.PHONE,NinebotProtocol.ESC,0x02,reg,new byte[]{(byte)(reg==0xF9?18:16)});}
+  private static int u8(byte[] p,int i){return p[i]&255;}
+  private static int u16(byte[] p,int i){return u8(p,i)|(u8(p,i+1)<<8);}
+  private static long u32(byte[] p,int i){return ((long)u16(p,i))|(((long)u16(p,i+2))<<16);}
+  static String describe(int reg,byte[] p){
+    if(p==null) return "No payload";
+    if(reg==0xF7&&p.length>=16)
+      return String.format(java.util.Locale.US,"F7: state=%d fault=%d valid=%d R=%d µΩ L=%d nH flux=%d µWb",
+               u8(p,0),u8(p,1),u8(p,2),u32(p,4),u32(p,8),u32(p,12));
+    if(reg==0xF8&&p.length>=16)
+      return String.format(java.util.Locale.US,"F8: auto=%d fault=%d PWM=%d id=%d seq=%d R_samples=%d L_samples=%d",
+               u8(p,0),u8(p,1),u8(p,2),u8(p,3),u32(p,4),u32(p,8),u32(p,12));
+    if(reg==0xF9&&p.length>=18)
+      return String.format(java.util.Locale.US,"F9: bench=%d owner=%d armed=%d state=%d fault=0x%04X I=%d peak=%d accepted=%d rejected=%d",
+               u8(p,0),u8(p,1),u8(p,2),u8(p,3),u16(p,4),u16(p,6),u16(p,8),u32(p,10),u32(p,14));
+    return String.format(java.util.Locale.US,"0x%02X invalid length=%d",reg,p.length);
+  }
 }
 ''')
 g=r/'app/build.gradle'
