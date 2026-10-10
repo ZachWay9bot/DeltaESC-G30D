@@ -41,4 +41,15 @@ static inline uint8_t tim1_bdtr_guard_passive(uint16_t bdtr,
 static inline uint8_t tim1_bdtr_guard_six_off(uint16_t ccer) {
     return (uint8_t)((ccer & D_GUARD_SIX)==0u);
 }
+/* STM32F1 input CNF=10 MODE=00 (nibble 0x8): ODR=0 selects
+ * PULL-DOWN, not floating and not pull-up. MT8006A HIN/LIN are active HIGH.
+ * Compact three-pin mode words correspond to PA8/9/10 and PB13/14/15. */
+static inline uint8_t tim1_bdtr_guard_gpio_down(uint16_t mode_a,
+                                                uint16_t mode_b,
+                                                uint16_t odr_a,
+                                                uint16_t odr_b) {
+    return (uint8_t)(mode_a==0x0888u && mode_b==0x0888u &&
+                     (odr_a & 0x0700u)==0u &&
+                     (odr_b & 0xE000u)==0u);
+}
 #endif
