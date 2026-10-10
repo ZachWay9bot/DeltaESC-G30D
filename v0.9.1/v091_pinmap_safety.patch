@@ -1,0 +1,160 @@
+--- a/src/main.c
++++ b/src/main.c
+@@ -49,10 +49,10 @@
+ #define MAGIC_UNLOCK 0xC0DEu
+ #define PROTO_MAJOR 0u
+ #define PROTO_MINOR 2u
+-#define FW_BUILD 0x0900u
++#define FW_BUILD 0x0901u
+ #define COMM_DASH_STALE_MS 250u
+ #define COMM_INPUT_IDLE_MAX 3u
+-/* Hardware qualification flags deliberately remain false in v0.8.1. */
++/* Hardware qualification flags remain false pending real G30D power-stage evidence. */
+ #define COMM_CURRENT_SCALE_HW_VALID 0u
+ #define COMM_GATE_HW_VALID 0u
+ #define COMM_ADC_TIMING_HW_VALID 0u
+@@ -62,11 +62,12 @@
+ #error "v0.8.0 no active motor variants: software integration only"
+ #endif
+ #if POWER_STAGE_ARM_ALLOWED || SENSORLESS_RUN_ALLOWED
+-#error "v0.9.0 observer-fault same-tick PWM kill: motor power ALWAYS disabled"
++#error "v0.9.1: motor power blocked until real G30D pinout, gate/BKIN polarity and shunt timing are independently validated"
+ #endif
+ #define STOCK_COMPAT_FW_WORD 0x0420u
+ #define POWER_HOLD_PIN 11u
+-#define POWER_BUTTON_PIN 12u
++#define POWER_BUTTON_PIN 14u
++#define POWER_BUTTON_GPIO_BASE GPIOC_BASE
+ #define POWER_BUTTON_LONG_MS 6000u
+ #define POWER_OFF_ACK_DELAY_MS 150u
+ #define OFFSET_CAL_SAMPLES 512u
+@@ -190,11 +191,13 @@
+ 
+ static void power_hold_init(void) {
+     RCC_APB2ENR |= (1u << 0) | (1u << 2) | (1u << 3) | (1u << 4);
+-    /* The dashboard PA2 (yellow) is UART; PA12 (green) is a button input. */
++    /* DRV126 + board pinout: PA11 = power latch, PC14 = active-HIGH
++       pushbutton (physical LQFP48 pin 3). PA12 is NOT the power button.
++       Preload PA11 HIGH before changing its mode to avoid an output-low glitch.
++       PC14 stays high-impedance input; never program it as an output. */
++    GPIO_BSRR(GPIOA_BASE) = (1u << POWER_HOLD_PIN);
+     gpio_cfg_nibble(GPIOA_BASE, POWER_HOLD_PIN, 0x2u);
+-    GPIO_BSRR(GPIOA_BASE) = (1u << POWER_HOLD_PIN);
+-    gpio_cfg_nibble(GPIOA_BASE, POWER_BUTTON_PIN, 0x8u); /* input pullup */
+-    GPIO_BSRR(GPIOA_BASE) = (1u << POWER_BUTTON_PIN);
++    gpio_cfg_nibble(POWER_BUTTON_GPIO_BASE, POWER_BUTTON_PIN, 0x4u); /* floating input */
+ }
+ static void gate_pins_to_safe_inputs(void) {
+     gpio_cfg_nibble(GPIOA_BASE,8,0x8u); gpio_cfg_nibble(GPIOA_BASE,9,0x8u); gpio_cfg_nibble(GPIOA_BASE,10,0x8u);
+@@ -207,10 +210,10 @@
+     gpio_cfg_nibble(GPIOB_BASE,13,0xBu); gpio_cfg_nibble(GPIOB_BASE,14,0xBu); gpio_cfg_nibble(GPIOB_BASE,15,0xBu);
+ }
+ #endif
+-static void gate_enable_gpio_init(void) { gpio_cfg_nibble(GPIOB_BASE,1,0x2u); GPIO_BRR(GPIOB_BASE)=(1u<<1); }
+-
++/* PB1 is BEMF_C on the G30D board, NOT a gate-enable output.
++ * Never configure or drive PB1 as part of the motor power path. */
+ static void power_stage_force_disarm(void) {
+-    GPIO_BRR(GPIOB_BASE)=(1u<<1); TIM_CCER(TIM1_BASE)&=~GATE_CCER_MASK; gate_pins_to_safe_inputs();
++    TIM_CCER(TIM1_BASE)&=~GATE_CCER_MASK; gate_pins_to_safe_inputs();
+     g_power_armed=0u; sensorless_control_stop(&ctrl);
+ }
+ static void schedule_poweroff(uint32_t delay_ms) {
+@@ -230,11 +233,12 @@
+     if (!(ccer&ADC_CCER_MASK)) ok=0u;
+     if (!(TIM_BDTR(TIM1_BASE)&TIM_BDTR_MOE)) ok=0u;
+     if (g_power_armed) {
+-        if (!(GPIO_ODR(GPIOB_BASE)&(1u<<1))) ok=0u;
++        /* Power hardware remains unqualified: even an unexpected software
++           arm bit must fault instead of trusting PB1 as an enable. */
++        ok=0u;
+         if ((ccer&GATE_CCER_MASK)!=GATE_CCER_MASK) ok=0u;
+         if (gate_pin_mode_word_a()!=0xBBBu || gate_pin_mode_word_b()!=0xBBBu) ok=0u;
+     } else {
+-        if (GPIO_ODR(GPIOB_BASE)&(1u<<1)) ok=0u;
+         if (ccer&GATE_CCER_MASK) ok=0u;
+         if (gate_pin_mode_word_a()!=0x888u || gate_pin_mode_word_b()!=0x888u) ok=0u;
+     }
+@@ -352,7 +356,8 @@
+     TIM_CCR1(TIM1_BASE)=PWM_ZERO_CCR; TIM_CCR2(TIM1_BASE)=PWM_ZERO_CCR; TIM_CCR3(TIM1_BASE)=PWM_ZERO_CCR;
+     gate_pins_to_tim1_af(); TIM_CCER(TIM1_BASE)|=GATE_CCER_MASK; delay_cycles(SYSCLK_HZ/1000u);
+     if(g_last_abs_current>ARM_IDLE_CURRENT_COUNTS||g_safety_latched){power_stage_force_disarm();return 0u;}
+-    g_power_armed=1u; GPIO_BSRR(GPIOB_BASE)=(1u<<1); if(!gate_safety_check())return 0u; return 1u;
++    /* No verified gate-enable topology; this path is compile-forbidden. */
++    g_power_armed=1u; if(!gate_safety_check())return 0u; return 1u;
+ }
+ #endif
+ 
+@@ -367,8 +372,8 @@
+ void Default_Handler(void){g_safety_latched=0xDEAD0001u;power_stage_force_disarm();for(;;){}}
+ void SysTick_Handler(void) {
+     g_ms++;
+-    const uint8_t line_low=(uint8_t)((GPIO_IDR(GPIOA_BASE)&(1u<<POWER_BUTTON_PIN))==0u);
+-    if(power_button_step(&g_power_button_state,line_low,(uint8_t)iap_update_active())) {
++    const uint8_t button_pressed=(uint8_t)((GPIO_IDR(POWER_BUTTON_GPIO_BASE)&(1u<<POWER_BUTTON_PIN))!=0u);
++    if(power_button_step(&g_power_button_state,button_pressed,(uint8_t)iap_update_active())) {
+         g_poweroff_requested=1u;
+         g_poweroff_deadline_ms=g_ms;
+     }
+@@ -790,9 +795,9 @@
+ }
+ 
+ int main(void){
+-    irq_disable();clock_64mhz_hsi();dwt_init();power_hold_init();gate_enable_gpio_init();gate_pins_to_safe_inputs();uart1_debug_init();sensorless_control_init(&ctrl);motor_config_txn_init(&g_motor_cfg,g_cfg_test_current_ma);motor_probe_init();power_button_init(&g_power_button_state,POWER_BUTTON_LONG_MS);
++    irq_disable();power_hold_init();clock_64mhz_hsi();dwt_init();gate_pins_to_safe_inputs();uart1_debug_init();sensorless_control_init(&ctrl);motor_config_txn_init(&g_motor_cfg,g_cfg_test_current_ma);motor_probe_init();power_button_init(&g_power_button_state,POWER_BUTTON_LONG_MS);
+     adc1_injected_init();tim1_pwm_and_adc_trigger_init();ninebot_link_init();iap_update_init();systick_init();irq_enable();
+-    uart_puts("DeltaESC G30D v0.9.0 SENSORLESS FAULT-STOP FIX. GATES OFF.\r\n");
++    uart_puts("DeltaESC G30D v0.9.1 PC14/PA11/PB1 POWER SAFE. GATES OFF.\r\n");
+ #if SENSORLESS_RUN_ALLOWED
+     uart_puts("BUILD: SENSORLESS BENCH; BLE E5 may arm/start only after safety preconditions.\r\n");
+ #elif POWER_STAGE_ARM_ALLOWED
+--- a/src/power_logic.c
++++ b/src/power_logic.c
+@@ -2,8 +2,8 @@
+ void power_button_init(power_button_state_t *s,uint16_t threshold_ms){
+     s->held_ms=0u;s->threshold_ms=threshold_ms;s->fired=0u;
+ }
+-uint8_t power_button_step(power_button_state_t *s,uint8_t line_low,uint8_t inhibit){
+-    if(inhibit||!line_low){s->held_ms=0u;s->fired=0u;return 0u;}
++uint8_t power_button_step(power_button_state_t *s,uint8_t pressed_sample,uint8_t inhibit){
++    if(inhibit||!pressed_sample){s->held_ms=0u;s->fired=0u;return 0u;}
+     if(s->held_ms<s->threshold_ms)s->held_ms++;
+     if(!s->fired&&s->held_ms>=s->threshold_ms){s->fired=1u;return 1u;}
+     return 0u;
+--- a/src/power_logic.h
++++ b/src/power_logic.h
+@@ -2,4 +2,4 @@
+ #include <stdint.h>
+ typedef struct { uint16_t held_ms; uint16_t threshold_ms; uint8_t fired; } power_button_state_t;
+ void power_button_init(power_button_state_t *s,uint16_t threshold_ms);
+-uint8_t power_button_step(power_button_state_t *s,uint8_t active_low_sample,uint8_t inhibit);
++uint8_t power_button_step(power_button_state_t *s,uint8_t pressed_sample,uint8_t inhibit);
+--- a/Makefile
++++ b/Makefile
+@@ -4,18 +4,18 @@
+ CFLAGS_COMMON = -g3 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Oz -Wall -Wextra -Werror -Isrc
+ LDFLAGS_COMMON = --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -nostdlib -Wl,-T,linker.ld,--gc-sections
+ SRC = src/main.c src/sensorless_control.c src/ninebot_link.c src/iap_update.c src/iap_proto.c src/iap_control.c src/dashboard_runtime.c src/power_logic.c src/motor_probe.c src/ble_motor_probe.c src/commissioning_guard.c src/stock_current_frontend.c src/stock_dual_adc_plan.c src/stock_dual_adc_runtime.c src/stock_adc_quality.c src/stock_adc_snapshot.c src/stock_adc_timing.c src/stock_adc_correlated.c src/stock_adc_mode_guard.c src/g30_fixed_scan.c src/motor_config_txn.c
+-SAFE_ELF = build/DeltaESC_G30D_v0_9_0_ble_syncsafe.elf
+-SAFE_BIN = build/DeltaESC_G30D_v0_9_0_ble_syncsafe.bin
+-ACTIVE_ELF = build/DeltaESC_G30D_v0_9_0_ble_observer_zero_vector.elf
+-ACTIVE_BIN = build/DeltaESC_G30D_v0_9_0_ble_observer_zero_vector.bin
+-BENCH_ELF = build/DeltaESC_G30D_v0_9_0_ble_sensorless_bench.elf
+-BENCH_BIN = build/DeltaESC_G30D_v0_9_0_ble_sensorless_bench.bin
++SAFE_ELF = build/DeltaESC_G30D_v0_9_1_ble_syncsafe.elf
++SAFE_BIN = build/DeltaESC_G30D_v0_9_1_ble_syncsafe.bin
++ACTIVE_ELF = build/DeltaESC_G30D_v0_9_1_ble_observer_zero_vector.elf
++ACTIVE_BIN = build/DeltaESC_G30D_v0_9_1_ble_observer_zero_vector.bin
++BENCH_ELF = build/DeltaESC_G30D_v0_9_1_ble_sensorless_bench.elf
++BENCH_BIN = build/DeltaESC_G30D_v0_9_1_ble_sensorless_bench.bin
+ all: safe
+ safe: $(SAFE_BIN)
+ build: ; mkdir -p build
+ $(SAFE_ELF): $(SRC) linker.ld | build
+-	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 $(SRC) $(LDFLAGS_COMMON) -Wl,-Map=build/v0_9_0_syncsafe.map -o $@
++	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 $(SRC) $(LDFLAGS_COMMON) -Wl,-Map=build/v0_9_1_syncsafe.map -o $@
+ $(SAFE_BIN): $(SAFE_ELF)
+ 	$(OBJCOPY) -O binary $< $@
+-	$(OBJDUMP) -h $< > build/v0_9_0_syncsafe_sections.txt
++	$(OBJDUMP) -h $< > build/v0_9_1_syncsafe_sections.txt
+ clean: ; rm -rf build
