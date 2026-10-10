@@ -38,13 +38,13 @@ jobs:
           # v0.9.8 also changes a README absent from the original frozen v0.9.0 archive.
           # Exclude README hunks only; replay every source and test change.
           python3 - <<'PY' > /tmp/v098-source-only.patch
-import pathlib,re,sys
-s=pathlib.Path('v0.9.8/v098_ADC_DRV126_REFERENCE.patch').read_text()
-for chunk in re.split(r'(?=^diff --git )',s,flags=re.M):
-    if re.search(r'^diff --git a/README_',chunk,re.M):
-        continue
-    sys.stdout.write(chunk if chunk.endswith(chr(10)) else chunk+chr(10))
-PY
+          import pathlib,re,sys
+          s=pathlib.Path('v0.9.8/v098_ADC_DRV126_REFERENCE.patch').read_text()
+          for chunk in re.split(r'(?=^diff --git )',s,flags=re.M):
+              if re.search(r'^diff --git a/README_',chunk,re.M):
+                  continue
+              sys.stdout.write(chunk if chunk.endswith(chr(10)) else chunk+chr(10))
+          PY
           apply /tmp/v098-source-only.patch
           apply v0.9.9/v099_AUTO_MOTOR_DETECT.patch
           apply v0.9.10/v100_motor_id_vector.patch
