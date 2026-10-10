@@ -1,4 +1,4 @@
-name: Motor RC v0.9.14 source structure audit
+name: DeltaESC G30D MOTOR-RC E7 gate coast + terminal stop build
 on:
   push:
     branches: [dev/motor-rc-v0914-gate-hardening]
@@ -76,20 +76,51 @@ jobs:
           test "$(stat -c %s build/DeltaESC_G30D_v0_9_14_motor_id_bench.bin)" -lt 53248
           echo 'v0.9.14 VESC-method firmware: 26 host test groups, both ARM images and real motor-ID-only E7 build linked.'
 
-      - name: Inspect exact active motor-Bench and PWM coast code
+      - name: Regression - repeated coast vs terminal shutdown
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          s=Path('source/src/main.c').read_text().splitlines()
-          marks=['static void power_stage_force_disarm(', 'static uint8_t motor_hw_arm(', 'static uint8_t motor_id_hw_vector_mv(', 'static void motor_id_hw_gate_off(', 'static uint32_t gate_safety_check(', 'static void tim1_pwm_and_adc_trigger_init(', 'static void app_write_action(', 'void SysTick_Handler(']
-          for m in marks:
-              hits=[i for i,t in enumerate(s) if m in t]
-              for i in hits:
-                  print('\n===',m,'line',i+1,'===')
-                  for j in range(max(i-2,0),min(i+80,len(s))):
-                      print(f'{j+1:04d}: {s[j]}')
-          print('\n=== calling sites ===')
-          for i,t in enumerate(s):
-              if 'power_stage_force_disarm();' in t or 'g_safety_latched=' in t:
-                  print(f'{i+1:04d}: {t[:240]}')
-          PY
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror -O2 -Iv0.9.16/src -Iv0.9.17/src motor-rc/tools/motor_rc_gate_host_test.c -o /tmp/gate_rc
+          /tmp/gate_rc
+      - name: Apply v116 and v117 safety layers and motor-RC E7-only repair
+        run: |
+          set -euo pipefail
+          python3 v0.9.16/tools/apply_v116.py source
+          python3 v0.9.17/tools/apply_v117.py source
+          python3 motor-rc/tools/apply_motor_rc.py source
+          grep -Fq 'static void motor_id_bench_coast(void)' source/src/main.c
+          grep -Fq 'motor_id_bench_coast();' source/src/main.c
+          grep -Fq 'g_gate_kill_latched=1u;' source/src/main.c
+          grep -Fq 'cmd==0xE6u' source/src/main.c
+          grep -Fq 'g_gate_kill_latched || g_id_bench_requested' source/src/main.c
+          grep -Fq '#define FW_BUILD 0x0914u' source/src/main.c
+          grep -Fq '#error "Motor RC permits E7-only Motor-ID' source/src/main.c
+      - name: Cortex M3 release-candidate SAFE and real E7-only Motor-ID images
+        run: |
+          set -euo pipefail
+          cd source
+          make clean
+          make safe id-bench CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+          test -s build/DeltaESC_G30D_v0_9_14_rc_ble_syncsafe.bin
+          test -s build/DeltaESC_G30D_v0_9_14_rc_motor_id_bench.bin
+          test "$(stat -c %s build/DeltaESC_G30D_v0_9_14_rc_motor_id_bench.bin)" -lt 53248
+          echo "Motor-Bench image size: $(stat -c %s build/DeltaESC_G30D_v0_9_14_rc_motor_id_bench.bin) bytes"
+          sha256sum build/DeltaESC_G30D_v0_9_14_rc_*.bin
+          if clang-18 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb \
+            -ffreestanding -Isrc -DPOWER_STAGE_ARM_ALLOWED=1 \
+            -DMOTOR_ID_BENCH_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 \
+            -fsyntax-only src/main.c >/tmp/drive-forbidden.txt 2>&1; then
+              echo 'ERROR: regular drive unexpectedly built' >&2
+              exit 1
+          fi
+          grep -Fq 'Motor RC permits E7-only' /tmp/drive-forbidden.txt
+          echo "PASS Motor RC: guarded E7 PWM path linked, E6 terminal stop, normal drive forbidden"
+      - name: Store motor-active experimental binary for analysis only
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-G30D-MOTOR-RC-E7-EXPERIMENTAL-NOT-HW-VALIDATED
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            source/build/DeltaESC_G30D_v0_9_14_rc_ble_syncsafe.bin
+            source/build/DeltaESC_G30D_v0_9_14_rc_motor_id_bench.bin
+            source/build/DeltaESC_G30D_v0_9_14_rc_motor_id_bench.elf
