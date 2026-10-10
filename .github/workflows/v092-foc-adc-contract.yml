@@ -1,0 +1,50 @@
+name: DeltaESC v0.9.2 FOC ADC sector contract GATE-OFF
+on:
+  push:
+    branches: [dev/v0.9.2-foc-sector-current-contract-gateoff]
+    paths:
+      - "v0.9.2/**"
+      - ".github/workflows/v092-foc-adc-contract.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  cortex-m3-and-foc-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ARM LLVM toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y clang-18 llvm-18 gcc
+      - name: Fetch immutable v0.9.0 source-only CI artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p base source
+          gh run download 37996878172 --repo "${{ github.repository }}" --name DeltaESC-v0.9.0-FIRSTSPIN-STOP-SAFETY-GATEOFF-SOURCE-ONLY --dir base
+          echo "b66dc23226b18d8936c4d526f3a78d69e6b8c927e40ecc4c2dc84277ceee89d4  base/DeltaESC_v090_FIRSTSPIN_STOP_SAFETY_GATEOFF_SOURCE_ONLY.tar.xz" | sha256sum -c -
+          tar -xJf base/DeltaESC_v090_FIRSTSPIN_STOP_SAFETY_GATEOFF_SOURCE_ONLY.tar.xz -C source
+      - name: Reconstruct v0.9.1 exactly, preserving freeze
+        run: |
+          patch -d source -p1 < v0.9.1/v091_pinmap_safety.patch
+          cp v0.9.1/tools/pinmap_power_regression_test.py source/tools/
+          cp v0.9.1/tools/run_v091_tests.sh source/tools/
+      - name: Apply v0.9.2 FOC contract patch
+        run: |
+          sha256sum v0.9.2/v092_foc_adc_contract.patch
+          patch -d source -p1 < v0.9.2/v092_foc_adc_contract.patch
+      - name: Build STM32F103 Cortex-M3 and run all 14 host suites
+        run: |
+          (cd source && ARM_CC=clang-18 ARM_OBJCOPY=llvm-objcopy-18 ARM_OBJDUMP=llvm-objdump-18 bash tools/run_v092_tests.sh)
+      - name: Check safety constraints
+        run: |
+          grep -q '#define FW_BUILD 0x0902u' source/src/main.c
+          grep -q '#define COMM_CURRENT_SCALE_HW_VALID 0u' source/src/main.c
+          grep -q '#define COMM_GATE_HW_VALID 0u' source/src/main.c
+          grep -q '#define COMM_ADC_TIMING_HW_VALID 0u' source/src/main.c
+          grep -q 'POWER_STAGE_ARM_ALLOWED || SENSORLESS_RUN_ALLOWED' source/src/main.c
+          echo "SOURCE ONLY / GATES OFF / 0x0902 / NO FLASH RELEASE"
