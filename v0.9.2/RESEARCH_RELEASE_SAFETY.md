@@ -1,3 +1,5 @@
+> **Later real SWD correction, 2026-10-10:** PA12 stays HIGH (`GPIOA_IDR=0xD804`) with physical dashboard button held, PC14 stays LOW (`GPIOC_IDR=0x0`) during separate button capture. Thus **neither direct MCU GPIO identity is proven**. The G30 dashboard has a separate green button conductor tied to GND on press, distinct from the UART yellow wire. Original DRV126 static notes below remain historical hypotheses; do not promote the v0.9.1 PC14-specific code to a hardware release. [Read the measured follow-up](DRV126_SWD_BUTTON_FOLLOWUP_2026-10-10.md).
+
 # DeltaESC G30D v0.9.2 – Release-Safety Gate, 10 October 2026
 
 **RESEARCH/TEST SOURCE ONLY. NO FLASH, NO MOTOR DRIVE, NO 60-V APPROVAL.**
