@@ -1,0 +1,663 @@
+diff --git a/Makefile b/Makefile
+index ce906f0..16c7968 100644
+--- a/Makefile
++++ b/Makefile
+@@ -3,19 +3,19 @@ OBJCOPY ?= llvm-objcopy
+ OBJDUMP ?= llvm-objdump
+ CFLAGS_COMMON = -g3 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Oz -Wall -Wextra -Werror -Isrc
+ LDFLAGS_COMMON = --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -nostdlib -Wl,-T,linker.ld,--gc-sections
+-SRC = src/main.c src/sensorless_control.c src/vesc_ebics_flux.c src/ninebot_link.c src/iap_update.c src/iap_proto.c src/iap_control.c src/dashboard_runtime.c src/power_logic.c src/motor_probe.c src/ble_motor_probe.c src/commissioning_guard.c src/stock_current_frontend.c src/g30_adc_current_window.c src/g30_adc_current_offsets.c src/stock_dual_adc_plan.c src/stock_dual_adc_runtime.c src/stock_adc_quality.c src/stock_adc_snapshot.c src/stock_adc_timing.c src/stock_adc_correlated.c src/stock_adc_mode_guard.c src/g30_fixed_scan.c src/motor_config_txn.c src/foc_adc_contract.c src/foc_adc_motor_handoff.c src/motor_id.c src/motor_pipeline.c src/stock_tim1_gate.c src/aeabi_mem.c
+-SAFE_ELF = build/DeltaESC_G30D_v0_9_8_ble_syncsafe.elf
+-SAFE_BIN = build/DeltaESC_G30D_v0_9_8_ble_syncsafe.bin
+-ACTIVE_ELF = build/DeltaESC_G30D_v0_9_8_ble_observer_zero_vector.elf
+-ACTIVE_BIN = build/DeltaESC_G30D_v0_9_8_ble_observer_zero_vector.bin
+-BENCH_ELF = build/DeltaESC_G30D_v0_9_8_ble_sensorless_bench.elf
+-BENCH_BIN = build/DeltaESC_G30D_v0_9_8_ble_sensorless_bench.bin
++SRC = src/main.c src/sensorless_control.c src/vesc_ebics_flux.c src/ninebot_link.c src/iap_update.c src/iap_proto.c src/iap_control.c src/dashboard_runtime.c src/power_logic.c src/motor_probe.c src/ble_motor_probe.c src/commissioning_guard.c src/stock_current_frontend.c src/g30_adc_current_window.c src/g30_adc_current_offsets.c src/stock_dual_adc_plan.c src/stock_dual_adc_runtime.c src/stock_adc_quality.c src/stock_adc_snapshot.c src/stock_adc_timing.c src/stock_adc_correlated.c src/stock_adc_mode_guard.c src/g30_fixed_scan.c src/motor_config_txn.c src/foc_adc_contract.c src/foc_adc_motor_handoff.c src/motor_id.c src/motor_id_auto.c src/motor_pipeline.c src/stock_tim1_gate.c src/aeabi_mem.c
++SAFE_ELF = build/DeltaESC_G30D_v0_9_9_ble_syncsafe.elf
++SAFE_BIN = build/DeltaESC_G30D_v0_9_9_ble_syncsafe.bin
++ACTIVE_ELF = build/DeltaESC_G30D_v0_9_9_ble_observer_zero_vector.elf
++ACTIVE_BIN = build/DeltaESC_G30D_v0_9_9_ble_observer_zero_vector.bin
++BENCH_ELF = build/DeltaESC_G30D_v0_9_9_ble_sensorless_bench.elf
++BENCH_BIN = build/DeltaESC_G30D_v0_9_9_ble_sensorless_bench.bin
+ all: safe
+ safe: $(SAFE_BIN)
+ build: ; mkdir -p build
+ $(SAFE_ELF): $(SRC) linker.ld | build
+-	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 -DSENSORLESS_CLOSED_LOOP_ALLOWED=1 $(SRC) $(LDFLAGS_COMMON) -Wl,--undefined=motor_id_accept -Wl,--undefined=motor_id_commit -Wl,--undefined=g30_adc_current_flags -Wl,--undefined=g30_adc2_current_offset_normalize -Wl,-Map=build/v0_9_8_syncsafe.map -o $@
++	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 -DSENSORLESS_CLOSED_LOOP_ALLOWED=1 $(SRC) $(LDFLAGS_COMMON) -Wl,--undefined=motor_id_accept -Wl,--undefined=motor_id_commit -Wl,--undefined=motor_id_auto_tick -Wl,--undefined=motor_id_auto_bind_config -Wl,--undefined=g30_adc_current_flags -Wl,--undefined=g30_adc2_current_offset_normalize -Wl,-Map=build/v0_9_9_syncsafe.map -o $@
+ $(SAFE_BIN): $(SAFE_ELF)
+ 	$(OBJCOPY) -O binary $< $@
+-	$(OBJDUMP) -h $< > build/v0_9_8_syncsafe_sections.txt
++	$(OBJDUMP) -h $< > build/v0_9_9_syncsafe_sections.txt
+ clean: ; rm -rf build
+diff --git a/src/main.c b/src/main.c
+index 7c0b9a8..1b4a568 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -2,6 +2,7 @@
+ #include "stm32f103_min.h"
+ #include "sensorless_control.h"
+ #include "motor_id.h"
++#include "motor_id_auto.h"
+ #include "motor_pipeline.h"
+ #include "stock_tim1_gate.h"
+ #include "ninebot_link.h"
+@@ -54,7 +55,7 @@
+ #define MAGIC_UNLOCK 0xC0DEu
+ #define PROTO_MAJOR 0u
+ #define PROTO_MINOR 2u
+-#define FW_BUILD 0x0908u
++#define FW_BUILD 0x0909u
+ #define COMM_DASH_STALE_MS 250u
+ #define COMM_INPUT_IDLE_MAX 3u
+ /* Gate I/O mapping is adopted from STOCK DRV126. This alone does not
+@@ -116,8 +117,9 @@ volatile uint8_t  g_power_armed;
+ volatile uint8_t  g_control_div4;
+ 
+ static sensorless_control_t ctrl;
+-/* The stage is IDLE on target: no motor-identification actuation is reachable. */
+-static motor_id_t g_motor_id;
++/* On-target automatic detector status is observable but not armed in
++ * SYNC_SAFE builds: no qualified motor-ID PWM/feedback adapter exists. */
++static motor_id_auto_t g_motor_id_auto;
+ static motor_pipeline_t g_motor_pipeline;
+ static volatile uint32_t g_motor_irq_sequence;
+ static volatile uint8_t g_offset_cal_active;
+@@ -828,14 +830,20 @@ static void app_read_response(const ninebot_frame_t *req){
+         put_u32(p+12,g_cfg_l_nh);
+         n=16u;break;
+     case 0xF7u: /* v0.9.3 read-only Motor-ID stage/result; never starts test */
+-        p[0]=g_motor_id.state;
+-        p[1]=g_motor_id.fault;
+-        p[2]=g_motor_id.result.valid;
++        p[0]=g_motor_id_auto.id.state;
++        p[1]=g_motor_id_auto.id.fault;
++        p[2]=g_motor_id_auto.id.result.valid;
+         p[3]=0u; /* external power-stage qualification NOT granted */
+-        put_u32(p+4,g_motor_id.result.r_uohm);
+-        put_u32(p+8,g_motor_id.result.l_nh);
+-        put_u32(p+12,g_motor_id.result.flux_uwb);
++        put_u32(p+4,g_motor_id_auto.id.result.r_uohm);
++        put_u32(p+8,g_motor_id_auto.id.result.l_nh);
++        put_u32(p+12,g_motor_id_auto.id.result.flux_uwb);
+         n=16u;break;
++    case 0xF8u: /* Automatic motor ID sequencer status, read only. */
++        p[0]=g_motor_id_auto.state;p[1]=g_motor_id_auto.fault;
++        p[2]=g_motor_id_auto.output_active;p[3]=g_motor_id_auto.id.state;
++        put_u32(p+4,g_motor_id_auto.seq);
++        put_u32(p+8,g_motor_id_auto.id.result.samples_r);
++        put_u32(p+12,g_motor_id_auto.id.result.samples_l);n=16u;break;
+     case 0xDAu: case 0xDBu: case 0xDCu: case 0xDDu: case 0xDEu: case 0xDFu:
+         n=ble_motor_probe_read(cmd,p);break;
+     default: n=0u;break;
+@@ -1017,9 +1025,16 @@ int main(void){
+     const motor_pipeline_io_t motor_io={motor_hw_arm,motor_hw_gate_off,
+                                          motor_hw_select_adc,motor_hw_pwm};
+     motor_pipeline_init(&g_motor_pipeline,&ctrl,motor_io,0,PWM_ARR,HARD_OC_COUNTS);
+-    motor_id_init(&g_motor_id);motor_config_txn_init(&g_motor_cfg,g_cfg_test_current_ma);motor_probe_init();power_button_init(&g_power_button_state,POWER_BUTTON_LONG_MS);
++    motor_config_txn_init(&g_motor_cfg,g_cfg_test_current_ma);
++    /* Intentionally no vector/ADC provider on an unqualified ESC build.
++     * The full motor-ID coordinator is compiled and observable, but will
++     * refuse begin until a calibrated hardware adapter is connected. */
++    const motor_id_auto_io_t id_io={0,motor_hw_gate_off,0};
++    motor_id_auto_init(&g_motor_id_auto,id_io,0,&ctrl);
++    motor_id_auto_bind_config(&g_motor_id_auto,&g_motor_cfg);
++    motor_probe_init();power_button_init(&g_power_button_state,POWER_BUTTON_LONG_MS);
+     adc1_injected_init();tim1_pwm_and_adc_trigger_init();ninebot_link_init();iap_update_init();systick_init();irq_enable();
+-    uart_puts("DeltaESC G30D v0.9.7 ADC current alignment. DISARMED.\r\n");
++    uart_puts("DeltaESC G30D v0.9.9 AUTO MOTOR-ID source-only. DISARMED.\r\n");
+ #if SENSORLESS_RUN_ALLOWED
+     uart_puts("BUILD: SENSORLESS BENCH; BLE E5 may arm/start only after safety preconditions.\r\n");
+ #elif POWER_STAGE_ARM_ALLOWED
+diff --git a/src/motor_id_auto.c b/src/motor_id_auto.c
+new file mode 100644
+index 0000000..543f6cf
+--- /dev/null
++++ b/src/motor_id_auto.c
+@@ -0,0 +1,257 @@
++#include "motor_id_auto.h"
++#include <stddef.h>
++
++/* Modest voltage requests: hardware adapter must enforce stricter limits,
++ * bound actual voltage/current and validate each measurement independently.
++ * Do not interpret these as safe limits for an uncalibrated controller. */
++#define AUTO_R_START_MV 100
++#define AUTO_R_STEP_MV 50
++#define AUTO_R_MAX_MV 750
++#define AUTO_R_TARGET_MIN_MA 600
++#define AUTO_R_TARGET_MAX_MA 1200
++#define AUTO_L_MV 1000
++#define AUTO_FLUX_MV 500
++#define AUTO_R_SETTLE_US 8000u
++#define AUTO_R_INTERVAL_US 1000u
++#define AUTO_L_REST_US 2000u
++#define AUTO_L_PULSE_US 1000u
++#define AUTO_FLUX_HOLD_US 100000u
++#define AUTO_FLUX_INTERVAL_US 1000u
++#define AUTO_FLUX_SPEED_MRAD_S 10000u
++#define AUTO_CONTROL_GAP_MAX_US 50000u
++#define AUTO_R_DEADLINE_US 100000u
++#define AUTO_L_DEADLINE_US 200000u
++#define AUTO_FLUX_DEADLINE_US 2800000u
++
++static uint8_t running(uint8_t s) {
++    return s>=ID_AUTO_R_SETTLE && s<=ID_AUTO_FLUX_COAST;
++}
++static uint8_t fault(motor_id_auto_t *a, uint8_t why) {
++    if(a->io.gate_off) a->io.gate_off(a->io_ctx);
++    a->output_active=0u;
++    a->fault=(uint8_t)(a->fault|why);
++    motor_id_abort(&a->id);
++    a->state=ID_AUTO_FAULT;
++    return 0u;
++}
++static uint8_t output(motor_id_auto_t *a, uint32_t now_us, int32_t mv, uint16_t phase) {
++    if(!a->io.vector_mv || !a->io.vector_mv(a->io_ctx,mv,phase))
++        return fault(a,ID_AUTO_FAULT_DRIVER);
++    a->output_active=1u;
++    a->command_epoch++;
++    a->command_at_us=now_us;
++    return 1u;
++}
++static void coast(motor_id_auto_t *a) {
++    a->io.gate_off(a->io_ctx);
++    a->output_active=0u;
++    a->command_epoch++;
++}
++static uint8_t collect(motor_id_auto_t *a, uint32_t dt,
++                       const motor_id_auto_feedback_t *fb) {
++    motor_id_sample_t s={0};
++    if(fb->command_epoch!=a->command_epoch || !fb->adc_valid || !fb->voltage_valid ||
++       (a->id.state==MOTOR_ID_FLUX && (!fb->bemf_valid || !fb->speed_valid)))
++        return fault(a,ID_AUTO_FAULT_SENSOR);
++    s.sequence=++a->seq;
++    s.elapsed_us=dt;
++    s.samples_synchronized=1u;
++    s.stage=a->id.state;
++    s.voltage_mv=fb->applied_voltage_mv;
++    s.current_ma=fb->phase_current_ma;
++    s.previous_current_ma=a->previous_current_ma;
++    s.bemf_mv=fb->measured_bemf_mv;
++    s.electrical_speed_mrad_s=fb->measured_electrical_speed_mrad_s;
++    if(!motor_id_accept(&a->id,&s)) return fault(a,ID_AUTO_FAULT_SENSOR);
++    return 1u;
++}
++void motor_id_auto_init(motor_id_auto_t *a, motor_id_auto_io_t io,
++                        void *ctx, sensorless_control_t *control) {
++    if(!a)return;
++    volatile uint8_t *bytes=(volatile uint8_t*)a;
++    for(uint32_t k=0;k<sizeof(*a);k++)bytes[k]=0u;
++    a->io=io;a->io_ctx=ctx;a->control=control;
++    a->state=ID_AUTO_IDLE;
++    motor_id_init(&a->id);
++}
++void motor_id_auto_bind_config(motor_id_auto_t *a, motor_config_txn_t *config) {
++    if(a && a->state==ID_AUTO_IDLE) a->config=config;
++}
++
++static void copy_struct(void *dst, const void *src, uint32_t count) {
++    volatile uint8_t *d=(volatile uint8_t*)dst;
++    const volatile uint8_t *s=(const volatile uint8_t*)src;
++    for(uint32_t k=0;k<count;k++)d[k]=s[k];
++}
++
++static uint8_t adopt(motor_id_auto_t *a) {
++    /* Prepare the new sensorless model and configuration entirely off-line.
++     * Either both RAM objects publish or neither does. Never write flash. */
++    sensorless_control_t staged_control;
++    copy_struct(&staged_control,a->control,sizeof(staged_control));
++    if(!motor_id_commit(&a->id,&staged_control))return 0u;
++    if(a->config) {
++        motor_config_txn_t staged_config;
++        copy_struct(&staged_config,a->config,sizeof(staged_config));
++        if(staged_config.pending_mask)return 0u;
++        if(!motor_config_stage_u32(&staged_config,0xF0u,a->id.result.r_uohm) ||
++           !motor_config_stage_u32(&staged_config,0xF1u,a->id.result.l_nh) ||
++           !motor_config_stage_u32(&staged_config,0xF2u,a->id.result.flux_uwb) ||
++           !motor_config_stage_i16(&staged_config,staged_config.active.phase_offset) ||
++           !motor_config_stage_u16(&staged_config,staged_config.active.test_current_ma) ||
++           !motor_config_commit(&staged_config))return 0u;
++        copy_struct(a->config,&staged_config,sizeof(staged_config));
++    }
++    copy_struct(a->control,&staged_control,sizeof(staged_control));
++    if(a->io.result_applied)a->io.result_applied(a->io_ctx,&a->id.result);
++    return 1u;
++}
++
++uint8_t motor_id_auto_begin(motor_id_auto_t *a,
++                            const motor_id_qualification_t *q,
++                            uint32_t now_us) {
++    if(!a || !a->io.gate_off || !a->io.vector_mv || !a->control ||
++       a->state!=ID_AUTO_IDLE || a->control->drive_request ||
++       a->control->state!=SENSORLESS_STOP || a->control->fault ||
++       (a->config && a->config->pending_mask))
++        return 0u;
++    /* Establish hardware-coast BEFORE accepting any power qualification. */
++    coast(a);
++    if(!motor_id_begin(&a->id,q)) {
++        a->state=ID_AUTO_FAULT; a->fault=ID_AUTO_FAULT_SAFETY;
++        return 0u;
++    }
++    a->last_event_us=now_us;
++    a->stage_started_us=now_us;
++    a->next_sample_us=now_us+AUTO_R_SETTLE_US;
++    a->state=ID_AUTO_R_SETTLE;
++    a->r_request_mv=AUTO_R_START_MV;
++    if(!output(a,now_us,a->r_request_mv,0u))return 0u;
++    return 1u;
++}
++void motor_id_auto_abort(motor_id_auto_t *a) {
++    if(!a)return;
++    (void)fault(a,ID_AUTO_FAULT_SAFETY);
++}
++uint8_t motor_id_auto_tick(motor_id_auto_t *a, uint32_t now_us,
++                           const motor_id_auto_feedback_t *fb) {
++    if(!a || a->state==ID_AUTO_FAULT || a->state==ID_AUTO_IDLE) return 0u;
++    if(a->state==ID_AUTO_COMPLETE)return 1u;
++    if(!running(a->state) || !fb || fb->stop_requested || fb->brake_active ||
++       fb->fault_active || !fb->throttle_idle ||
++       !a->control || a->control->drive_request ||
++       a->control->state!=SENSORLESS_STOP || a->control->fault ||
++       (a->config && a->config->pending_mask))
++        return fault(a,ID_AUTO_FAULT_SAFETY);
++    uint32_t delta=now_us-a->last_event_us;
++    if(delta==0u || delta>AUTO_CONTROL_GAP_MAX_US)
++        return fault(a,ID_AUTO_FAULT_WATCHDOG);
++    /* Fail in every excitation phase, not only at tuple collection. */
++    if(!fb->adc_valid || fb->command_epoch!=a->command_epoch ||
++       fb->phase_current_ma>2000 || fb->phase_current_ma< -2000)
++        return fault(a,ID_AUTO_FAULT_SENSOR);
++    a->last_event_us=now_us;
++    uint32_t stage_age=now_us-a->stage_started_us;
++    if((a->state<=ID_AUTO_R_COLLECT && stage_age>AUTO_R_DEADLINE_US) ||
++       (a->state>=ID_AUTO_L_REST && a->state<=ID_AUTO_L_PULSE && stage_age>AUTO_L_DEADLINE_US) ||
++       (a->state>=ID_AUTO_FLUX_SPIN && stage_age>AUTO_FLUX_DEADLINE_US))
++        return fault(a,ID_AUTO_FAULT_WATCHDOG);
++    switch(a->state) {
++    case ID_AUTO_R_SETTLE:
++        /* Controlled stepwise excitation as in VESC R detect: never jump
++         * straight to full voltage on an unknown winding resistance. */
++        if(!fb->voltage_valid || fb->applied_voltage_mv<0 ||
++           fb->applied_voltage_mv>a->r_request_mv+20 ||
++           fb->phase_current_ma<0 ||
++           fb->phase_current_ma>AUTO_R_TARGET_MAX_MA)
++            return fault(a,ID_AUTO_FAULT_SENSOR);
++        if(fb->phase_current_ma<AUTO_R_TARGET_MIN_MA) {
++            if(a->r_request_mv>=AUTO_R_MAX_MV)break;
++            a->r_request_mv+=AUTO_R_STEP_MV;
++            if(!output(a,now_us,a->r_request_mv,0u))return 0u;
++            a->next_sample_us=now_us+AUTO_R_SETTLE_US;
++        } else if((int32_t)(now_us-a->next_sample_us)>=0) {
++            a->state=ID_AUTO_R_COLLECT;
++            a->next_sample_us=now_us;
++        }
++        break;
++    case ID_AUTO_R_COLLECT:
++        if(!fb->voltage_valid || fb->applied_voltage_mv<=0 ||
++           fb->applied_voltage_mv>a->r_request_mv+20 ||
++           fb->phase_current_ma<AUTO_R_TARGET_MIN_MA ||
++           fb->phase_current_ma>AUTO_R_TARGET_MAX_MA)
++            return fault(a,ID_AUTO_FAULT_SENSOR);
++        if((int32_t)(now_us-a->next_sample_us)>=0) {
++            if(!collect(a,AUTO_R_INTERVAL_US,fb))return 0u;
++            a->next_sample_us=now_us+AUTO_R_INTERVAL_US;
++            if(a->id.state==MOTOR_ID_INDUCTANCE) {
++                coast(a);
++                a->state=ID_AUTO_L_REST;
++                a->stage_started_us=now_us;
++                a->next_sample_us=now_us+AUTO_L_REST_US;
++            }
++        }
++        break;
++    case ID_AUTO_L_REST:
++        if((int32_t)(now_us-a->next_sample_us)>=0) {
++            if(!fb->voltage_valid || fb->applied_voltage_mv != 0 ||
++               fb->phase_current_ma < -100 || fb->phase_current_ma > 100)
++                return fault(a,ID_AUTO_FAULT_SENSOR);
++            a->previous_current_ma=fb->phase_current_ma;
++            if(!output(a,now_us,AUTO_L_MV,0u))return 0u;
++            a->state=ID_AUTO_L_PULSE;
++            a->next_sample_us=now_us+AUTO_L_PULSE_US;
++        }
++        break;
++    case ID_AUTO_L_PULSE:
++        if((int32_t)(now_us-a->next_sample_us)>=0) {
++            const uint32_t pulse_us=now_us-a->command_at_us;
++            if(pulse_us<AUTO_L_PULSE_US || pulse_us>AUTO_L_PULSE_US+250u)
++                return fault(a,ID_AUTO_FAULT_WATCHDOG);
++            if(!collect(a,pulse_us,fb))return 0u;
++            coast(a);
++            a->next_sample_us=now_us+AUTO_L_REST_US;
++            if(a->id.state==MOTOR_ID_FLUX) {
++                a->state=ID_AUTO_FLUX_SPIN;
++                a->stage_started_us=now_us;
++                a->next_sample_us=now_us+AUTO_FLUX_HOLD_US;
++                a->flux_angle=0u;
++                if(!output(a,now_us,AUTO_FLUX_MV,0u))return 0u;
++            } else {
++                a->state=ID_AUTO_L_REST;
++            }
++        }
++        break;
++    case ID_AUTO_FLUX_SPIN: {
++        /* Commanded angle is only for excitation; NEVER use commanded
++         * speed as a measured electrical speed in flux estimation. */
++        /* 10 rad/s -> 104.303 turn16 counts/ms; no 64-bit divide. */
++        const uint32_t dtheta=(delta*1043u)/10000u;
++        a->flux_angle=(uint16_t)(a->flux_angle+(uint16_t)dtheta);
++        if(!output(a,now_us,AUTO_FLUX_MV,a->flux_angle))return 0u;
++        if((int32_t)(now_us-a->next_sample_us)>=0) {
++            coast(a);
++            a->state=ID_AUTO_FLUX_COAST;
++            a->next_sample_us=now_us+AUTO_FLUX_INTERVAL_US;
++        }
++        break;
++    }
++    case ID_AUTO_FLUX_COAST:
++        if((int32_t)(now_us-a->next_sample_us)>=0) {
++            if(a->output_active)return fault(a,ID_AUTO_FAULT_DRIVER);
++            if(!collect(a,AUTO_FLUX_INTERVAL_US,fb))return 0u;
++            a->next_sample_us=now_us+AUTO_FLUX_INTERVAL_US;
++            if(a->id.state==MOTOR_ID_READY) {
++                /* Physical outputs OFF and model STOP before adopting R/L/flux. */
++                coast(a);
++                if(!adopt(a))
++                    return fault(a,ID_AUTO_FAULT_COMMIT);
++                a->state=ID_AUTO_COMPLETE;
++            }
++        }
++        break;
++    default:
++        return fault(a,ID_AUTO_FAULT_SAFETY);
++    }
++    return 1u;
++}
+diff --git a/src/motor_id_auto.h b/src/motor_id_auto.h
+new file mode 100644
+index 0000000..43de261
+--- /dev/null
++++ b/src/motor_id_auto.h
+@@ -0,0 +1,87 @@
++/* DeltaESC v0.9.9: automatic R/L/flux excitation and sampling sequencer.
++ * Software source only. A hardware integration MUST provide a qualified,
++ * independently fail-closed output adapter and calibrated feedback.
++ * GPL-3.0-or-later; motor_id formula/ABI from existing DeltaESC.
++ */
++#pragma once
++#include <stdint.h>
++#include "motor_id.h"
++#include "motor_config_txn.h"
++
++typedef enum {
++    ID_AUTO_IDLE=0, ID_AUTO_R_SETTLE, ID_AUTO_R_COLLECT,
++    ID_AUTO_L_REST, ID_AUTO_L_PULSE,
++    ID_AUTO_FLUX_SPIN, ID_AUTO_FLUX_COAST,
++    ID_AUTO_COMPLETE, ID_AUTO_FAULT
++} motor_id_auto_state_t;
++
++typedef struct {
++    /* These are measured, not inferred from the requested PWM command. */
++    uint32_t command_epoch;  /* ADC event belongs to current vector or coast */
++    int32_t applied_voltage_mv;
++    int32_t phase_current_ma;
++    uint32_t measured_bemf_mv;
++    uint32_t measured_electrical_speed_mrad_s;
++    uint8_t adc_valid;
++    uint8_t voltage_valid;
++    uint8_t bemf_valid;
++    uint8_t speed_valid;
++    uint8_t throttle_idle;
++    uint8_t brake_active;
++    uint8_t fault_active;
++    uint8_t stop_requested;
++} motor_id_auto_feedback_t;
++
++typedef struct {
++    /* Driver implements a voltage vector, including ADC sector selection.
++     * It must return zero on a rejected command (causing immediate coast).
++     * This callback NEVER assumes a requested mV equals measured mV. */
++    uint8_t (*vector_mv)(void *ctx, int32_t amplitude_mv, uint16_t angle_u16);
++    /* Required. True bridge gate isolation, NOT neutral/50% duty. */
++    void (*gate_off)(void *ctx);
++    /* Optional notification after atomic RAM commit (e.g. BLE cache update). */
++    void (*result_applied)(void *ctx, const motor_id_result_t *result);
++} motor_id_auto_io_t;
++
++typedef struct {
++    motor_id_t id;
++    motor_id_auto_io_t io;
++    void *io_ctx;
++    sensorless_control_t *control;
++    motor_config_txn_t *config;
++    uint32_t last_event_us;
++    uint32_t command_at_us;
++    uint32_t command_epoch;
++    uint32_t stage_started_us;
++    uint32_t next_sample_us;
++    uint32_t seq;
++    int32_t previous_current_ma;
++    uint16_t flux_angle;
++    uint16_t r_request_mv;
++    uint8_t state;
++    uint8_t output_active;
++    uint8_t fault;
++} motor_id_auto_t;
++
++enum {
++    ID_AUTO_FAULT_DRIVER=1u, ID_AUTO_FAULT_SENSOR=2u,
++    ID_AUTO_FAULT_WATCHDOG=4u, ID_AUTO_FAULT_SAFETY=8u,
++    ID_AUTO_FAULT_COMMIT=16u
++};
++
++void motor_id_auto_init(motor_id_auto_t *a, motor_id_auto_io_t io,
++                        void *ctx, sensorless_control_t *control);
++/* Begin only when motor_id qualifications are fully met AND control is idle.
++ * No hardware is energized by init or a rejected begin. */
++/* Optional RAM-only atomic application to active config + observer. */
++void motor_id_auto_bind_config(motor_id_auto_t *a, motor_config_txn_t *config);
++uint8_t motor_id_auto_begin(motor_id_auto_t *a,
++                            const motor_id_qualification_t *q,
++                            uint32_t now_us);
++/* One call for each coherently sampled ADC event; no fabricated measurements.
++ * The function automatically requests R/L excitation, flux rotation/coast,
++ * accepts each real measurement, stops outputs, and commits the result.
++ * Returns 1 while running/complete; 0 if aborted/faulted. */
++uint8_t motor_id_auto_tick(motor_id_auto_t *a, uint32_t now_us,
++                           const motor_id_auto_feedback_t *fb);
++void motor_id_auto_abort(motor_id_auto_t *a);
+diff --git a/tools/motor_id_auto_host_test.c b/tools/motor_id_auto_host_test.c
+new file mode 100644
+index 0000000..80151b4
+--- /dev/null
++++ b/tools/motor_id_auto_host_test.c
+@@ -0,0 +1,101 @@
++#include "motor_id_auto.h"
++#include <stdio.h>
++#include <stdint.h>
++#include <string.h>
++#define T(x) do { if(!(x)){printf("FAIL line %d: %s\n",__LINE__,#x);return 1;} } while(0)
++typedef struct {unsigned off,vector,fail_vector;int32_t voltage;uint16_t angle;uint8_t energized;uint8_t applied;} hw_t;
++static void off(void *ctx){hw_t *h=(hw_t*)ctx;h->off++;h->voltage=0;h->energized=0;}
++static uint8_t vector(void *ctx,int32_t mv,uint16_t angle){hw_t *h=(hw_t*)ctx;h->vector++;if(h->fail_vector)return 0;h->energized=1;h->voltage=mv;h->angle=angle;return 1;}
++static void applied(void *ctx,const motor_id_result_t *r){hw_t *h=(hw_t*)ctx;if(r->valid)h->applied++;}
++static motor_id_auto_feedback_t feedback(const motor_id_auto_t *a,hw_t *h){
++    motor_id_auto_feedback_t f={0};
++    f.adc_valid=1;f.voltage_valid=1;f.throttle_idle=1;f.command_epoch=a->command_epoch;
++    if(a->state==ID_AUTO_R_SETTLE || a->state==ID_AUTO_R_COLLECT){
++        f.applied_voltage_mv=h->voltage;f.phase_current_ma=2*h->voltage;
++    }else if(a->state==ID_AUTO_L_REST){
++        f.applied_voltage_mv=0;f.phase_current_ma=0;
++    }else if(a->state==ID_AUTO_L_PULSE){
++        f.applied_voltage_mv=1000;f.phase_current_ma=1000;
++    }else if(a->state==ID_AUTO_FLUX_COAST){
++        f.applied_voltage_mv=0;f.phase_current_ma=0;
++        f.measured_electrical_speed_mrad_s=10000;
++        f.measured_bemf_mv=200;
++        f.bemf_valid=1;f.speed_valid=1;
++    }else if(a->state==ID_AUTO_FLUX_SPIN){
++        f.phase_current_ma=0;f.applied_voltage_mv=h->voltage;
++    }
++    return f;
++}
++static int full_test(void){
++    sensorless_control_t c; sensorless_control_init(&c);
++    hw_t h={0};motor_id_auto_t a;
++    motor_id_auto_io_t io={vector,off,applied};
++    motor_id_auto_init(&a,io,&h,&c);
++    motor_config_txn_t cfg;motor_config_txn_init(&cfg,500u);
++    motor_id_auto_bind_config(&a,&cfg);
++    motor_id_qualification_t q={1,1,1,1,1,1};
++    T(motor_id_auto_begin(&a,&q,0u));
++    T(h.energized && a.state==ID_AUTO_R_SETTLE && !c.motor_params_valid);
++    for(uint32_t t=250u;t<1500000u;t+=250u){
++        motor_id_auto_feedback_t f=feedback(&a,&h);
++        T(motor_id_auto_tick(&a,t,&f));
++        if(a.state==ID_AUTO_COMPLETE)break;
++    }
++    T(a.state==ID_AUTO_COMPLETE && h.off>=11 && !h.energized && h.applied==1);
++    T(a.id.state==MOTOR_ID_READY && a.id.result.valid && !a.id.fault);
++    T(a.id.result.r_uohm==500000 && a.id.result.l_nh==500000 && a.id.result.flux_uwb==20000);
++    T(a.id.result.samples_r==8 && a.id.result.samples_l==8 && a.id.result.samples_flux==8);
++    T(c.motor_params_valid && c.motor_r_uohm==500000 && c.motor_l_nh==500000 && c.motor_flux_uwb==20000);
++    T(cfg.active_valid && cfg.active.r_uohm==500000 && cfg.active.l_nh==500000 && cfg.active.flux_uwb==20000);
++    T(cfg.active.test_current_ma==500 && !cfg.pending_mask);
++    T(!motor_id_auto_begin(&a,&q,1500000u));
++    T(motor_id_auto_tick(&a,1600000u,0));
++    return 0;
++}
++static int refusals(void){
++    motor_id_qualification_t q={1,1,1,1,1,1};
++    sensorless_control_t c;sensorless_control_init(&c);
++    hw_t h={0};motor_id_auto_t a;motor_id_auto_io_t io={vector,off,applied};
++    motor_id_auto_init(&a,io,&h,&c);
++    q.current_scale_verified=0;
++    T(!motor_id_auto_begin(&a,&q,0) && !h.energized && h.vector==0 && !c.motor_params_valid);
++    motor_id_auto_init(&a,io,&h,&c);q.current_scale_verified=1;
++    c.drive_request=1;
++    T(!motor_id_auto_begin(&a,&q,0) && h.vector==0);
++    c.drive_request=0;
++    h.fail_vector=1;
++    T(!motor_id_auto_begin(&a,&q,0) && a.state==ID_AUTO_FAULT && !h.energized);
++    motor_id_auto_init(&a,io,&h,&c);h.fail_vector=0;
++    T(motor_id_auto_begin(&a,&q,0));
++    motor_id_auto_feedback_t f=feedback(&a,&h);f.brake_active=1;
++    T(!motor_id_auto_tick(&a,250,&f) && a.state==ID_AUTO_FAULT && !h.energized && !c.motor_params_valid);
++    motor_id_auto_init(&a,io,&h,&c);
++    T(motor_id_auto_begin(&a,&q,0));f=feedback(&a,&h);
++    T(!motor_id_auto_tick(&a,60000,&f) && a.fault==ID_AUTO_FAULT_WATCHDOG && !h.energized);
++    motor_id_auto_init(&a,io,&h,&c);
++    T(motor_id_auto_begin(&a,&q,0));f=feedback(&a,&h);
++    for(uint32_t t=250;t<=8000;t+=250){f=feedback(&a,&h);T(motor_id_auto_tick(&a,t,&f));}
++    f=feedback(&a,&h);
++    f.adc_valid=0;
++    T(!motor_id_auto_tick(&a,8250,&f) && a.fault==ID_AUTO_FAULT_SENSOR && !h.energized);
++    motor_id_auto_init(&a,io,&h,&c);
++    T(motor_id_auto_begin(&a,&q,0));
++    motor_id_auto_abort(&a);T(a.state==ID_AUTO_FAULT && !h.energized && !a.id.result.valid);
++    return 0;
++}
++static int no_synthetic_flux(void) {
++    sensorless_control_t c;sensorless_control_init(&c);
++    hw_t h={0};motor_id_auto_t a;motor_id_auto_io_t io={vector,off,applied};
++    motor_id_qualification_t q={1,1,1,1,1,1};
++    motor_id_auto_init(&a,io,&h,&c);T(motor_id_auto_begin(&a,&q,0));
++    for(uint32_t t=250u;t<1300000u;t+=250u){
++        motor_id_auto_feedback_t f=feedback(&a,&h);
++        if(a.state==ID_AUTO_FLUX_COAST) f.speed_valid=0; /* commanded spin is NOT evidence */
++        uint8_t ok=motor_id_auto_tick(&a,t,&f);
++        if(!ok){T(a.state==ID_AUTO_FAULT && a.fault==ID_AUTO_FAULT_SENSOR && !h.energized && !c.motor_params_valid);return 0;}
++    }
++    T(0);
++    return 1;
++}
++int main(void){if(full_test()||refusals()||no_synthetic_flux())return 1;
++puts("PASS motor ID auto: R plateau, L pulses, coast flux, guarded adoption, brake/timeout/ADC rejection, no fake speed");return 0;}
+diff --git a/tools/run_v099_tests.sh b/tools/run_v099_tests.sh
+new file mode 100644
+index 0000000..a968e0e
+--- /dev/null
++++ b/tools/run_v099_tests.sh
+@@ -0,0 +1,82 @@
++#!/usr/bin/env bash
++# Software-only checks. No external hardware, no flashing, no motor enable.
++set -euo pipefail
++cd "$(dirname "$0")/.."
++python3 tools/pinmap_power_regression_test.py
++make safe CC="${ARM_CC:-clang}" OBJCOPY="${ARM_OBJCOPY:-llvm-objcopy}" OBJDUMP="${ARM_OBJDUMP:-llvm-objdump}"
++TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
++checks=(
++  'first_spin_safety_host_test.c sensorless_control.c vesc_ebics_flux.c'
++  'foc_adc_contract_host_test.c foc_adc_contract.c stock_current_frontend.c'
++  'foc_adc_motor_handoff_host_test.c foc_adc_motor_handoff.c sensorless_control.c vesc_ebics_flux.c'
++  'motor_id_host_test.c motor_id.c sensorless_control.c vesc_ebics_flux.c'
++  'sensorless_plant_host_test.c sensorless_control.c vesc_ebics_flux.c'
++  'motor_core_host_test.c sensorless_control.c vesc_ebics_flux.c'
++  'power_logic_host_test.c power_logic.c'
++  'iap_ack_host_test.c iap_proto.c'
++  'iap_transport_host_test.c iap_proto.c'
++  'stock_adc_timing_host_test.c stock_adc_timing.c'
++  'stock_adc_quality_host_test.c stock_adc_quality.c stock_current_frontend.c'
++  'stock_adc_snapshot_host_test.c stock_adc_snapshot.c stock_current_frontend.c'
++  'stock_dual_adc_runtime_host_test.c stock_dual_adc_runtime.c stock_dual_adc_plan.c stock_current_frontend.c'
++  'test_g30_fixed_scan.c g30_fixed_scan.c'
++  'test_stock_adc_mode_guard.c stock_adc_mode_guard.c stock_dual_adc_plan.c stock_current_frontend.c'
++  'test_ble_motor_probe.c motor_probe.c ble_motor_probe.c'
++)
++checks+=('motor_pipeline_host_test.c motor_pipeline.c foc_adc_contract.c stock_current_frontend.c sensorless_control.c vesc_ebics_flux.c')
++checks+=('stock_tim1_gate_host_test.c stock_tim1_gate.c')
++checks+=('vesc_ebics_flux_host_test.c vesc_ebics_flux.c')
++checks+=('g30_adc_current_window_host_test.c g30_adc_current_window.c stock_current_frontend.c')
++checks+=('g30_adc_current_offsets_host_test.c g30_adc_current_offsets.c')
++checks+=('drv126_adc_golden_host_test.c stock_current_frontend.c')
++checks+=('motor_id_auto_host_test.c motor_id_auto.c motor_id.c motor_config_txn.c sensorless_control.c vesc_ebics_flux.c')
++for check in "${checks[@]}"; do
++  read -ra files <<< "$check"
++  test="${files[0]}"; args=()
++  for f in "${files[@]:1}"; do args+=("src/$f"); done
++  # Sensorless now calls the same physical-count model as ADC; avoid
++  # duplicate objects for tests already naming stock_current_frontend.c.
++  if [[ " $check " != *" stock_current_frontend.c "* ]]; then args+=("src/stock_current_frontend.c"); fi
++  extra_flags=()
++  if [ "$test" = sensorless_plant_host_test.c ] || [ "$test" = motor_pipeline_host_test.c ]; then
++      extra_flags+=(-DSENSORLESS_CLOSED_LOOP_ALLOWED=1)
++  fi
++  gcc -std=c11 -O1 -g -fsanitize=undefined -Isrc "${extra_flags[@]}" "tools/$test" "${args[@]}" -lm -o "$TMP/${test%.c}"
++  "$TMP/${test%.c}"
++  echo "PASS: $test"
++done
++for flags in '-DPOWER_STAGE_ARM_ALLOWED=1 -DSENSORLESS_RUN_ALLOWED=0' '-DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=1'; do
++  # shellcheck disable=SC2086
++  if "${ARM_CC:-clang}" --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -Isrc $flags -c src/main.c -o "$TMP/bad.o" >"$TMP/reject.log" 2>&1; then
++    echo 'FAIL: unexpectedly permitted motor power build' >&2; exit 1
++  fi
++  grep -q 'DRV126 gate profile ready; powered build still requires valid ADC timing and current scaling' "$TMP/reject.log"
++  echo "PASS: motor-power compile rejection $flags"
++done
++if [ "$(stat -c %s build/DeltaESC_G30D_v0_9_9_ble_syncsafe.bin)" -ge 53248 ]; then
++  echo 'FAIL: exceeds G30 active application region' >&2; exit 1
++fi
++if command -v llvm-nm >/dev/null 2>&1; then
++  llvm-nm build/DeltaESC_G30D_v0_9_9_ble_syncsafe.elf | grep -q 'motor_id_accept'
++  llvm-nm build/DeltaESC_G30D_v0_9_9_ble_syncsafe.elf | grep -q 'motor_id_commit'
++  if llvm-nm -u build/DeltaESC_G30D_v0_9_9_ble_syncsafe.elf | grep -E '__aeabi_(f|d|[ui]?ldiv)'; then echo 'FAIL: floating point / 64-bit division in Cortex-M3 link' >&2; exit 1; fi
++fi
++# Keep the complete symbol table in a file to avoid SIGPIPE with pipefail.
++llvm-objdump -t build/DeltaESC_G30D_v0_9_9_ble_syncsafe.elf > "$TMP/v098_symbols.txt"
++if ! grep -q 'g30_adc_current_flags' "$TMP/v098_symbols.txt"; then
++  echo 'FAIL: ADC timing contract is not linked into Cortex-M3 ELF' >&2; exit 1
++fi
++if ! grep -q 'motor_id_auto_tick' "$TMP/v098_symbols.txt"; then
++  echo 'FAIL: Motor ID auto sequencer not linked into Cortex-M3' >&2; exit 1
++fi
++if ! grep -q 'g30_adc2_current_offset_normalize' "$TMP/v098_symbols.txt"; then
++  echo 'FAIL: ADC2 channel offset normalization is not linked into Cortex-M3 ELF' >&2; exit 1
++fi
++if ! grep -q 'case 0xF7u:' src/main.c; then
++  echo 'FAIL: Motor ID read-only status missing' >&2; exit 1
++fi
++echo 'PASS: v0.9.9 automatic R/L/flux pulse sequencer (software-only, no hardware enable)'
++
++if [ -n "${DRV126_STOCK_BIN:-}" ]; then
++    python3 tools/audit_drv126_adc_stock.py "$DRV126_STOCK_BIN"
++fi
