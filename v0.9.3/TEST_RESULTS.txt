@@ -21,6 +21,8 @@ PASS FOC handoff: hardware-kill callback on sample/qualification/fault, no callb
 PASS: foc_adc_motor_handoff_host_test.c
 PASS motor ID: R/L/flux synthetic units, 3-stage flow, guarded commit, abort, faults
 PASS: motor_id_host_test.c
+PASS synthetic sensorless PMSM: align->open-loop->handover->closed-loop, throttle coast, observer-loss same-tick stop
+PASS: sensorless_plant_host_test.c
 PASS: motor_core_host_test.c
 PASS: power_logic_host_test.c
 stock DRV126 IAP ACK vector: PASS
