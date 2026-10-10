@@ -17,10 +17,11 @@ Basis: eingefrorene v0.9.0 + separate v0.9.1-GPIO-Korrektur + v0.9.2-ADC/FOC-Str
 ## Getestet
 
 1. Sauberer Cortex-M3-ELF/Syncsafe-BIN-Link mit erzwungener Einbindung von `motor_id_accept` und `motor_id_commit` ohne unaufgelöste Runtime-Symbole.
-2. **15 Hosttest-Gruppen** durchgelaufen: bisherige 14 Gruppen plus die Motor-ID-Prüfungen mit synthetischen Messwerten und negativen Sicherheitsfällen.
-3. Tests überprüfen die Drei-Stufen-Verkettung, Einheiten, Grenzwerte, fehlende Hardwarefreigabe, STOP/Bremse, Sequenzfehler, Wertestreuung, Parametrierung nur im STOP-Zustand und sperrende Fehlerverriegelung.
-4. Beide konfigurierbaren Motor-Aktivierungen werden beim Kompilieren weiterhin abgewiesen. Flash-Image unter der 52-KiB-Partition.
-5. Reproduzierbarer Patchtest gegenüber dem unveränderten vollständigen v0.9.2-Quellstand.
+2. **16 Hosttest-Gruppen** durchgelaufen: bisherige 14 Gruppen plus Motor-ID-Prüfungen und eine geschlossene PMSM-Plant-Simulation mit synthetischen Messwerten und negativen Sicherheitsfällen.
+3. Die PMSM-Simulation prüft Alignment, Open-Loop, Observer-Handover und Closed-Loop sowie Gas-weg und gleichzeitige Abschaltung beim Observer-Verlust. Sie nimmt eine idealisierte Rotorfolge an und beweist keinen realen Start.
+4. Tests überprüfen die Drei-Stufen-Verkettung, Einheiten, Grenzwerte, fehlende Hardwarefreigabe, STOP/Bremse, Sequenzfehler, Wertestreuung, Parametrierung nur im STOP-Zustand und sperrende Fehlerverriegelung.
+5. Beide konfigurierbaren Motor-Aktivierungen werden beim Kompilieren weiterhin abgewiesen. Flash-Image unter der 52-KiB-Partition.
+6. Reproduzierbarer Patchtest gegenüber dem unveränderten vollständigen v0.9.2-Quellstand.
 
 ## Nicht behauptet, nicht implementiert
 
