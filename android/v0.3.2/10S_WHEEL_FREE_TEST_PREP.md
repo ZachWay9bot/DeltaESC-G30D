@@ -1,6 +1,6 @@
 # DeltaESC G30D | Vorbereitung erster 10S-Motortest
 
-**Freeze:** `v0.7.2 MOTOR TEST BENCH`, Build `0x0720`. **Status: Vorbereitung, KEINE Motorfreigabe.** Die Android-App ist `G30 Motor Bench v0.3.2`; ST-Link dient zum Flashen/Recovery, Diag und CFG nur per Smartphone/Stock-G30-BLE mit verifizierter NinebotCrypto-MIC. SHU-Recovery bleibt zurückgestellt.
+**Freeze:** `v0.7.2 MOTOR TEST BENCH`, Build `0x0720`. **Status: Vorbereitung, KEINE Motorfreigabe.** Die Android-App ist `G30 Motor Bench v0.3.3`; ST-Link dient zum Flashen/Recovery, Diag und CFG nur per Smartphone/Stock-G30-BLE mit verifizierter NinebotCrypto-MIC. SHU-Recovery bleibt zurückgestellt.
 
 ## 0. Sperren vor echtem E5-Test
 
