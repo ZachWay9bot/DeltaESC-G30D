@@ -1,0 +1,680 @@
+diff -ruN '--exclude=build' '--exclude=VERIFICATION.log' '--exclude=README*' '--exclude=V*' '--exclude=*.patch' '--exclude=*.log' '--exclude=__pycache__' DeltaESC_v102_live_motor_id/Makefile DeltaESC_v103_RL_Flux_App/Makefile
+--- DeltaESC_v102_live_motor_id/Makefile	2026-10-10 18:04:37.985523217 +0000
++++ DeltaESC_v103_RL_Flux_App/Makefile	2026-10-10 18:26:46.199147770 +0000
+@@ -3,29 +3,29 @@
+ OBJDUMP ?= llvm-objdump
+ CFLAGS_COMMON = -g3 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Oz -Wall -Wextra -Werror -Isrc
+ LDFLAGS_COMMON = --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -nostdlib -Wl,-T,linker.ld,--gc-sections
+-SRC = src/main.c src/sensorless_control.c src/vesc_ebics_flux.c src/ninebot_link.c src/iap_update.c src/iap_proto.c src/iap_control.c src/dashboard_runtime.c src/power_logic.c src/motor_probe.c src/ble_motor_probe.c src/commissioning_guard.c src/stock_current_frontend.c src/g30_adc_current_window.c src/g30_adc_current_offsets.c src/stock_dual_adc_plan.c src/stock_dual_adc_runtime.c src/stock_adc_quality.c src/stock_adc_snapshot.c src/stock_adc_timing.c src/stock_adc_correlated.c src/stock_adc_mode_guard.c src/g30_fixed_scan.c src/motor_config_txn.c src/foc_adc_contract.c src/foc_adc_motor_handoff.c src/motor_id.c src/motor_id_auto.c src/motor_id_vector_output.c src/motor_id_adc_feedback.c src/motor_pipeline.c src/stock_tim1_gate.c src/aeabi_mem.c
+-SAFE_ELF = build/DeltaESC_G30D_v0_9_12_ble_syncsafe.elf
+-SAFE_BIN = build/DeltaESC_G30D_v0_9_12_ble_syncsafe.bin
+-ACTIVE_ELF = build/DeltaESC_G30D_v0_9_12_ble_observer_zero_vector.elf
+-ACTIVE_BIN = build/DeltaESC_G30D_v0_9_12_ble_observer_zero_vector.bin
+-BENCH_ELF = build/DeltaESC_G30D_v0_9_12_ble_sensorless_bench.elf
+-BENCH_BIN = build/DeltaESC_G30D_v0_9_12_ble_sensorless_bench.bin
++SRC = src/main.c src/sensorless_control.c src/vesc_ebics_flux.c src/ninebot_link.c src/iap_update.c src/iap_proto.c src/iap_control.c src/dashboard_runtime.c src/power_logic.c src/motor_probe.c src/ble_motor_probe.c src/commissioning_guard.c src/stock_current_frontend.c src/g30_adc_current_window.c src/g30_adc_current_offsets.c src/stock_dual_adc_plan.c src/stock_dual_adc_runtime.c src/stock_adc_quality.c src/stock_adc_snapshot.c src/stock_adc_timing.c src/stock_adc_correlated.c src/stock_adc_mode_guard.c src/g30_fixed_scan.c src/motor_config_txn.c src/foc_adc_contract.c src/foc_adc_motor_handoff.c src/motor_id.c src/motor_id_auto.c src/motor_id_vector_output.c src/motor_id_adc_feedback.c src/motor_id_flux_feedback.c src/motor_pipeline.c src/stock_tim1_gate.c src/aeabi_mem.c
++SAFE_ELF = build/DeltaESC_G30D_v0_9_13_ble_syncsafe.elf
++SAFE_BIN = build/DeltaESC_G30D_v0_9_13_ble_syncsafe.bin
++ACTIVE_ELF = build/DeltaESC_G30D_v0_9_13_ble_observer_zero_vector.elf
++ACTIVE_BIN = build/DeltaESC_G30D_v0_9_13_ble_observer_zero_vector.bin
++BENCH_ELF = build/DeltaESC_G30D_v0_9_13_ble_sensorless_bench.elf
++BENCH_BIN = build/DeltaESC_G30D_v0_9_13_ble_sensorless_bench.bin
+ all: safe
+ safe: $(SAFE_BIN)
+ build: ; mkdir -p build
+ $(SAFE_ELF): $(SRC) linker.ld | build
+-	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 -DSENSORLESS_CLOSED_LOOP_ALLOWED=1 $(SRC) $(LDFLAGS_COMMON) -Wl,--undefined=motor_id_accept -Wl,--undefined=motor_id_commit -Wl,--undefined=motor_id_vector_output_request -Wl,--undefined=motor_id_adc_feedback_capture -Wl,--undefined=motor_id_auto_tick -Wl,--undefined=motor_id_auto_bind_config -Wl,--undefined=g30_adc_current_flags -Wl,--undefined=g30_adc2_current_offset_normalize -Wl,-Map=build/v0_9_12_syncsafe.map -o $@
++	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 -DSENSORLESS_CLOSED_LOOP_ALLOWED=1 $(SRC) $(LDFLAGS_COMMON) -Wl,--undefined=motor_id_accept -Wl,--undefined=motor_id_commit -Wl,--undefined=motor_id_vector_output_request -Wl,--undefined=motor_id_adc_feedback_capture -Wl,--undefined=motor_id_auto_tick -Wl,--undefined=motor_id_auto_bind_config -Wl,--undefined=g30_adc_current_flags -Wl,--undefined=g30_adc2_current_offset_normalize -Wl,-Map=build/v0_9_13_syncsafe.map -o $@
+ $(SAFE_BIN): $(SAFE_ELF)
+ 	$(OBJCOPY) -O binary $< $@
+-	$(OBJDUMP) -h $< > build/v0_9_12_syncsafe_sections.txt
++	$(OBJDUMP) -h $< > build/v0_9_13_syncsafe_sections.txt
+ clean: ; rm -rf build
+ 
+ # Explicit motor-ID-only experiment: normal drive flags stay zero.
+-ID_BENCH_ELF = build/DeltaESC_G30D_v0_9_12_motor_id_bench.elf
+-ID_BENCH_BIN = build/DeltaESC_G30D_v0_9_12_motor_id_bench.bin
++ID_BENCH_ELF = build/DeltaESC_G30D_v0_9_13_motor_id_bench.elf
++ID_BENCH_BIN = build/DeltaESC_G30D_v0_9_13_motor_id_bench.bin
+ id-bench: $(ID_BENCH_BIN)
+ $(ID_BENCH_ELF): $(SRC) linker.ld | build
+-	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 -DMOTOR_ID_BENCH_ALLOWED=1 $(SRC) $(LDFLAGS_COMMON) -Wl,-Map=build/v0_9_12_motor_id_bench.map -o $@
++	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 -DMOTOR_ID_BENCH_ALLOWED=1 $(SRC) $(LDFLAGS_COMMON) -Wl,-Map=build/v0_9_13_motor_id_bench.map -o $@
+ $(ID_BENCH_BIN): $(ID_BENCH_ELF)
+ 	$(OBJCOPY) -O binary $< $@
+-	$(OBJDUMP) -h $< > build/v0_9_12_motor_id_bench_sections.txt
++	$(OBJDUMP) -h $< > build/v0_9_13_motor_id_bench_sections.txt
+diff -ruN '--exclude=build' '--exclude=VERIFICATION.log' '--exclude=README*' '--exclude=V*' '--exclude=*.patch' '--exclude=*.log' '--exclude=__pycache__' DeltaESC_v102_live_motor_id/android/v0.3.5/TestMotorIdBenchProtocol.java DeltaESC_v103_RL_Flux_App/android/v0.3.5/TestMotorIdBenchProtocol.java
+--- DeltaESC_v102_live_motor_id/android/v0.3.5/TestMotorIdBenchProtocol.java	1970-01-01 00:00:00.000000000 +0000
++++ DeltaESC_v103_RL_Flux_App/android/v0.3.5/TestMotorIdBenchProtocol.java	2026-10-10 18:30:35.151715380 +0000
+@@ -0,0 +1,10 @@
++package de.deltaesc.tool;
++public final class TestMotorIdBenchProtocol {
++ private static void eq(byte[] b,int... n){if(b.length!=n.length)throw new AssertionError("length");for(int i=0;i<n.length;i++)if((b[i]&255)!=n[i])throw new AssertionError("byte "+i);}
++ public static void main(String[] a){
++  eq(MotorIdBenchProtocol.start(),0x5A,0xA5,4,0x3E,0x20,0x03,0xE7,0xDE,0xC0,0x49,0x4D);
++  eq(MotorIdBenchProtocol.stop(),0x5A,0xA5,0,0x3E,0x20,0x03,0xE6);
++  eq(MotorIdBenchProtocol.status(0xF8),0x5A,0xA5,1,0x3E,0x20,0x02,0xF8,16);
++  System.out.println("PASS Android E7/STOP/F8 Ninebot framing; encrypted by frozen BLE transport");
++ }
++}
+diff -ruN '--exclude=build' '--exclude=VERIFICATION.log' '--exclude=README*' '--exclude=V*' '--exclude=*.patch' '--exclude=*.log' '--exclude=__pycache__' DeltaESC_v102_live_motor_id/android/v0.3.5/apply_v035.py DeltaESC_v103_RL_Flux_App/android/v0.3.5/apply_v035.py
+--- DeltaESC_v102_live_motor_id/android/v0.3.5/apply_v035.py	1970-01-01 00:00:00.000000000 +0000
++++ DeltaESC_v103_RL_Flux_App/android/v0.3.5/apply_v035.py	2026-10-10 18:34:57.304398580 +0000
+@@ -0,0 +1,118 @@
++#!/usr/bin/env python3
++"""Motor-ID R/L/Flux bench app overlay on frozen G30 v0.3.3 NinebotCrypto.
++Only MainActivity, MotorBenchProtocol and build metadata change.
++Never touches BLE UART framing, pairing, crypto, authentication or MIC.
++"""
++from pathlib import Path
++import hashlib,sys
++r=Path(sys.argv[1]).resolve()
++j=r/'app/src/main/java/de/deltaesc/tool'
++frozen={
++'BleUartClient.java':'3bbf0a9e06dd277ef30cecae9baf579f8f843b0e5db505853cfe78c916b14485',
++'NinebotCrypto.java':'57d88389891ad2fe5dc42dc69748c2a81dc24edc3930081a74ceee45ae035705',
++'NinebotProtocol.java':'866fb803a439faf78ce50655cf54cae15a4467766826088e0bfa86b8468e84a3'}
++def check():
++    for n,h in frozen.items():
++        got=hashlib.sha256((j/n).read_bytes()).hexdigest()
++        if got!=h:raise RuntimeError('Frozen BLE transport mismatch: '+n)
++def change_once(text,old,new):
++    if text.count(old)!=1: raise RuntimeError('Cannot locate unique source anchor '+repr(old[:100]))
++    return text.replace(old,new,1)
++check()
++main=j/'MainActivity.java'
++proto=j/'MotorBenchProtocol.java'
++p=proto.read_text()
++p=change_once(p,'BUILD_MOTOR_BENCH_V072 = 0x0720','BUILD_MOTOR_ID_0913 = 0x0913')
++proto.write_text(p)
++s=main.read_text().replace('BUILD_MOTOR_BENCH_V072','BUILD_MOTOR_ID_0913')
++# Keep the proven authentication, framing and MIC unchanged. Insert the new
++# controls only after the existing activity has built its original UI.
++s=change_once(s,'setContentView(buildUi());','setContentView(buildUi());addMotorIdBenchControls();')
++# Prevent any copy implying the 0x0720 E5 features are a 0x0913 control.
++s=s.replace('v0.7.2','v0.9.13').replace('0x0720','0x0913')
++# One session has to be visibly confirmed by the user. The app cannot know if
++# the wheel is actually clear, so the firmware still checks all actual guards.
++control='''
++    private void addMotorIdBenchControls(){
++        android.view.View v=((android.view.ViewGroup)findViewById(android.R.id.content)).getChildAt(0);
++        if(v instanceof android.widget.ScrollView)
++            v=((android.widget.ScrollView)v).getChildAt(0);
++        if(!(v instanceof android.widget.LinearLayout))
++            throw new IllegalStateException("Motor Bench root layout absent");
++        android.widget.LinearLayout root=(android.widget.LinearLayout)v;
++        android.widget.TextView heading=new android.widget.TextView(this);
++        heading.setText("DELTAESC 0x0913: AUTO R / L / FLUX");
++        heading.setTextSize(18);heading.setTextColor(android.graphics.Color.WHITE);
++        root.addView(heading);
++        android.widget.Button start=new android.widget.Button(this);
++        start.setText("Motor Detect starten (E7)");
++        start.setAllCaps(false);
++        start.setOnClickListener(clicked -> {
++            if(stage!=4 || !deltaDetected || deltaBuild!=MotorBenchProtocol.BUILD_MOTOR_ID_0913){
++                android.widget.Toast.makeText(this,"DeltaESC-Build 0x0913 nicht bestätigt",android.widget.Toast.LENGTH_LONG).show();return;
++            }
++            if(!offsetReady){
++                android.widget.Toast.makeText(this,"Zuerst ADC-Offset E0 kalibrieren",android.widget.Toast.LENGTH_LONG).show();return;
++            }
++            if(!ble.canAcceptFrame()){
++                android.widget.Toast.makeText(this,"BLE belegt: erneut starten",android.widget.Toast.LENGTH_SHORT).show();return;
++            }
++            new android.app.AlertDialog.Builder(this)
++                .setTitle("Motor Detect R / L / Flux")
++                .setMessage("Rad frei? Niemand am Rad? Test kann Motor und Brücke ansteuern. Bremsen oder E6 stoppen.")
++                .setNegativeButton("Abbrechen",(d,w)->{})
++                .setPositiveButton("E7 senden",(d,w)->{
++                    if(stage==4 && deltaDetected &&
++                       deltaBuild==MotorBenchProtocol.BUILD_MOTOR_ID_0913 &&
++                       offsetReady && ble.canAcceptFrame()){
++                        ble.write(MotorIdBenchProtocol.start());
++                    }
++                }).show();
++        });
++        root.addView(start);
++        android.widget.Button stop=new android.widget.Button(this);
++        stop.setText("SOFORT STOP (E6)");stop.setAllCaps(false);
++        stop.setOnClickListener(clicked -> emergencyStop());
++        root.addView(stop);
++        android.widget.Button status=new android.widget.Button(this);
++        status.setText("Motor Detect Status F7 / F8 / F9");status.setAllCaps(false);
++        status.setOnClickListener(clicked -> {
++            if(stage!=4 || !deltaDetected)return;
++            int[] regs={0xF7,0xF8,0xF9};
++            for(int idx=0;idx<regs.length;idx++){
++                final int reg=regs[idx];
++                handler.postDelayed(()->{
++                    if(stage==4 && ble.canAcceptFrame())
++                        ble.write(MotorIdBenchProtocol.status(reg));
++                }, idx*350L);
++            }
++        });
++        root.addView(status);
++    }
++'''
++if not s.rstrip().endswith('}'):raise RuntimeError('truncated MainActivity')
++s=s.rstrip()[:-1]+control+'\n}\n'
++main.write_text(s)
++(j/'MotorIdBenchProtocol.java').write_text('''package de.deltaesc.tool;
++/** Only authenticated Ninebot-frame commands. BLE/Crypto are untouched. */
++final class MotorIdBenchProtocol {
++  private MotorIdBenchProtocol(){}
++  static final int BUILD=0x0913, START=0xE7, STOP=0xE6;
++  static byte[] start(){return NinebotProtocol.build(NinebotProtocol.PHONE,NinebotProtocol.ESC,0x03,START,new byte[]{(byte)0xDE,(byte)0xC0,0x49,0x4D});}
++  static byte[] stop(){return NinebotProtocol.build(NinebotProtocol.PHONE,NinebotProtocol.ESC,0x03,STOP,new byte[0]);}
++  static byte[] status(int reg){if(reg<0xF7||reg>0xF9)throw new IllegalArgumentException("status page");return NinebotProtocol.build(NinebotProtocol.PHONE,NinebotProtocol.ESC,0x02,reg,new byte[]{16});}
++}
++''')
++g=r/'app/build.gradle'
++s=g.read_text().replace("applicationId 'de.deltaesc.motorbench072'","applicationId 'de.deltaesc.motorbench0913'").replace('versionCode 33','versionCode 35').replace("versionName '0.3.3'","versionName '0.3.5'")
++g.write_text(s)
++t=r/'tools/TestMotorBenchProtocol.java'
++if t.exists():
++    u=t.read_text().replace('BUILD_MOTOR_BENCH_V072','BUILD_MOTOR_ID_0913').replace('0x0720','0x0913')
++    t.write_text(u)
++check()
++assert 'deltaBuild!=MotorBenchProtocol.BUILD_MOTOR_ID_0913' in main.read_text()
++assert 'setContentView(buildUi());addMotorIdBenchControls();' in main.read_text()
++assert "BUILD_MOTOR_ID_0913 = 0x0913" in proto.read_text()
++assert 'MotorIdBenchProtocol.start()' in main.read_text()
++print('PASS v0.3.5 G30 transport frozen, E7/E6/F7-F9 appended, exact FW build 0x0913')
+diff -ruN '--exclude=build' '--exclude=VERIFICATION.log' '--exclude=README*' '--exclude=V*' '--exclude=*.patch' '--exclude=*.log' '--exclude=__pycache__' DeltaESC_v102_live_motor_id/src/main.c DeltaESC_v103_RL_Flux_App/src/main.c
+--- DeltaESC_v102_live_motor_id/src/main.c	2026-10-10 18:08:27.538938562 +0000
++++ DeltaESC_v103_RL_Flux_App/src/main.c	2026-10-10 18:26:46.198723898 +0000
+@@ -5,6 +5,7 @@
+ #include "motor_id_auto.h"
+ #include "motor_id_vector_output.h"
+ #include "motor_id_adc_feedback.h"
++#include "motor_id_flux_feedback.h"
+ #include "motor_pipeline.h"
+ #include "stock_tim1_gate.h"
+ #include "ninebot_link.h"
+@@ -64,7 +65,7 @@
+ #define MAGIC_UNLOCK 0xC0DEu
+ #define PROTO_MAJOR 0u
+ #define PROTO_MINOR 2u
+-#define FW_BUILD 0x0912u
++#define FW_BUILD 0x0913u
+ #define COMM_DASH_STALE_MS 250u
+ #define COMM_INPUT_IDLE_MAX 3u
+ /* Gate I/O mapping is adopted from STOCK DRV126. This alone does not
+@@ -77,7 +78,7 @@
+  * Fast raw-ADC trip is independent of the provisional mA/count model.
+  * The small low-current bench envelope is NOT a general motor qualification. */
+ #define ID_BENCH_RAW_TRIP_COUNTS 24u
+-#define ID_BENCH_MAX_ACTIVE_MS 200u
++#define ID_BENCH_MAX_ACTIVE_MS 950u
+ #define ID_BENCH_MAX_TOTAL_MS 3200u
+ #define ID_BENCH_TOKEN 0x4D49u /* "IM" after the existing 0xC0DE magic */
+ #define COMM_STOCK_DUAL_ADC_PLAN_VALID 1u
+@@ -138,6 +139,7 @@
+ static motor_id_auto_t g_motor_id_auto;
+ static motor_id_vector_output_t g_motor_id_vector;
+ static motor_id_adc_feedback_t g_motor_id_feedback;
++static motor_id_flux_feedback_t g_motor_id_flux_feedback;
+ static volatile uint8_t g_motor_id_vector_owner;
+ static volatile uint32_t g_motor_id_vector_last_ms;
+ static volatile uint32_t g_id_bench_started_ms;
+@@ -726,6 +728,10 @@
+         if(valid){
+             g_motor_id_vector_last_ms=g_ms; /* real feedback keeps watchdog alive */
+             if(fb.command_epoch==g_motor_id_auto.command_epoch){
++                if(g_motor_id_auto.state==ID_AUTO_FLUX_SPIN){
++                    motor_id_flux_feedback_observe(&g_motor_id_flux_feedback,
++                        &g_motor_id_auto.id,t0/(SYSCLK_HZ/1000000u),&fb);
++                }
+                 fb.throttle_idle=(uint8_t)(g_dash_throttle<=COMM_INPUT_IDLE_MAX);
+                 fb.brake_active=g_dash_brake;
+                 fb.fault_active=(uint8_t)(g_safety_latched || g_poweroff_requested);
+@@ -870,8 +876,7 @@
+      * channels from the existing passive injected diagnostic scan. No
+      * fictitious current or PWM voltage is injected. Flux BEMF/speed are
+      * deliberately NOT supplied (separate point 2.3). */
+-    if(g_motor_id_auto.state==ID_AUTO_L_REST ||
+-       g_motor_id_auto.state==ID_AUTO_FLUX_COAST){
++    if(g_motor_id_auto.state==ID_AUTO_L_REST){
+         if(g_offset_cal_valid &&
+            ((COMM_CURRENT_SCALE_HW_VALID && COMM_ADC_TIMING_HW_VALID) ||
+             (MOTOR_ID_BENCH_ALLOWED && g_id_bench_requested)) && !g_power_armed &&
+@@ -1193,6 +1198,7 @@
+         __asm volatile("mrs %0, primask" : "=r"(prior_primask) :: "memory");
+         irq_disable();
+         g_id_bench_requested=1u;
++        motor_id_flux_feedback_reset(&g_motor_id_flux_feedback);
+         g_id_bench_started_ms=g_ms;
+         g_id_bench_energized_since_ms=0u;
+         /* Repeat detect after one completed/faulted session only after reset;
+diff -ruN '--exclude=build' '--exclude=VERIFICATION.log' '--exclude=README*' '--exclude=V*' '--exclude=*.patch' '--exclude=*.log' '--exclude=__pycache__' DeltaESC_v102_live_motor_id/src/motor_id.c DeltaESC_v103_RL_Flux_App/src/motor_id.c
+--- DeltaESC_v102_live_motor_id/src/motor_id.c	2026-10-10 18:07:43.076752413 +0000
++++ DeltaESC_v103_RL_Flux_App/src/motor_id.c	2026-10-10 18:26:46.197841261 +0000
+@@ -134,7 +134,7 @@
+          * Magnitudes only: direction/sign separately qualified. */
+         if(s->electrical_speed_mrad_s<1000u || s->electrical_speed_mrad_s>200000u ||
+            s->bemf_mv<10u || s->bemf_mv>60000u ||
+-           abs_i32(s->current_ma)>100u)
++           abs_i32(s->current_ma)>2000u)
+             return fail(m,MOTOR_ID_RANGE);
+         numerator=(uint64_t)s->bemf_mv*1000000u;
+         denominator=s->electrical_speed_mrad_s;
+diff -ruN '--exclude=build' '--exclude=VERIFICATION.log' '--exclude=README*' '--exclude=V*' '--exclude=*.patch' '--exclude=*.log' '--exclude=__pycache__' DeltaESC_v102_live_motor_id/src/motor_id_adc_feedback.c DeltaESC_v103_RL_Flux_App/src/motor_id_adc_feedback.c
+--- DeltaESC_v102_live_motor_id/src/motor_id_adc_feedback.c	2026-10-10 17:45:49.554801014 +0000
++++ DeltaESC_v103_RL_Flux_App/src/motor_id_adc_feedback.c	2026-10-10 18:26:46.197703394 +0000
+@@ -88,6 +88,8 @@
+     const int32_t vd=(va*cosine_q15(a->angle_u16))/32768 +
+                      (vb*sine_q15(a->angle_u16))/32768;
+     if(vd>2000 || vd< -2000)return fail(f);
++    out->current_alpha_ma=ia_ma;out->current_beta_ma=ibeta_ma;
++    out->voltage_alpha_mv=va;out->voltage_beta_mv=vb;
+     out->command_epoch=a->epoch;
+     out->applied_voltage_mv=vd;
+     out->phase_current_ma=id_ma;
+diff -ruN '--exclude=build' '--exclude=VERIFICATION.log' '--exclude=README*' '--exclude=V*' '--exclude=*.patch' '--exclude=*.log' '--exclude=__pycache__' DeltaESC_v102_live_motor_id/src/motor_id_auto.c DeltaESC_v103_RL_Flux_App/src/motor_id_auto.c
+--- DeltaESC_v102_live_motor_id/src/motor_id_auto.c	2026-10-10 16:58:31.591826443 +0000
++++ DeltaESC_v103_RL_Flux_App/src/motor_id_auto.c	2026-10-10 18:26:46.197946680 +0000
+@@ -15,8 +15,9 @@
+ #define AUTO_R_INTERVAL_US 1000u
+ #define AUTO_L_REST_US 2000u
+ #define AUTO_L_PULSE_US 1000u
+-#define AUTO_FLUX_HOLD_US 100000u
+-#define AUTO_FLUX_INTERVAL_US 1000u
++#define AUTO_FLUX_HOLD_US 850000u
++#define AUTO_FLUX_SETTLE_US 280000u
++#define AUTO_FLUX_INTERVAL_US 20000u
+ #define AUTO_FLUX_SPEED_MRAD_S 10000u
+ #define AUTO_CONTROL_GAP_MAX_US 50000u
+ #define AUTO_R_DEADLINE_US 100000u
+@@ -214,7 +215,7 @@
+             if(a->id.state==MOTOR_ID_FLUX) {
+                 a->state=ID_AUTO_FLUX_SPIN;
+                 a->stage_started_us=now_us;
+-                a->next_sample_us=now_us+AUTO_FLUX_HOLD_US;
++                a->next_sample_us=now_us+AUTO_FLUX_SETTLE_US;
+                 a->flux_angle=0u;
+                 if(!output(a,now_us,AUTO_FLUX_MV,0u))return 0u;
+             } else {
+@@ -223,33 +224,32 @@
+         }
+         break;
+     case ID_AUTO_FLUX_SPIN: {
+-        /* Commanded angle is only for excitation; NEVER use commanded
+-         * speed as a measured electrical speed in flux estimation. */
+-        /* 10 rad/s -> 104.303 turn16 counts/ms; no 64-bit divide. */
+-        const uint32_t dtheta=(delta*1043u)/10000u;
+-        a->flux_angle=(uint16_t)(a->flux_angle+(uint16_t)dtheta);
+-        if(!output(a,now_us,AUTO_FLUX_MV,a->flux_angle))return 0u;
+-        if((int32_t)(now_us-a->next_sample_us)>=0) {
+-            coast(a);
+-            a->state=ID_AUTO_FLUX_COAST;
+-            a->next_sample_us=now_us+AUTO_FLUX_INTERVAL_US;
+-        }
+-        break;
+-    }
+-    case ID_AUTO_FLUX_COAST:
+-        if((int32_t)(now_us-a->next_sample_us)>=0) {
+-            if(a->output_active)return fault(a,ID_AUTO_FAULT_DRIVER);
++        /* VESC-inspired driven linkage: E=V-RI-L*di/dt, lambda=E/omega.
++         * The detector only accepts BEMF and omega derived independently
++         * from actual ADC/current feedback, never the requested field speed.
++         * No nonexistent G30 phase-voltage ADC or coast BEMF is assumed. */
++        if((int32_t)(now_us-a->next_sample_us)>=0 &&
++           fb->bemf_valid && fb->speed_valid) {
+             if(!collect(a,AUTO_FLUX_INTERVAL_US,fb))return 0u;
+             a->next_sample_us=now_us+AUTO_FLUX_INTERVAL_US;
+             if(a->id.state==MOTOR_ID_READY) {
+-                /* Physical outputs OFF and model STOP before adopting R/L/flux. */
+                 coast(a);
+-                if(!adopt(a))
+-                    return fault(a,ID_AUTO_FAULT_COMMIT);
++                if(!adopt(a))return fault(a,ID_AUTO_FAULT_COMMIT);
+                 a->state=ID_AUTO_COMPLETE;
++                return 1u;
+             }
+         }
++        if(stage_age>AUTO_FLUX_HOLD_US)return fault(a,ID_AUTO_FAULT_SENSOR);
++        /* Only command another vector after consuming the physical sample. */
++        const uint32_t dtheta=(delta*1043u)/10000u;
++        a->flux_angle=(uint16_t)(a->flux_angle+(uint16_t)dtheta);
++        if(!output(a,now_us,AUTO_FLUX_MV,a->flux_angle))return 0u;
+         break;
++    }
++    case ID_AUTO_FLUX_COAST:
++        /* The two-shunt G30 has no independently sampled open-gate phase
++         * voltage. A coast sample cannot identify back EMF: abort instead. */
++        return fault(a,ID_AUTO_FAULT_SENSOR);
+     default:
+         return fault(a,ID_AUTO_FAULT_SAFETY);
+     }
+diff -ruN '--exclude=build' '--exclude=VERIFICATION.log' '--exclude=README*' '--exclude=V*' '--exclude=*.patch' '--exclude=*.log' '--exclude=__pycache__' DeltaESC_v102_live_motor_id/src/motor_id_auto.h DeltaESC_v103_RL_Flux_App/src/motor_id_auto.h
+--- DeltaESC_v102_live_motor_id/src/motor_id_auto.h	2026-10-10 16:58:31.591142335 +0000
++++ DeltaESC_v103_RL_Flux_App/src/motor_id_auto.h	2026-10-10 18:26:46.197293759 +0000
+@@ -20,6 +20,9 @@
+     uint32_t command_epoch;  /* ADC event belongs to current vector or coast */
+     int32_t applied_voltage_mv;
+     int32_t phase_current_ma;
++    /* Stationary measured alpha/beta, for independent driven BEMF observer. */
++    int32_t voltage_alpha_mv,voltage_beta_mv;
++    int32_t current_alpha_ma,current_beta_ma;
+     uint32_t measured_bemf_mv;
+     uint32_t measured_electrical_speed_mrad_s;
+     uint8_t adc_valid;
+diff -ruN '--exclude=build' '--exclude=VERIFICATION.log' '--exclude=README*' '--exclude=V*' '--exclude=*.patch' '--exclude=*.log' '--exclude=__pycache__' DeltaESC_v102_live_motor_id/src/motor_id_flux_feedback.c DeltaESC_v103_RL_Flux_App/src/motor_id_flux_feedback.c
+--- DeltaESC_v102_live_motor_id/src/motor_id_flux_feedback.c	1970-01-01 00:00:00.000000000 +0000
++++ DeltaESC_v103_RL_Flux_App/src/motor_id_flux_feedback.c	2026-10-10 18:27:37.153811243 +0000
+@@ -0,0 +1,92 @@
++#include "motor_id_flux_feedback.h"
++
++/* Sampling noise at 4 kHz is substantial on G30 two-shunt ADC; require
++ * stable EMF magnitude and a >=20 ms independently observed phase interval. */
++#define BEMF_MIN_MAG_MV 20u
++#define SPEED_WINDOW_MIN_US 20000u
++#define SPEED_WINDOW_MAX_US 50000u
++#define MAX_CURRENT_ABS_MA 2000
++#define MAX_DIDT_STEP_MA 1000
++static uint32_t magnitude_i32(int32_t n) {return n<0?(uint32_t)(-(int64_t)n):(uint32_t)n;}
++static uint32_t isqrt32(uint32_t x) {
++    uint32_t root=0, bit=1u<<30;
++    while(bit>x)bit>>=2;
++    while(bit){if(x>=root+bit){x-=root+bit;root=(root>>1)+bit;}else root>>=1;bit>>=2;}
++    return root;
++}
++/* Integer CORDIC removes the many-degree phase-velocity ripple of the
++ * earlier piecewise-linear atan approximation. No FPU or libm on STM32F103. */
++static uint16_t phase_u16(int32_t y,int32_t x){
++    static const uint16_t atan_turn16[15]={8192,4836,2555,1297,651,326,163,81,41,20,10,5,3,1,1};
++    if(!(x|y))return 0u;
++    int32_t phase=0;
++    if(x<0){x=-x;y=-y;phase=32768;}
++    x*=1024;y*=1024;
++    for(unsigned k=0;k<15u;k++){
++        const int32_t oldx=x,oldy=y;
++        if(oldy>0){x=oldx+(oldy>>(int)k);y=oldy-(oldx>>(int)k);phase+=atan_turn16[k];}
++        else{x=oldx-(oldy>>(int)k);y=oldy+(oldx>>(int)k);phase-=atan_turn16[k];}
++    }
++    return (uint16_t)phase;
++}
++void motor_id_flux_feedback_reset(motor_id_flux_feedback_t *s){if(s)*s=(motor_id_flux_feedback_t){0};}
++void motor_id_flux_feedback_observe(motor_id_flux_feedback_t *s,
++    const motor_id_t *id,uint32_t now_us,motor_id_auto_feedback_t *fb){
++    if(!fb)return;
++    fb->bemf_valid=0u;fb->speed_valid=0u;
++    fb->measured_bemf_mv=0u;fb->measured_electrical_speed_mrad_s=0u;
++    if(!s||!id||id->state!=MOTOR_ID_FLUX||!fb->adc_valid||!fb->voltage_valid||
++       id->result.r_uohm<1000u||id->result.l_nh<1000u||
++       id->result.l_nh>500000u||
++       magnitude_i32(fb->current_alpha_ma)>MAX_CURRENT_ABS_MA||
++       magnitude_i32(fb->current_beta_ma)>MAX_CURRENT_ABS_MA){
++        if(s){motor_id_flux_feedback_reset(s);s->invalid_windows++;}
++        return;
++    }
++    const int32_t ia=fb->current_alpha_ma,ib=fb->current_beta_ma;
++    const uint32_t dt=now_us-s->previous_us;
++    if(!s->primed){s->previous_ia_ma=ia;s->previous_ib_ma=ib;
++        s->previous_us=now_us;s->primed=1u;return;}
++    if(!dt||dt>1500u){motor_id_flux_feedback_reset(s);s->invalid_windows++;return;}
++    const int32_t da=ia-s->previous_ia_ma,db=ib-s->previous_ib_ma;
++    s->previous_ia_ma=ia;s->previous_ib_ma=ib;s->previous_us=now_us;
++    if(magnitude_i32(da)>MAX_DIDT_STEP_MA||magnitude_i32(db)>MAX_DIDT_STEP_MA){
++        s->filtered=0u;s->phase_ready=0u;s->invalid_windows++;return;
++    }
++    /* Input voltage is reconstructed from the effective CCR shadow and VBUS.
++     * A zero-current stalled RL motor ideally yields zero EMF residual.
++     * R is mOhm; L is uH; I is mA; time is us => all terms in mV. */
++    const int32_t r_mohm=(int32_t)(id->result.r_uohm/1000u);
++    const int32_t l_uh=(int32_t)(id->result.l_nh/1000u);
++    const int32_t ea=fb->voltage_alpha_mv-(r_mohm*ia)/1000-(l_uh*da)/(int32_t)dt;
++    const int32_t eb=fb->voltage_beta_mv -(r_mohm*ib)/1000-(l_uh*db)/(int32_t)dt;
++    if(magnitude_i32(ea)>1500u||magnitude_i32(eb)>1500u){
++        s->filtered=0u;s->phase_ready=0u;s->invalid_windows++;return;
++    }
++    if(!s->filtered){s->ea_filtered_mv=ea;s->eb_filtered_mv=eb;s->filtered=1u;}
++    else{
++        s->ea_filtered_mv+=(ea-s->ea_filtered_mv)/8;
++        s->eb_filtered_mv+=(eb-s->eb_filtered_mv)/8;
++    }
++    const uint32_t ea_abs=magnitude_i32(s->ea_filtered_mv);
++    const uint32_t eb_abs=magnitude_i32(s->eb_filtered_mv);
++    /* Guard both squares, prior 1.5 kV caps keep these well below uint32. */
++    const uint32_t mag=isqrt32(ea_abs*ea_abs+eb_abs*eb_abs);
++    if(mag<BEMF_MIN_MAG_MV){s->phase_ready=0u;return;}
++    const uint16_t phase=phase_u16(s->eb_filtered_mv,s->ea_filtered_mv);
++    if(!s->phase_ready){s->phase_at_window=phase;s->phase_at_us=now_us;s->phase_ready=1u;return;}
++    const uint32_t elapsed=now_us-s->phase_at_us;
++    if(elapsed<SPEED_WINDOW_MIN_US)return;
++    if(elapsed>SPEED_WINDOW_MAX_US){s->phase_at_us=now_us;s->phase_at_window=phase;s->invalid_windows++;return;}
++    const int32_t delta=(int16_t)(phase-s->phase_at_window);
++    s->phase_at_window=phase;s->phase_at_us=now_us;
++    if(delta<=0||delta>12000){s->invalid_windows++;return;}
++    /* Turn16 phase delta * 2*pi * 1000 / elapsed_us, with 1e6 us/s:
++     * speed_mrad_s = delta_turn16 * 95874 / elapsed_us. */
++    const uint32_t speed=((uint32_t)delta*95874u)/elapsed;
++    if(speed<1000u||speed>200000u){s->invalid_windows++;return;}
++    if(s->valid_windows!=0xffffffffu)s->valid_windows++;
++    fb->measured_bemf_mv=mag;
++    fb->measured_electrical_speed_mrad_s=speed;
++    fb->bemf_valid=1u;fb->speed_valid=1u;
++}
+diff -ruN '--exclude=build' '--exclude=VERIFICATION.log' '--exclude=README*' '--exclude=V*' '--exclude=*.patch' '--exclude=*.log' '--exclude=__pycache__' DeltaESC_v102_live_motor_id/src/motor_id_flux_feedback.h DeltaESC_v103_RL_Flux_App/src/motor_id_flux_feedback.h
+--- DeltaESC_v102_live_motor_id/src/motor_id_flux_feedback.h	1970-01-01 00:00:00.000000000 +0000
++++ DeltaESC_v103_RL_Flux_App/src/motor_id_flux_feedback.h	2026-10-10 18:26:45.249922722 +0000
+@@ -0,0 +1,23 @@
++/* Motor-ID driven flux observer. Uses physical two-shunt current sampling
++ * and effective TIM1 modulation; never infers rotor speed from command angle.
++ * VESC-style driven-flux relation E = V - R*I - L*dI/dt, lambda = |E|/omega.
++ */
++#pragma once
++#include <stdint.h>
++#include "motor_id_auto.h"
++
++typedef struct {
++    int32_t previous_ia_ma,previous_ib_ma;
++    int32_t ea_filtered_mv,eb_filtered_mv;
++    uint32_t previous_us,phase_at_us;
++    uint16_t phase_at_window;
++    uint32_t valid_windows,invalid_windows;
++    uint8_t primed,filtered,phase_ready;
++} motor_id_flux_feedback_t;
++
++void motor_id_flux_feedback_reset(motor_id_flux_feedback_t *s);
++/* Called only while PWM is physically active and ADC vector/epoch is valid.
++ * The rotor speed estimate uses the rotation of inferred back-EMF, not the
++ * open-loop commanded field angle or commanded angular speed. */
++void motor_id_flux_feedback_observe(motor_id_flux_feedback_t *s,
++    const motor_id_t *id,uint32_t now_us,motor_id_auto_feedback_t *fb);
+diff -ruN '--exclude=build' '--exclude=VERIFICATION.log' '--exclude=README*' '--exclude=V*' '--exclude=*.patch' '--exclude=*.log' '--exclude=__pycache__' DeltaESC_v102_live_motor_id/tools/motor_id_auto_host_test.c DeltaESC_v103_RL_Flux_App/tools/motor_id_auto_host_test.c
+--- DeltaESC_v102_live_motor_id/tools/motor_id_auto_host_test.c	2026-10-10 16:58:31.592572073 +0000
++++ DeltaESC_v103_RL_Flux_App/tools/motor_id_auto_host_test.c	2026-10-10 18:29:04.929472444 +0000
+@@ -16,13 +16,11 @@
+         f.applied_voltage_mv=0;f.phase_current_ma=0;
+     }else if(a->state==ID_AUTO_L_PULSE){
+         f.applied_voltage_mv=1000;f.phase_current_ma=1000;
+-    }else if(a->state==ID_AUTO_FLUX_COAST){
+-        f.applied_voltage_mv=0;f.phase_current_ma=0;
++    }else if(a->state==ID_AUTO_FLUX_SPIN){
++        f.phase_current_ma=0;f.applied_voltage_mv=h->voltage;
+         f.measured_electrical_speed_mrad_s=10000;
+         f.measured_bemf_mv=200;
+         f.bemf_valid=1;f.speed_valid=1;
+-    }else if(a->state==ID_AUTO_FLUX_SPIN){
+-        f.phase_current_ma=0;f.applied_voltage_mv=h->voltage;
+     }
+     return f;
+ }
+@@ -90,7 +88,7 @@
+     motor_id_auto_init(&a,io,&h,&c);T(motor_id_auto_begin(&a,&q,0));
+     for(uint32_t t=250u;t<1300000u;t+=250u){
+         motor_id_auto_feedback_t f=feedback(&a,&h);
+-        if(a.state==ID_AUTO_FLUX_COAST) f.speed_valid=0; /* commanded spin is NOT evidence */
++        if(a.state==ID_AUTO_FLUX_SPIN) f.speed_valid=0; /* commanded spin is NOT evidence */
+         uint8_t ok=motor_id_auto_tick(&a,t,&f);
+         if(!ok){T(a.state==ID_AUTO_FAULT && a.fault==ID_AUTO_FAULT_SENSOR && !h.energized && !c.motor_params_valid);return 0;}
+     }
+@@ -98,4 +96,4 @@
+     return 1;
+ }
+ int main(void){if(full_test()||refusals()||no_synthetic_flux())return 1;
+-puts("PASS motor ID auto: R plateau, L pulses, coast flux, guarded adoption, brake/timeout/ADC rejection, no fake speed");return 0;}
++puts("PASS motor ID auto: R plateau, L pulses, driven flux, guarded adoption, brake/timeout/ADC rejection, no fake speed");return 0;}
+diff -ruN '--exclude=build' '--exclude=VERIFICATION.log' '--exclude=README*' '--exclude=V*' '--exclude=*.patch' '--exclude=*.log' '--exclude=__pycache__' DeltaESC_v102_live_motor_id/tools/motor_id_flux_feedback_host_test.c DeltaESC_v103_RL_Flux_App/tools/motor_id_flux_feedback_host_test.c
+--- DeltaESC_v102_live_motor_id/tools/motor_id_flux_feedback_host_test.c	1970-01-01 00:00:00.000000000 +0000
++++ DeltaESC_v103_RL_Flux_App/tools/motor_id_flux_feedback_host_test.c	2026-10-10 18:27:37.471216345 +0000
+@@ -0,0 +1,39 @@
++#include "motor_id_flux_feedback.h"
++#include <math.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++static void need(int ok,const char *text){if(!ok){fprintf(stderr,"FAIL %s\n",text);exit(1);}}
++static motor_id_t identify(void){motor_id_t m={0};m.state=MOTOR_ID_FLUX;m.result.r_uohm=95000;m.result.l_nh=70000;return m;}
++static motor_id_auto_feedback_t sample(int32_t va,int32_t vb,int32_t ia,int32_t ib){
++ motor_id_auto_feedback_t f={0};f.adc_valid=f.voltage_valid=1;f.voltage_alpha_mv=va;f.voltage_beta_mv=vb;
++ f.current_alpha_ma=ia;f.current_beta_ma=ib;return f;
++}
++int main(void){
++ motor_id_flux_feedback_t q={0};motor_id_t id=identify();int n=0;long speed=0,emf=0;
++ /* Rotating BEMF: voltage samples, not requested field commands. */
++ for(uint32_t t=250;t<=720000;t+=250){
++   const double theta=10.0*(double)t/1000000.0;
++   motor_id_auto_feedback_t f=sample((int32_t)lrint(170.0*cos(theta)),(int32_t)lrint(170.0*sin(theta)),0,0);
++   motor_id_flux_feedback_observe(&q,&id,t,&f);
++   if(f.bemf_valid){need(f.speed_valid,"speed pair");n++;speed+=f.measured_electrical_speed_mrad_s;emf+=f.measured_bemf_mv;}
++ }
++ need(n>=8,"independent rotating BEMF qualified");
++ const long mean_speed=speed/n,mean_emf=emf/n;
++ need(mean_speed>9200&&mean_speed<10800,"observed speed from BEMF phase");
++ need(mean_emf>155&&mean_emf<175,"observed BEMF magnitude");
++ motor_id_flux_feedback_reset(&q);n=0;
++ /* Locked winding with only resistive excitation: no artificial rotor speed. */
++ for(uint32_t t=250;t<=600000;t+=250){
++    motor_id_auto_feedback_t f=sample(95,0,1000,0);
++    motor_id_flux_feedback_observe(&q,&id,t,&f);
++    n+=(int)f.bemf_valid;
++ }
++ need(n==0,"stalled rotor never supplies speed");
++ motor_id_flux_feedback_reset(&q);
++ motor_id_auto_feedback_t f=sample(200,0,0,0);
++ motor_id_flux_feedback_observe(&q,&id,250,&f);
++ f=sample(200,0,0,0);motor_id_flux_feedback_observe(&q,&id,5000,&f);
++ need(!f.bemf_valid && q.invalid_windows>0,"stale ADC samples invalidate observer");
++ printf("PASS Motor-ID measured BEMF/speed, CORDIC, stall and stale-sample veto (%d rotating windows, %ld mrad/s, %ld mV)\n",n,mean_speed,mean_emf);
++}
+diff -ruN '--exclude=build' '--exclude=VERIFICATION.log' '--exclude=README*' '--exclude=V*' '--exclude=*.patch' '--exclude=*.log' '--exclude=__pycache__' DeltaESC_v102_live_motor_id/tools/run_v103_tests.sh DeltaESC_v103_RL_Flux_App/tools/run_v103_tests.sh
+--- DeltaESC_v102_live_motor_id/tools/run_v103_tests.sh	1970-01-01 00:00:00.000000000 +0000
++++ DeltaESC_v103_RL_Flux_App/tools/run_v103_tests.sh	2026-10-10 18:29:04.930195511 +0000
+@@ -0,0 +1,115 @@
++#!/usr/bin/env bash
++# Software-only checks. No external hardware, no flashing, no motor enable.
++set -euo pipefail
++cd "$(dirname "$0")/.."
++python3 tools/pinmap_power_regression_test.py
++make safe id-bench CC="${ARM_CC:-clang}" OBJCOPY="${ARM_OBJCOPY:-llvm-objcopy}" OBJDUMP="${ARM_OBJDUMP:-llvm-objdump}"
++TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
++checks=(
++  'first_spin_safety_host_test.c sensorless_control.c vesc_ebics_flux.c'
++  'foc_adc_contract_host_test.c foc_adc_contract.c stock_current_frontend.c'
++  'foc_adc_motor_handoff_host_test.c foc_adc_motor_handoff.c sensorless_control.c vesc_ebics_flux.c'
++  'motor_id_host_test.c motor_id.c sensorless_control.c vesc_ebics_flux.c'
++  'sensorless_plant_host_test.c sensorless_control.c vesc_ebics_flux.c'
++  'motor_core_host_test.c sensorless_control.c vesc_ebics_flux.c'
++  'power_logic_host_test.c power_logic.c'
++  'iap_ack_host_test.c iap_proto.c'
++  'iap_transport_host_test.c iap_proto.c'
++  'stock_adc_timing_host_test.c stock_adc_timing.c'
++  'stock_adc_quality_host_test.c stock_adc_quality.c stock_current_frontend.c'
++  'stock_adc_snapshot_host_test.c stock_adc_snapshot.c stock_current_frontend.c'
++  'stock_dual_adc_runtime_host_test.c stock_dual_adc_runtime.c stock_dual_adc_plan.c stock_current_frontend.c'
++  'test_g30_fixed_scan.c g30_fixed_scan.c'
++  'test_stock_adc_mode_guard.c stock_adc_mode_guard.c stock_dual_adc_plan.c stock_current_frontend.c'
++  'test_ble_motor_probe.c motor_probe.c ble_motor_probe.c'
++)
++checks+=('motor_pipeline_host_test.c motor_pipeline.c foc_adc_contract.c stock_current_frontend.c sensorless_control.c vesc_ebics_flux.c')
++checks+=('stock_tim1_gate_host_test.c stock_tim1_gate.c')
++checks+=('vesc_ebics_flux_host_test.c vesc_ebics_flux.c')
++checks+=('g30_adc_current_window_host_test.c g30_adc_current_window.c stock_current_frontend.c')
++checks+=('g30_adc_current_offsets_host_test.c g30_adc_current_offsets.c')
++checks+=('drv126_adc_golden_host_test.c stock_current_frontend.c')
++checks+=('motor_id_auto_host_test.c motor_id_auto.c motor_id.c motor_config_txn.c sensorless_control.c vesc_ebics_flux.c')
++checks+=('motor_id_vector_output_host_test.c motor_id_vector_output.c sensorless_control.c vesc_ebics_flux.c')
++checks+=('motor_id_adc_feedback_host_test.c motor_id_adc_feedback.c g30_adc_current_offsets.c')
++checks+=('motor_id_flux_feedback_host_test.c motor_id_flux_feedback.c')
++for check in "${checks[@]}"; do
++  read -ra files <<< "$check"
++  test="${files[0]}"; args=()
++  for f in "${files[@]:1}"; do args+=("src/$f"); done
++  # Sensorless now calls the same physical-count model as ADC; avoid
++  # duplicate objects for tests already naming stock_current_frontend.c.
++  if [[ " $check " != *" stock_current_frontend.c "* ]]; then args+=("src/stock_current_frontend.c"); fi
++  extra_flags=()
++  if [ "$test" = sensorless_plant_host_test.c ] || [ "$test" = motor_pipeline_host_test.c ]; then
++      extra_flags+=(-DSENSORLESS_CLOSED_LOOP_ALLOWED=1)
++  fi
++  gcc -std=c11 -O1 -g -fsanitize=undefined -Isrc "${extra_flags[@]}" "tools/$test" "${args[@]}" -lm -o "$TMP/${test%.c}"
++  "$TMP/${test%.c}"
++  echo "PASS: $test"
++done
++for flags in '-DPOWER_STAGE_ARM_ALLOWED=1 -DSENSORLESS_RUN_ALLOWED=0' '-DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=1'; do
++  # shellcheck disable=SC2086
++  if "${ARM_CC:-clang}" --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -Isrc $flags -c src/main.c -o "$TMP/bad.o" >"$TMP/reject.log" 2>&1; then
++    echo 'FAIL: unexpectedly permitted motor power build' >&2; exit 1
++  fi
++  grep -q 'DRV126 gate profile ready; powered build still requires valid ADC timing and current scaling' "$TMP/reject.log"
++  echo "PASS: motor-power compile rejection $flags"
++done
++if [ "$(stat -c %s build/DeltaESC_G30D_v0_9_13_ble_syncsafe.bin)" -ge 53248 ]; then
++  echo 'FAIL: exceeds G30 active application region' >&2; exit 1
++fi
++if command -v llvm-nm >/dev/null 2>&1; then
++  llvm-nm build/DeltaESC_G30D_v0_9_13_ble_syncsafe.elf | grep -q 'motor_id_accept'
++  llvm-nm build/DeltaESC_G30D_v0_9_13_ble_syncsafe.elf | grep -q 'motor_id_commit'
++  if llvm-nm -u build/DeltaESC_G30D_v0_9_13_ble_syncsafe.elf | grep -E '__aeabi_(f|d|[ui]?ldiv)'; then echo 'FAIL: floating point / 64-bit division in Cortex-M3 link' >&2; exit 1; fi
++fi
++# Keep the complete symbol table in a file to avoid SIGPIPE with pipefail.
++llvm-objdump -t build/DeltaESC_G30D_v0_9_13_ble_syncsafe.elf > "$TMP/v098_symbols.txt"
++if ! grep -q 'g30_adc_current_flags' "$TMP/v098_symbols.txt"; then
++  echo 'FAIL: ADC timing contract is not linked into Cortex-M3 ELF' >&2; exit 1
++fi
++if ! grep -q 'motor_id_auto_tick' "$TMP/v098_symbols.txt"; then
++  echo 'FAIL: Motor ID auto sequencer not linked into Cortex-M3' >&2; exit 1
++fi
++if ! grep -q 'g30_adc2_current_offset_normalize' "$TMP/v098_symbols.txt"; then
++  echo 'FAIL: ADC2 channel offset normalization is not linked into Cortex-M3 ELF' >&2; exit 1
++fi
++if ! grep -q 'case 0xF7u:' src/main.c; then
++  echo 'FAIL: Motor ID read-only status missing' >&2; exit 1
++fi
++if ! grep -Fq 'const motor_id_auto_io_t id_io={motor_id_hw_vector_mv,motor_id_hw_gate_off,0};' src/main.c; then
++  echo 'FAIL: Motor-ID vector_mv not wired to target firmware' >&2; exit 1
++fi
++if ! grep -Fq 'g_motor_id_vector_owner' src/main.c; then
++  echo 'FAIL: PWM ownership arbitration missing' >&2; exit 1
++fi
++echo 'PASS: v0.9.13 Motor-ID vector_mv to stock TIM1/ADC actuator (source-only, no hardware enable)' 
++
++if [ -n "${DRV126_STOCK_BIN:-}" ]; then
++    python3 tools/audit_drv126_adc_stock.py "$DRV126_STOCK_BIN"
++fi
++
++# Strict v0.9.13 integration checks: MCU event IRQ, captured real JDR, epoch,
++# no unqualified build and no invented flux feedback.
++grep -Fq '[16u + IRQ_TIM1_UP] = TIM1_UP_IRQHandler' src/main.c
++grep -Fq 'motor_id_adc_feedback_queue(&g_motor_id_feedback' src/main.c
++grep -Fq 'motor_id_adc_feedback_capture(' src/main.c
++grep -Fq 'motor_id_auto_tick(&g_motor_id_auto,t0/' src/main.c
++grep -Fq 'motor_id_flux_feedback_observe(' src/main.c
++grep -Fq 'fb.command_epoch==g_motor_id_auto.command_epoch' src/main.c
++grep -Fq 'COMM_CURRENT_SCALE_HW_VALID 0u' src/main.c
++grep -Fq 'COMM_ADC_TIMING_HW_VALID 0u' src/main.c
++printf 'PASS: v0.9.13 TIM1 UEV to ADC coherent Motor-ID feedback integrated, motor gates remain disabled\n'
++
++# Real motor-id bench output is compiled with explicit E7-only capability.
++test -s build/DeltaESC_G30D_v0_9_13_motor_id_bench.bin
++[ "$(stat -c %s build/DeltaESC_G30D_v0_9_13_motor_id_bench.bin)" -lt 53248 ]
++grep -Fq 'MOTOR_ID_BENCH_ALLOWED=1' Makefile
++grep -Fq 'if(cmd==0xE7u)' src/main.c
++grep -Fq 'motor_id_auto_begin(&g_motor_id_auto' src/main.c
++grep -Fq 'ID_BENCH_RAW_TRIP_COUNTS' src/main.c
++grep -Fq 'motor_id_auto_tick(&g_motor_id_auto,t0/' src/main.c
++grep -Fq 'motor_id_flux_feedback_observe(' src/main.c
++! grep -Eq '\-DPOWER_STAGE_ARM_ALLOWED=1.*-DMOTOR_ID_BENCH_ALLOWED=1' Makefile
++printf 'PASS: v0.9.13 explicit active Motor-ID E7, real ADC, watchdog, E6 kill, regular E5 disallowed\n'
