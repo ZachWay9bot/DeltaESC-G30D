@@ -34,6 +34,27 @@ s=main.read_text()
 if 'BUILD_MOTOR_BENCH_TIMEOUT' not in s:
     raise RuntimeError('Expected v0.3.1 firmware version guard missing')
 s=s.replace('BUILD_MOTOR_BENCH_TIMEOUT','BUILD_MOTOR_BENCH_V072')
+# v0.7.2 does NOT prove an independent 1-second firmware cutoff.
+# Remove the inherited v0.7.6 safety claim, and prioritize E6 regardless of E5 ACK.
+def rewrite_once(old,new):
+    global s
+    if s.count(old)!=1:
+        raise RuntimeError('Expected unique safety anchor: '+old[:90])
+    s=s.replace(old,new,1)
+rewrite_once('Firmware stoppt den Motor-Bench selbst nach 1,0 s; die App sendet zusätzlich E6.',
+             'KEIN unabhängiger Firmware-STOP nachgewiesen! Handy-E6 ist NICHT ausfallsicher. Physische Abschaltung bereithalten.')
+rewrite_once('PRE-FLIGHT GRÜN · E5 100–500 mA freigegeben · FW Auto-STOP 1,0 s',
+             'Preflight elektrisch GRÜN · E5 nur am Rad-frei-Teststand · FW-Zeitlimit UNGEPRÜFT')
+rewrite_once('Firmware stoppt nach 1,0 s automatisch; App sendet zusätzlich E6.',
+             'Firmware-Zeitlimit NICHT nachgewiesen. E6 wird per Handy zeitgesteuert, bei BLE-Ausfall NICHT garantiert. Physischer Abschalter bereit?')
+rewrite_once('if(pendingWrite>=0||!ble.canAcceptFrame()){handler.postDelayed(this::tryEmergencyStop,60);return;}',
+             'if(pendingWrite>=0){pendingWrite=-1;pendingWriteLabel="";writeNonce++;}if(!ble.canAcceptFrame()){handler.postDelayed(this::tryEmergencyStop,60);return;}')
+rewrite_once('pendingWrite=r.arg;pendingWriteLabel=r.label;final long n=++writeNonce;',
+             'pendingWrite=r.arg;pendingWriteLabel=r.label;if(r.arg==0xE5)handler.postDelayed(this::emergencyStop,1200);final long n=++writeNonce;')
+rewrite_once('if(f.arg==0xE5){benchState.setText("E5 akzeptiert · Motor-Bench läuft max. 1,0 s · redundantes E6 folgt");handler.postDelayed(this::emergencyStop,1200);return;}',
+             'if(f.arg==0xE5){benchState.setText("E5 quittiert · E6 wurde bereits unabhängig von der Antwort geplant");return;}')
+rewrite_once('hard>100||sum>30', 'hard!=100||sum!=30')
+s=s.replace('0.3.1','0.3.3')
 # Avoid displaying a newer firmware compatibility requirement.
 s=s.replace('v0.7.6','v0.7.2').replace('0x0760','0x0720')
 # Send a best-effort E6 when activity goes to background.
@@ -53,8 +74,8 @@ main.write_text(s)
 
 grad=root/'app/build.gradle'
 change(grad,"applicationId 'de.deltaesc.motorbench'","applicationId 'de.deltaesc.motorbench072'")
-change(grad,'versionCode 31','versionCode 32')
-change(grad,"versionName '0.3.1'","versionName '0.3.2'")
+change(grad,'versionCode 31','versionCode 33')
+change(grad,"versionName '0.3.1'","versionName '0.3.3'")
 
 t=root/'tools/TestMotorBenchProtocol.java'
 if t.exists():
@@ -70,6 +91,9 @@ assert 'deltaBuild!=MotorBenchProtocol.BUILD_MOTOR_BENCH_V072' in m
 assert 'preflightOk' in m and 'offsetReady' in m
 assert 'handler.postDelayed(this::emergencyStop,1200)' in m
 assert 'onStop()' in m and 'emergencyStop();' in m
+assert 'FW Auto-STOP' not in m and 'Firmware stoppt nach 1,0 s' not in m
+assert 'if(r.arg==0xE5)handler.postDelayed(this::emergencyStop,1200)' in m
+assert 'if(pendingWrite>=0){pendingWrite=-1;' in m
 assert '0x0760' not in p and 'BUILD_MOTOR_BENCH_TIMEOUT' not in m
 assert '0xF5' not in m and 'IAP' not in m
 print('v0.3.2 v0.7.2 compatibility + safety guards PASS; frozen NinebotCrypto unchanged')
