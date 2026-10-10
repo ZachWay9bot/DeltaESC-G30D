@@ -2,7 +2,7 @@ name: DeltaESC G30D MOTOR-RC E7 gate coast + terminal stop build
 on:
   push:
     branches: [dev/motor-rc-v0914-gate-hardening]
-    paths: ['motor-rc/**','.github/workflows/motor-rc-source-audit.yml']
+    paths: ['motor-rc/**','v0.9.16/**','v0.9.17/**','.github/workflows/motor-rc-source-audit.yml']
   workflow_dispatch:
 permissions:
   contents: read
