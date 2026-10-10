@@ -1,0 +1,316 @@
+--- a/Makefile
++++ b/Makefile
+@@ -3,19 +3,19 @@
+ OBJDUMP ?= llvm-objdump
+ CFLAGS_COMMON = -g3 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Oz -Wall -Wextra -Werror -Isrc
+ LDFLAGS_COMMON = --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -nostdlib -Wl,-T,linker.ld,--gc-sections
+-SRC = src/main.c src/sensorless_control.c src/ninebot_link.c src/iap_update.c src/iap_proto.c src/iap_control.c src/dashboard_runtime.c src/power_logic.c src/motor_probe.c src/ble_motor_probe.c src/commissioning_guard.c src/stock_current_frontend.c src/stock_dual_adc_plan.c src/stock_dual_adc_runtime.c src/stock_adc_quality.c src/stock_adc_snapshot.c src/stock_adc_timing.c src/stock_adc_correlated.c src/stock_adc_mode_guard.c src/g30_fixed_scan.c src/motor_config_txn.c src/foc_adc_contract.c src/foc_adc_motor_handoff.c src/motor_id.c src/motor_pipeline.c src/aeabi_mem.c
+-SAFE_ELF = build/DeltaESC_G30D_v0_9_4_ble_syncsafe.elf
+-SAFE_BIN = build/DeltaESC_G30D_v0_9_4_ble_syncsafe.bin
+-ACTIVE_ELF = build/DeltaESC_G30D_v0_9_4_ble_observer_zero_vector.elf
+-ACTIVE_BIN = build/DeltaESC_G30D_v0_9_4_ble_observer_zero_vector.bin
+-BENCH_ELF = build/DeltaESC_G30D_v0_9_4_ble_sensorless_bench.elf
+-BENCH_BIN = build/DeltaESC_G30D_v0_9_4_ble_sensorless_bench.bin
++SRC = src/main.c src/sensorless_control.c src/ninebot_link.c src/iap_update.c src/iap_proto.c src/iap_control.c src/dashboard_runtime.c src/power_logic.c src/motor_probe.c src/ble_motor_probe.c src/commissioning_guard.c src/stock_current_frontend.c src/stock_dual_adc_plan.c src/stock_dual_adc_runtime.c src/stock_adc_quality.c src/stock_adc_snapshot.c src/stock_adc_timing.c src/stock_adc_correlated.c src/stock_adc_mode_guard.c src/g30_fixed_scan.c src/motor_config_txn.c src/foc_adc_contract.c src/foc_adc_motor_handoff.c src/motor_id.c src/motor_pipeline.c src/stock_tim1_gate.c src/aeabi_mem.c
++SAFE_ELF = build/DeltaESC_G30D_v0_9_5_ble_syncsafe.elf
++SAFE_BIN = build/DeltaESC_G30D_v0_9_5_ble_syncsafe.bin
++ACTIVE_ELF = build/DeltaESC_G30D_v0_9_5_ble_observer_zero_vector.elf
++ACTIVE_BIN = build/DeltaESC_G30D_v0_9_5_ble_observer_zero_vector.bin
++BENCH_ELF = build/DeltaESC_G30D_v0_9_5_ble_sensorless_bench.elf
++BENCH_BIN = build/DeltaESC_G30D_v0_9_5_ble_sensorless_bench.bin
+ all: safe
+ safe: $(SAFE_BIN)
+ build: ; mkdir -p build
+ $(SAFE_ELF): $(SRC) linker.ld | build
+-	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 -DSENSORLESS_CLOSED_LOOP_ALLOWED=1 $(SRC) $(LDFLAGS_COMMON) -Wl,--undefined=motor_id_accept -Wl,--undefined=motor_id_commit -Wl,-Map=build/v0_9_4_syncsafe.map -o $@
++	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 -DSENSORLESS_CLOSED_LOOP_ALLOWED=1 $(SRC) $(LDFLAGS_COMMON) -Wl,--undefined=motor_id_accept -Wl,--undefined=motor_id_commit -Wl,-Map=build/v0_9_5_syncsafe.map -o $@
+ $(SAFE_BIN): $(SAFE_ELF)
+ 	$(OBJCOPY) -O binary $< $@
+-	$(OBJDUMP) -h $< > build/v0_9_4_syncsafe_sections.txt
++	$(OBJDUMP) -h $< > build/v0_9_5_syncsafe_sections.txt
+ clean: ; rm -rf build
+--- a/src/main.c
++++ b/src/main.c
+@@ -3,6 +3,7 @@
+ #include "sensorless_control.h"
+ #include "motor_id.h"
+ #include "motor_pipeline.h"
++#include "stock_tim1_gate.h"
+ #include "ninebot_link.h"
+ #include "iap_update.h"
+ #include "power_logic.h"
+@@ -46,25 +47,31 @@
+ #define ADC_STALE_MS                    5u
+ #define IRQ_ADC1_2 18u
+ #define IRQ_USART2 38u
+-#define GATE_CCER_MASK (TIM_CCER_CC1E | TIM_CCER_CC1NE | TIM_CCER_CC2E | TIM_CCER_CC2NE | TIM_CCER_CC3E | TIM_CCER_CC3NE)
+-#define ADC_CCER_MASK TIM_CCER_CC4E
++#define GATE_CCER_MASK STOCK_TIM1_GATE_CH_MASK
++#define ADC_CCER_MASK STOCK_TIM1_GATE_ADC_CC4E
+ #define MAGIC_UNLOCK 0xC0DEu
+ #define PROTO_MAJOR 0u
+ #define PROTO_MINOR 2u
+-#define FW_BUILD 0x0904u
++#define FW_BUILD 0x0905u
+ #define COMM_DASH_STALE_MS 250u
+ #define COMM_INPUT_IDLE_MAX 3u
+-/* Hardware qualification flags remain false pending real G30D power-stage evidence. */
++/* Gate I/O mapping is adopted from STOCK DRV126. This alone does not
++ * calibrate phase currents, validate ADC sample windows, or prove OC protection. */
+ #define COMM_CURRENT_SCALE_HW_VALID 0u
+-#define COMM_GATE_HW_VALID 0u
++#define COMM_GATE_STOCK_PROFILE_READY 1u /* DRV126 CCER=0x1555 and six TIM1 CHx/CHxN pins */
+ #define COMM_ADC_TIMING_HW_VALID 0u
+ #define COMM_STOCK_CURRENT_MODEL_VALID 1u
+ #define COMM_STOCK_DUAL_ADC_PLAN_VALID 1u
+ #if MOTOR_VOLTAGE_BENCH
+-#error "v0.9.4: motor-voltage build not allowed"
+-#endif
+-#if POWER_STAGE_ARM_ALLOWED || SENSORLESS_RUN_ALLOWED
+-#error "v0.9.3: motor power blocked until real G30D pinout, gate/BKIN polarity and shunt timing are independently validated"
++#error "v0.9.5: motor-voltage build not allowed"
++#endif
++/* No more blanket "unknown gate pinout" veto. The gate backend is
++ * now taken from DRV126. Power builds are blocked ONLY by uncalibrated
++ * current sensing and ADC timing, separate from Hall vs sensorless. */
++#if SENSORLESS_RUN_ALLOWED || POWER_STAGE_ARM_ALLOWED
++#if !COMM_CURRENT_SCALE_HW_VALID || !COMM_ADC_TIMING_HW_VALID
++#error "DRV126 gate profile ready; powered build still requires valid ADC timing and current scaling"
++#endif
+ #endif
+ #define STOCK_COMPAT_FW_WORD 0x0420u
+ #define POWER_HOLD_PIN 11u
+@@ -219,7 +226,7 @@
+  * observer fault, ADC fault, shutdown, and dashboard watchdog. Never
+  * confuse the 50% duty software zero vector with hardware coast. */
+ static void power_stage_force_disarm(void) {
+-    TIM_CCER(TIM1_BASE)&=~GATE_CCER_MASK;
++    TIM_CCER(TIM1_BASE)=stock_tim1_gate_ccer_off((uint16_t)TIM_CCER(TIM1_BASE));
+     gate_pins_to_safe_inputs();
+     __asm volatile("dsb" ::: "memory");
+     if (g_power_armed) {
+@@ -265,7 +272,7 @@
+ static uint8_t motor_hw_arm(void *ignored) {
+     (void)ignored;
+ #if POWER_STAGE_ARM_ALLOWED
+-    if (!COMM_CURRENT_SCALE_HW_VALID || !COMM_GATE_HW_VALID ||
++    if (!COMM_CURRENT_SCALE_HW_VALID || !COMM_GATE_STOCK_PROFILE_READY ||
+         !COMM_ADC_TIMING_HW_VALID || g_safety_latched ||
+         !g_dash_seen || g_dash_brake ||
+         g_dash_throttle<=COMM_INPUT_IDLE_MAX ||
+@@ -278,7 +285,13 @@
+     ADC_SR&=~ADC_SR_JEOC;
+     ADC2_SR&=~ADC_SR_JEOC;
+     gate_pins_to_tim1_af();
+-    TIM_CCER(TIM1_BASE)|=GATE_CCER_MASK;
++    /* Stock DRV126 turns all six complementary gates on with 0x1555.
++       A full store clears stale CCx polarity bits. */
++    TIM_CCER(TIM1_BASE)=stock_tim1_gate_ccer_arm((uint16_t)TIM_CCER(TIM1_BASE));
++    if (!stock_tim1_gate_ccer_is_armed((uint16_t)TIM_CCER(TIM1_BASE))) {
++        power_stage_force_disarm();
++        return 0u;
++    }
+     g_power_armed=1u;
+     return 1u;
+ #else
+@@ -302,12 +315,12 @@
+     if (!(ccer&ADC_CCER_MASK)) ok=0u;
+     if (!(TIM_BDTR(TIM1_BASE)&TIM_BDTR_MOE)) ok=0u;
+     if (g_power_armed) {
+-        if (!g_motor_pipeline.powered || !COMM_GATE_HW_VALID ||
++        if (!g_motor_pipeline.powered || !COMM_GATE_STOCK_PROFILE_READY ||
+             !COMM_CURRENT_SCALE_HW_VALID || !COMM_ADC_TIMING_HW_VALID) ok=0u;
+-        if ((ccer&GATE_CCER_MASK)!=GATE_CCER_MASK) ok=0u;
++        if (!stock_tim1_gate_ccer_is_armed((uint16_t)ccer)) ok=0u;
+         if (gate_pin_mode_word_a()!=0xBBBu || gate_pin_mode_word_b()!=0xBBBu) ok=0u;
+     } else {
+-        if (ccer&GATE_CCER_MASK) ok=0u;
++        if (!stock_tim1_gate_ccer_is_off((uint16_t)ccer)) ok=0u;
+         if (gate_pin_mode_word_a()!=0x888u || gate_pin_mode_word_b()!=0x888u) ok=0u;
+     }
+     if (!ok) { g_safety_latched=1u; power_stage_force_disarm(); }
+@@ -409,7 +422,7 @@
+     RCC_APB2ENR|=(1u<<11); TIM_CR1(TIM1_BASE)=0u; TIM_CR2(TIM1_BASE)=0u; TIM_PSC(TIM1_BASE)=0u; TIM_ARR(TIM1_BASE)=PWM_ARR; TIM_RCR(TIM1_BASE)=1u;
+     TIM_CCR1(TIM1_BASE)=PWM_ZERO_CCR; TIM_CCR2(TIM1_BASE)=PWM_ZERO_CCR; TIM_CCR3(TIM1_BASE)=PWM_ZERO_CCR; TIM_CCR4(TIM1_BASE)=ADC_TRIGGER_CCR;
+     TIM_CCMR1(TIM1_BASE)=(6u<<4)|(1u<<3)|(6u<<12)|(1u<<11); TIM_CCMR2(TIM1_BASE)=(6u<<4)|(1u<<3)|(7u<<12)|(1u<<11);
+-    TIM_CCER(TIM1_BASE)=ADC_CCER_MASK; TIM_BDTR(TIM1_BASE)=DEADTIME_DTG|TIM_BDTR_OSSI|TIM_BDTR_OSSR|TIM_BDTR_MOE;
++    TIM_CCER(TIM1_BASE)=stock_tim1_gate_ccer_off(STOCK_TIM1_GATE_RUN_CCER); TIM_BDTR(TIM1_BASE)=DEADTIME_DTG|TIM_BDTR_OSSI|TIM_BDTR_OSSR|TIM_BDTR_MOE;
+     TIM_EGR(TIM1_BASE)=TIM_EGR_UG; TIM_SR(TIM1_BASE)=0u; TIM_CR1(TIM1_BASE)=TIM_CR1_CMS_0|TIM_CR1_ARPE|TIM_CR1_CEN;
+ }
+ 
+@@ -606,7 +619,7 @@
+     in.poweroff_pending=g_poweroff_requested;
+     in.control_stopped=(uint8_t)(ctrl.state==SENSORLESS_STOP && !ctrl.drive_request && !g_power_armed);
+     in.current_scale_hw_valid=COMM_CURRENT_SCALE_HW_VALID;
+-    in.gate_hw_valid=COMM_GATE_HW_VALID;
++    in.gate_hw_valid=COMM_GATE_STOCK_PROFILE_READY;
+     in.adc_timing_hw_valid=COMM_ADC_TIMING_HW_VALID;
+     return commissioning_guard_eval(&in);
+ }
+@@ -802,7 +815,7 @@
+         irq_disable();
+         g_motor_irq_sequence=0u;
+         const uint8_t armed=motor_pipeline_start(&g_motor_pipeline,
+-            (const uint16_t *)g_adc_offset,COMM_GATE_HW_VALID &&
++            (const uint16_t *)g_adc_offset,COMM_GATE_STOCK_PROFILE_READY &&
+             COMM_CURRENT_SCALE_HW_VALID,COMM_ADC_TIMING_HW_VALID,
+             g_dash_throttle,g_dash_brake,
+             (uint8_t)(g_dash_seen && (uint32_t)(g_ms-g_dash_last_ms)<=COMM_DASH_STALE_MS),g_ms);
+@@ -926,7 +939,7 @@
+     motor_pipeline_init(&g_motor_pipeline,&ctrl,motor_io,0,PWM_ARR,HARD_OC_COUNTS);
+     motor_id_init(&g_motor_id);motor_config_txn_init(&g_motor_cfg,g_cfg_test_current_ma);motor_probe_init();power_button_init(&g_power_button_state,POWER_BUTTON_LONG_MS);
+     adc1_injected_init();tim1_pwm_and_adc_trigger_init();ninebot_link_init();iap_update_init();systick_init();irq_enable();
+-    uart_puts("DeltaESC G30D v0.9.4 MOTOR PIPELINE. GATES OFF.\r\n");
++    uart_puts("DeltaESC G30D v0.9.5 DRV126 TIM1 GATE PROFILE. DISARMED.\r\n");
+ #if SENSORLESS_RUN_ALLOWED
+     uart_puts("BUILD: SENSORLESS BENCH; BLE E5 may arm/start only after safety preconditions.\r\n");
+ #elif POWER_STAGE_ARM_ALLOWED
+--- a/src/stock_tim1_gate.c
++++ b/src/stock_tim1_gate.c
+@@ -0,0 +1,18 @@
++#include "stock_tim1_gate.h"
++/* Disable ONLY six bridge output enables. Keep CH4 enabled so that
++ * passive ADC diagnostics can continue with gate drive disconnected. */
++uint16_t stock_tim1_gate_ccer_off(uint16_t previous) {
++    return (uint16_t)(previous & (uint16_t)~STOCK_TIM1_GATE_CH_MASK);
++}
++/* DRV126 writes 0x1555, not "previous | CCxE": stale polarity bits
++ * in CCER would otherwise survive and make one phase inverted. */
++uint16_t stock_tim1_gate_ccer_arm(uint16_t previous) {
++    (void)previous;
++    return STOCK_TIM1_GATE_RUN_CCER;
++}
++uint8_t stock_tim1_gate_ccer_is_armed(uint16_t ccer) {
++    return (uint8_t)(ccer == STOCK_TIM1_GATE_RUN_CCER);
++}
++uint8_t stock_tim1_gate_ccer_is_off(uint16_t ccer) {
++    return (uint8_t)((ccer & STOCK_TIM1_GATE_CH_MASK) == 0u);
++}
+--- a/src/stock_tim1_gate.h
++++ b/src/stock_tim1_gate.h
+@@ -0,0 +1,17 @@
++#ifndef STOCK_TIM1_GATE_H
++#define STOCK_TIM1_GATE_H
++#include <stdint.h>
++/* Verified in DRV126 SVPWM output routine 0x08005510 (CCER store
++ * at 0x0800571A): 0x1555 enables CC1/1N, CC2/2N, CC3/3N and CC4.
++ * Gate-drive topology does NOT depend on Hall vs observer rotor angle.
++ * PB1 is not controlled by this interface.
++ */
++#define STOCK_TIM1_GATE_CH_MASK 0x0555u
++#define STOCK_TIM1_GATE_ADC_CC4E 0x1000u
++#define STOCK_TIM1_GATE_RUN_CCER 0x1555u
++#define STOCK_TIM1_GATE_DT_RESERVED 0x0000u
++uint16_t stock_tim1_gate_ccer_off(uint16_t previous);
++uint16_t stock_tim1_gate_ccer_arm(uint16_t previous);
++uint8_t stock_tim1_gate_ccer_is_armed(uint16_t ccer);
++uint8_t stock_tim1_gate_ccer_is_off(uint16_t ccer);
++#endif
+--- a/tools/pinmap_power_regression_test.py
++++ b/tools/pinmap_power_regression_test.py
+@@ -16,9 +16,9 @@
+     'PA11 power latch': '#define POWER_HOLD_PIN 11u' in s and 'GPIO_BSRR(GPIOA_BASE) = (1u << POWER_HOLD_PIN);' in s,
+     'PB1 never configured or written': not any(re.search(x,s) for x in [r'gpio_cfg_nibble\(GPIOB_BASE\s*,\s*1\s*,',r'GPIO_(?:BSRR|BRR)\(GPIOB_BASE\)\s*=\s*\(1u\s*<<\s*1\)',r'GPIO_ODR\(GPIOB_BASE\)\s*&\s*\(1u\s*<<\s*1\)']),
+     'No PB1 gate control': 'gate_enable_gpio_init' not in s,
+-    'All motor builds compile-forbidden': '#if POWER_STAGE_ARM_ALLOWED || SENSORLESS_RUN_ALLOWED' in s and '#error "v0.9.3:' in s,
+-    'Gate channels disabled at init': 'TIM_CCER(TIM1_BASE)=ADC_CCER_MASK;' in s,
+-    'No motor hardware qualified': all((f'#define {x} 0u') in s for x in ['COMM_CURRENT_SCALE_HW_VALID','COMM_GATE_HW_VALID','COMM_ADC_TIMING_HW_VALID']),
++    'Powered builds require remaining ADC and current safeguards': '#if SENSORLESS_RUN_ALLOWED || POWER_STAGE_ARM_ALLOWED' in s and '#error "DRV126 gate profile ready' in s,
++    'Gate channels disabled at init': 'TIM_CCER(TIM1_BASE)=stock_tim1_gate_ccer_off(STOCK_TIM1_GATE_RUN_CCER);' in s,
++    'Stock gate route qualified, live current and timing still closed': ('#define COMM_GATE_STOCK_PROFILE_READY 1u' in s) and all((f'#define {x} 0u') in s for x in ['COMM_CURRENT_SCALE_HW_VALID','COMM_ADC_TIMING_HW_VALID']),
+     'Power logic semantic name corrected': 'pressed_sample' in h and 'pressed_sample' in logic,
+ }
+ for label, passed in checks.items():
+--- a/tools/run_v095_tests.sh
++++ b/tools/run_v095_tests.sh
+@@ -0,0 +1,58 @@
++#!/usr/bin/env bash
++# Software-only checks. No external hardware, no flashing, no motor enable.
++set -euo pipefail
++cd "$(dirname "$0")/.."
++python3 tools/pinmap_power_regression_test.py
++make safe CC="${ARM_CC:-clang}" OBJCOPY="${ARM_OBJCOPY:-llvm-objcopy}" OBJDUMP="${ARM_OBJDUMP:-llvm-objdump}"
++TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
++checks=(
++  'first_spin_safety_host_test.c sensorless_control.c'
++  'foc_adc_contract_host_test.c foc_adc_contract.c stock_current_frontend.c'
++  'foc_adc_motor_handoff_host_test.c foc_adc_motor_handoff.c sensorless_control.c'
++  'motor_id_host_test.c motor_id.c sensorless_control.c'
++  'sensorless_plant_host_test.c sensorless_control.c'
++  'motor_core_host_test.c sensorless_control.c'
++  'power_logic_host_test.c power_logic.c'
++  'iap_ack_host_test.c iap_proto.c'
++  'iap_transport_host_test.c iap_proto.c'
++  'stock_adc_timing_host_test.c stock_adc_timing.c'
++  'stock_adc_quality_host_test.c stock_adc_quality.c stock_current_frontend.c'
++  'stock_adc_snapshot_host_test.c stock_adc_snapshot.c stock_current_frontend.c'
++  'stock_dual_adc_runtime_host_test.c stock_dual_adc_runtime.c stock_dual_adc_plan.c stock_current_frontend.c'
++  'test_g30_fixed_scan.c g30_fixed_scan.c'
++  'test_stock_adc_mode_guard.c stock_adc_mode_guard.c stock_dual_adc_plan.c stock_current_frontend.c'
++  'test_ble_motor_probe.c motor_probe.c ble_motor_probe.c'
++)
++checks+=('motor_pipeline_host_test.c motor_pipeline.c foc_adc_contract.c stock_current_frontend.c sensorless_control.c')
++checks+=('stock_tim1_gate_host_test.c stock_tim1_gate.c')
++for check in "${checks[@]}"; do
++  read -ra files <<< "$check"
++  test="${files[0]}"; args=()
++  for f in "${files[@]:1}"; do args+=("src/$f"); done
++  extra_flags=()
++  if [ "$test" = sensorless_plant_host_test.c ] || [ "$test" = motor_pipeline_host_test.c ]; then
++      extra_flags+=(-DSENSORLESS_CLOSED_LOOP_ALLOWED=1)
++  fi
++  gcc -std=c11 -O1 -g -fsanitize=undefined -Isrc "${extra_flags[@]}" "tools/$test" "${args[@]}" -lm -o "$TMP/${test%.c}"
++  "$TMP/${test%.c}"
++  echo "PASS: $test"
++done
++for flags in '-DPOWER_STAGE_ARM_ALLOWED=1 -DSENSORLESS_RUN_ALLOWED=0' '-DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=1'; do
++  # shellcheck disable=SC2086
++  if "${ARM_CC:-clang}" --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -Isrc $flags -c src/main.c -o "$TMP/bad.o" >"$TMP/reject.log" 2>&1; then
++    echo 'FAIL: unexpectedly permitted motor power build' >&2; exit 1
++  fi
++  grep -q 'DRV126 gate profile ready; powered build still requires valid ADC timing and current scaling' "$TMP/reject.log"
++  echo "PASS: motor-power compile rejection $flags"
++done
++if [ "$(stat -c %s build/DeltaESC_G30D_v0_9_5_ble_syncsafe.bin)" -ge 53248 ]; then
++  echo 'FAIL: exceeds G30 active application region' >&2; exit 1
++fi
++if command -v llvm-nm >/dev/null 2>&1; then
++  llvm-nm build/DeltaESC_G30D_v0_9_5_ble_syncsafe.elf | grep -q 'motor_id_accept'
++  llvm-nm build/DeltaESC_G30D_v0_9_5_ble_syncsafe.elf | grep -q 'motor_id_commit'
++fi
++if ! grep -q 'case 0xF7u:' src/main.c; then
++  echo 'FAIL: Motor ID read-only status missing' >&2; exit 1
++fi
++echo 'PASS: source-only software checks (not a hardware/flash release)' 
+--- a/tools/stock_tim1_gate_host_test.c
++++ b/tools/stock_tim1_gate_host_test.c
+@@ -0,0 +1,29 @@
++#include <assert.h>
++#include <stdint.h>
++#include <stdio.h>
++#include "stock_tim1_gate.h"
++int main(void) {
++    /* Exact DRV126 CCER including three complementary gate pairs. */
++    assert(STOCK_TIM1_GATE_RUN_CCER == 0x1555u);
++    assert(STOCK_TIM1_GATE_CH_MASK == 0x0555u);
++    assert(STOCK_TIM1_GATE_ADC_CC4E == 0x1000u);
++    assert(stock_tim1_gate_ccer_arm(0x1000u) == 0x1555u);
++    assert(stock_tim1_gate_ccer_arm(0x3555u) == 0x1555u);
++    assert(stock_tim1_gate_ccer_arm(0xFFFFu) == 0x1555u);
++    assert(stock_tim1_gate_ccer_is_armed(0x1555u));
++    assert(!stock_tim1_gate_ccer_is_armed(0x3555u));
++    assert(!stock_tim1_gate_ccer_is_armed(0x1000u));
++    assert(stock_tim1_gate_ccer_off(0x1555u) == 0x1000u);
++    assert(stock_tim1_gate_ccer_off(0x3555u) == 0x3000u);
++    assert(stock_tim1_gate_ccer_is_off(0x1000u));
++    assert(!stock_tim1_gate_ccer_is_off(0x1555u));
++    /* OFF must be idempotent and must never re-arm any gate. */
++    for (uint32_t v = 0; v < 65536u; v++) {
++        uint16_t off=stock_tim1_gate_ccer_off((uint16_t)v);
++        assert((off & 0x0555u) == 0u);
++        assert(stock_tim1_gate_ccer_off(off) == off);
++        assert(stock_tim1_gate_ccer_arm((uint16_t)v) == 0x1555u);
++    }
++    puts("PASS: DRV126 0x1555 gate mapping, 65,536 transition cases, OFF preserves CH4");
++    return 0;
++}
