@@ -1,7 +1,7 @@
 name: G30 Motor Bench v0.3.2 for v0.7.2
 on:
   push:
-    branches: [ "dev/android-v0.3.3-v072-motor-bench" ]
+    branches: [ "dev/android-v0.3.2-v072-motor-bench" ]
     paths:
       - "android/v0.3.2/**"
       - "android/v0.3.1/**"
