@@ -1,0 +1,112 @@
+name: G30 Motor Bench v0.3.2 for v0.7.2
+on:
+  push:
+    branches: [ "dev/android-v0.3.2-v072-motor-bench" ]
+    paths:
+      - "android/v0.3.2/**"
+      - "android/v0.3.1/**"
+      - ".github/workflows/android-v032-v072-motor-bench.yml"
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Reconstruct frozen v0.3.0 source
+        run: |
+          mkdir -p /tmp/app
+          tar -xJf android/DeltaESC_Android_v0_1_source.tar.xz -C /tmp/app
+          mv /tmp/app/DeltaESC_Android_v0_1 /tmp/app/v031
+          cat android/v0.2/chunks/*.b64 | tr -d '\n\r ' | base64 -d > /tmp/android_v02.patch.xz
+          echo "269e9793c3bcbb7abf7cb7cd74d24d460a6cc070eadf9658cec515d76b46d7ec  /tmp/android_v02.patch.xz" | sha256sum -c -
+          xz -dc /tmp/android_v02.patch.xz | patch -d /tmp/app/v031 -p1
+          rm -f /tmp/app/v031/app/src/main/java/de/deltaesc/tool/DeltaEscProtocol.java
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('/tmp/app/v031/app/src/main/java/de/deltaesc/tool/MainActivity.java')
+          s=p.read_text()
+          old='private void readDeltaSnapshot(){if(stage!=4){toast("Nicht angemeldet");return;}int[] r={0xD0,0xD1,0xD8,0xD9};'
+          new='private void readDeltaSnapshot(){if(stage!=4){toast("Nicht angemeldet");return;}if(!deltaDetected){toast("DeltaESC-Signatur fehlt; Snapshot gesperrt");return;}int[] r={0xD0,0xD1,0xD8,0xD9};'
+          assert old in s
+          p.write_text(s.replace(old,new))
+          PY
+          echo "5ab8ab7a389795c26d7049f1e2e6aeadccf72bfb0e2d3cc08bb8b05de98678d2  android/v0.2.2/v022.patch.xz" | sha256sum -c -
+          xz -dc android/v0.2.2/v022.patch.xz | patch -d /tmp/app/v031 -p1
+          echo "adee921e20c9e183cd2f118f792c198e379286ef4a42614a1bc968128645e504  android/v0.2.3/v023.patch.xz" | sha256sum -c -
+          xz -dc android/v0.2.3/v023.patch.xz | patch -d /tmp/app/v031 -p1
+          python3 android/v0.3.0/apply_v030.py /tmp/app/v031
+      - name: Apply v0.3.1 motor bench overlay
+        run: python3 android/v0.3.1/apply_v031.py /tmp/app/v031
+      - name: Adapt app to v0.7.2 build 0x0720
+        run: python3 android/v0.3.2/apply_v032.py /tmp/app/v031
+      - name: Frozen transport and safety preflight
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          root=Path('/tmp/app/v031/app/src/main/java/de/deltaesc/tool')
+          hashes={
+            'BleUartClient.java':'3bbf0a9e06dd277ef30cecae9baf579f8f843b0e5db505853cfe78c916b14485',
+            'NinebotCrypto.java':'57d88389891ad2fe5dc42dc69748c2a81dc24edc3930081a74ceee45ae035705',
+            'NinebotProtocol.java':'866fb803a439faf78ce50655cf54cae15a4467766826088e0bfa86b8468e84a3'}
+          for n,h in hashes.items(): assert hashlib.sha256((root/n).read_bytes()).hexdigest()==h,n
+          main=(root/'MainActivity.java').read_text()
+          proto=(root/'MotorBenchProtocol.java').read_text()
+          assert 'preflightOk' in main and 'offsetReady' in main
+          assert 'BUILD_MOTOR_BENCH_V072 = 0x0720' in proto
+          assert 'handler.postDelayed(this::emergencyStop,1200)' in main
+          assert 'F0–F4 anwenden (nur RAM)' in main
+          assert '0xF5' not in main and 'IAP' not in main
+          assert 'D0–D9' in main
+          assert 'case 0xD9:return 12' in main
+          assert 'deltaBuild!=MotorBenchProtocol.BUILD_MOTOR_BENCH_V072' in main
+          assert 'if(!offsetReady)' in main
+          assert 'if(!preflightOk)' in main
+          assert 'idle>20' in main
+          assert '(d2[0]&255)!=0' in main and '(d2[3]&255)!=7' in main
+          assert 'hard>100||sum>30' in main
+          assert 'actionE6()' in proto
+          assert 'if(stage!=4||!deltaDetected)' in main
+          assert 'keine bestätigte DeltaESC-Signatur' in main
+          grad=Path('/tmp/app/v031/app/build.gradle').read_text()
+          assert "applicationId 'de.deltaesc.motorbench072'" in grad
+          assert "versionName '0.3.2'" in grad
+          print('v0.3.1 safety preflight PASS')
+          PY
+      - name: Motor bench protocol host vectors
+        run: |
+          mkdir -p /tmp/testclasses
+          javac -d /tmp/testclasses             /tmp/app/v031/app/src/main/java/de/deltaesc/tool/NinebotProtocol.java             /tmp/app/v031/app/src/main/java/de/deltaesc/tool/MotorBenchProtocol.java             /tmp/app/v031/tools/TestMotorBenchProtocol.java
+          java -cp /tmp/testclasses de.deltaesc.tool.TestMotorBenchProtocol
+      - name: Existing G30 crypto regression vectors
+        run: |
+          mkdir -p /tmp/cryptoclasses
+          javac -d /tmp/cryptoclasses             /tmp/app/v031/app/src/main/java/de/deltaesc/tool/Hex.java             /tmp/app/v031/app/src/main/java/de/deltaesc/tool/NinebotProtocol.java             /tmp/app/v031/app/src/main/java/de/deltaesc/tool/NinebotCrypto.java             /tmp/app/v031/tools/TestCrypto.java             /tmp/app/v031/tools/TestRealG30Vector.java             /tmp/app/v031/tools/TestRealG30Handshake.java             /tmp/app/v031/tools/TestRealG30FullHandshake.java             /tmp/app/v031/tools/TestRealG30Fragmentation.java
+          for t in TestCrypto TestRealG30Vector TestRealG30Handshake TestRealG30FullHandshake TestRealG30Fragmentation; do
+            java -cp /tmp/cryptoclasses de.deltaesc.tool.$t
+          done
+      - name: Build debug APK
+        working-directory: /tmp/app/v031
+        run: gradle :app:assembleDebug --stacktrace
+      - name: Package
+        run: |
+          cp /tmp/app/v031/app/build/outputs/apk/debug/app-debug.apk /tmp/G30_Bench_BLE_Motor_v0.3.2_v072.apk
+          tar --exclude=.gradle --exclude=app/build -C /tmp/app -cJf /tmp/G30_Bench_BLE_Motor_v0.3.2_v072_SOURCE.tar.xz v031
+          sha256sum /tmp/G30_Bench_BLE_Motor_v0.3.1.apk /tmp/G30_Bench_BLE_Motor_v0.3.1_SOURCE.tar.xz | tee /tmp/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: G30-Bench-BLE-Motor-v0.3.2-v072
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            /tmp/G30_Bench_BLE_Motor_v0.3.1.apk
+            /tmp/G30_Bench_BLE_Motor_v0.3.1_SOURCE.tar.xz
+            /tmp/SHA256SUMS.txt
+            android/v0.3.2/README.md
