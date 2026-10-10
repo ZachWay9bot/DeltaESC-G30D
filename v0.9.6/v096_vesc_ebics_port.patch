@@ -1,0 +1,311 @@
+diff --git a/Makefile b/Makefile
+index ce1bce8..d644f0c 100644
+--- a/Makefile
++++ b/Makefile
+@@ -3,19 +3,19 @@ OBJCOPY ?= llvm-objcopy
+ OBJDUMP ?= llvm-objdump
+ CFLAGS_COMMON = -g3 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Oz -Wall -Wextra -Werror -Isrc
+ LDFLAGS_COMMON = --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -nostdlib -Wl,-T,linker.ld,--gc-sections
+-SRC = src/main.c src/sensorless_control.c src/ninebot_link.c src/iap_update.c src/iap_proto.c src/iap_control.c src/dashboard_runtime.c src/power_logic.c src/motor_probe.c src/ble_motor_probe.c src/commissioning_guard.c src/stock_current_frontend.c src/stock_dual_adc_plan.c src/stock_dual_adc_runtime.c src/stock_adc_quality.c src/stock_adc_snapshot.c src/stock_adc_timing.c src/stock_adc_correlated.c src/stock_adc_mode_guard.c src/g30_fixed_scan.c src/motor_config_txn.c src/foc_adc_contract.c src/foc_adc_motor_handoff.c src/motor_id.c src/motor_pipeline.c src/stock_tim1_gate.c src/aeabi_mem.c
+-SAFE_ELF = build/DeltaESC_G30D_v0_9_5_ble_syncsafe.elf
+-SAFE_BIN = build/DeltaESC_G30D_v0_9_5_ble_syncsafe.bin
+-ACTIVE_ELF = build/DeltaESC_G30D_v0_9_5_ble_observer_zero_vector.elf
+-ACTIVE_BIN = build/DeltaESC_G30D_v0_9_5_ble_observer_zero_vector.bin
+-BENCH_ELF = build/DeltaESC_G30D_v0_9_5_ble_sensorless_bench.elf
+-BENCH_BIN = build/DeltaESC_G30D_v0_9_5_ble_sensorless_bench.bin
++SRC = src/main.c src/sensorless_control.c src/vesc_ebics_flux.c src/ninebot_link.c src/iap_update.c src/iap_proto.c src/iap_control.c src/dashboard_runtime.c src/power_logic.c src/motor_probe.c src/ble_motor_probe.c src/commissioning_guard.c src/stock_current_frontend.c src/stock_dual_adc_plan.c src/stock_dual_adc_runtime.c src/stock_adc_quality.c src/stock_adc_snapshot.c src/stock_adc_timing.c src/stock_adc_correlated.c src/stock_adc_mode_guard.c src/g30_fixed_scan.c src/motor_config_txn.c src/foc_adc_contract.c src/foc_adc_motor_handoff.c src/motor_id.c src/motor_pipeline.c src/stock_tim1_gate.c src/aeabi_mem.c
++SAFE_ELF = build/DeltaESC_G30D_v0_9_6_ble_syncsafe.elf
++SAFE_BIN = build/DeltaESC_G30D_v0_9_6_ble_syncsafe.bin
++ACTIVE_ELF = build/DeltaESC_G30D_v0_9_6_ble_observer_zero_vector.elf
++ACTIVE_BIN = build/DeltaESC_G30D_v0_9_6_ble_observer_zero_vector.bin
++BENCH_ELF = build/DeltaESC_G30D_v0_9_6_ble_sensorless_bench.elf
++BENCH_BIN = build/DeltaESC_G30D_v0_9_6_ble_sensorless_bench.bin
+ all: safe
+ safe: $(SAFE_BIN)
+ build: ; mkdir -p build
+ $(SAFE_ELF): $(SRC) linker.ld | build
+-	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 -DSENSORLESS_CLOSED_LOOP_ALLOWED=1 $(SRC) $(LDFLAGS_COMMON) -Wl,--undefined=motor_id_accept -Wl,--undefined=motor_id_commit -Wl,-Map=build/v0_9_5_syncsafe.map -o $@
++	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 -DSENSORLESS_CLOSED_LOOP_ALLOWED=1 $(SRC) $(LDFLAGS_COMMON) -Wl,--undefined=motor_id_accept -Wl,--undefined=motor_id_commit -Wl,-Map=build/v0_9_6_syncsafe.map -o $@
+ $(SAFE_BIN): $(SAFE_ELF)
+ 	$(OBJCOPY) -O binary $< $@
+-	$(OBJDUMP) -h $< > build/v0_9_5_syncsafe_sections.txt
++	$(OBJDUMP) -h $< > build/v0_9_6_syncsafe_sections.txt
+ clean: ; rm -rf build
+diff --git a/src/main.c b/src/main.c
+index 5b77560..a04a483 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -52,7 +52,7 @@
+ #define MAGIC_UNLOCK 0xC0DEu
+ #define PROTO_MAJOR 0u
+ #define PROTO_MINOR 2u
+-#define FW_BUILD 0x0905u
++#define FW_BUILD 0x0906u
+ #define COMM_DASH_STALE_MS 250u
+ #define COMM_INPUT_IDLE_MAX 3u
+ /* Gate I/O mapping is adopted from STOCK DRV126. This alone does not
+@@ -939,7 +939,7 @@ int main(void){
+     motor_pipeline_init(&g_motor_pipeline,&ctrl,motor_io,0,PWM_ARR,HARD_OC_COUNTS);
+     motor_id_init(&g_motor_id);motor_config_txn_init(&g_motor_cfg,g_cfg_test_current_ma);motor_probe_init();power_button_init(&g_power_button_state,POWER_BUTTON_LONG_MS);
+     adc1_injected_init();tim1_pwm_and_adc_trigger_init();ninebot_link_init();iap_update_init();systick_init();irq_enable();
+-    uart_puts("DeltaESC G30D v0.9.5 DRV126 TIM1 GATE PROFILE. DISARMED.\r\n");
++    uart_puts("DeltaESC G30D v0.9.6 VESC EBICS observer. DISARMED.\r\n");
+ #if SENSORLESS_RUN_ALLOWED
+     uart_puts("BUILD: SENSORLESS BENCH; BLE E5 may arm/start only after safety preconditions.\r\n");
+ #elif POWER_STAGE_ARM_ALLOWED
+diff --git a/src/sensorless_control.c b/src/sensorless_control.c
+index 9f0bfd0..feaf469 100644
+--- a/src/sensorless_control.c
++++ b/src/sensorless_control.c
+@@ -21,6 +21,9 @@ static const int16_t sin_lut_q15[256] = {
+ #ifndef MOTOR_VOLTAGE_BENCH
+ #define MOTOR_VOLTAGE_BENCH 0
+ #endif
++#ifndef VESC_EBICS_OBSERVER
++#define VESC_EBICS_OBSERVER 1
++#endif
+ #ifndef SENSORLESS_CLOSED_LOOP_ALLOWED
+ #define SENSORLESS_CLOSED_LOOP_ALLOWED 0
+ #endif
+@@ -95,6 +98,7 @@ static void zero_vector(sensorless_control_t *s, uint16_t pwm_arr) {
+ }
+ 
+ static void observer_reset(sensorless_control_t *s) {
++    vesc_ebics_flux_reset(&s->vesc_flux);
+     s->bemf_alpha_q8 = 0; s->bemf_beta_q8 = 0;
+     s->i_alpha_prev_ma = 0; s->i_beta_prev_ma = 0;
+     s->observer_phase = 0; s->observer_phase_prev = 0;
+@@ -155,7 +159,21 @@ static void observer_update(sensorless_control_t *s, int32_t i_alpha_counts,
+     uint32_t mx = ae > be ? ae : be, mn = ae > be ? be : ae;
+     s->bemf_mv = mx + (mn >> 1); /* cheap magnitude estimate */
+ 
+-    uint16_t p = (uint16_t)(fast_atan2_u16(s->bemf_beta_q8, s->bemf_alpha_q8) - 16384u + s->phase_offset_u16);
++    uint16_t p;
++#if VESC_EBICS_OBSERVER
++    if (!s->motor_params_valid || !vesc_ebics_flux_step(&s->vesc_flux,
++        va_mv, vb_mv, ia_ma, ib_ma, s->motor_r_uohm, s->motor_l_nh,
++        s->motor_flux_uwb)) {
++        s->observer_valid = 0u;
++        return;
++    }
++    /* VESC Ortega residual x-Li is ROTOR FLUX, not back-EMF.
++     * Do not apply the old BEMF -90-degree rotation here. */
++    p = (uint16_t)(fast_atan2_u16(s->vesc_flux.flux_beta_nwb,
++                                 s->vesc_flux.flux_alpha_nwb) + s->phase_offset_u16);
++#else
++    p = (uint16_t)(fast_atan2_u16(s->bemf_beta_q8, s->bemf_alpha_q8) - 16384u + s->phase_offset_u16);
++#endif
+     int16_t d = phase_delta(p, s->observer_phase_prev);
+     s->observer_phase_prev = p;
+     s->observer_step += (int16_t)((d - s->observer_step) >> 3);
+diff --git a/src/sensorless_control.h b/src/sensorless_control.h
+index 976afea..1cab9ed 100644
+--- a/src/sensorless_control.h
++++ b/src/sensorless_control.h
+@@ -1,5 +1,6 @@
+ #pragma once
+ #include <stdint.h>
++#include "vesc_ebics_flux.h"
+ 
+ typedef struct {
+     int16_t ia;
+@@ -18,6 +19,7 @@ typedef enum {
+ 
+ typedef struct {
+     /* Back-EMF observer state, q8 millivolts. */
++    vesc_ebics_flux_t vesc_flux;
+     int32_t bemf_alpha_q8;
+     int32_t bemf_beta_q8;
+     int32_t i_alpha_prev_ma;
+diff --git a/src/vesc_ebics_flux.c b/src/vesc_ebics_flux.c
+new file mode 100644
+index 0000000..2a036f4
+--- /dev/null
++++ b/src/vesc_ebics_flux.c
+@@ -0,0 +1,60 @@
++/*
++ * VESC Ortega observer equation with EBiCS-style integer/F103 adaptation.
++ * GPL-3.0-or-later. See vesc_ebics_flux.h for attribution.
++ * x_dot = v - R*i + gamma/2 * (x - L*i) * (lambda^2 - |x-L*i|^2)
++ * VESC clamps positive flux-radius error to zero. We normalize that error
++ * to Q16 before applying a deliberately bounded discrete observer gain.
++ * Dynamics are not assumed validated on G30D hardware.
++ */
++#include "vesc_ebics_flux.h"
++
++static int32_t bounded(int64_t v, int32_t limit) {
++    if (v > limit) return limit;
++    if (v < -(int64_t)limit) return -limit;
++    return (int32_t)v;
++}
++void vesc_ebics_flux_reset(vesc_ebics_flux_t *s) {
++    if (!s) return;
++    *s = (vesc_ebics_flux_t){0};
++}
++uint8_t vesc_ebics_flux_step(vesc_ebics_flux_t *s,
++        int32_t va_mv, int32_t vb_mv, int32_t ia_ma, int32_t ib_ma,
++        uint32_t r_uohm, uint32_t l_nh, uint32_t flux_uwb) {
++    if (!s || r_uohm < 1000u || r_uohm > 2000000u ||
++        l_nh < 1000u || l_nh > 5000000u ||
++        flux_uwb < 100u || flux_uwb > 1000000u ||
++        va_mv < -200000 || va_mv > 200000 ||
++        vb_mv < -200000 || vb_mv > 200000 ||
++        ia_ma < -20000 || ia_ma > 20000 ||
++        ib_ma < -20000 || ib_ma > 20000) {
++        if (s) s->valid=0u;
++        return 0u;
++    }
++    const int32_t lambda = (int32_t)(flux_uwb * 1000u); /* uWb -> nWb */
++    const int32_t limit = lambda <= 1000000000 ? lambda * 2 : 2000000000;
++    const int32_t ri_a_mv = ((int32_t)(r_uohm / 1000u) * ia_ma) / 1000;
++    const int32_t ri_b_mv = ((int32_t)(r_uohm / 1000u) * ib_ma) / 1000;
++    const int32_t li_a_nwb = ((int32_t)(l_nh / 100u) * ia_ma) / 10;
++    const int32_t li_b_nwb = ((int32_t)(l_nh / 100u) * ib_ma) / 10;
++    const int32_t ea = bounded((int64_t)s->x_alpha_nwb - li_a_nwb,limit);
++    const int32_t eb = bounded((int64_t)s->x_beta_nwb - li_b_nwb,limit);
++    const int32_t unit = (lambda >> 8) ? (lambda >> 8) : 1;
++    const int32_t eqa = ea / unit, eqb = eb / unit;
++    int32_t err_q16 = 65536 - (eqa * eqa + eqb * eqb);
++    if (err_q16 > 0) err_q16 = 0; /* VESC Ortega: no positive feedback */
++    if (err_q16 < -131072) err_q16 = -131072;
++    /* gamma is dimensionless AFTER normalizing the flux-radius error.
++     * 512/32768 = 0.015625 per tick (bounded by error).
++     * Uses only multiplication, shift and 32-bit divide on Cortex-M3. */
++    const int32_t correction_a = (int32_t)(((int64_t)ea * err_q16 * 512) >> 31);
++    const int32_t correction_b = (int32_t)(((int64_t)eb * err_q16 * 512) >> 31);
++    const int32_t delta_a = (va_mv - ri_a_mv) * 250; /* mV*dt= nWb at 4kHz */
++    const int32_t delta_b = (vb_mv - ri_b_mv) * 250;
++    s->x_alpha_nwb = bounded((int64_t)s->x_alpha_nwb + delta_a + correction_a, limit);
++    s->x_beta_nwb = bounded((int64_t)s->x_beta_nwb + delta_b + correction_b, limit);
++    s->flux_alpha_nwb = bounded((int64_t)s->x_alpha_nwb - li_a_nwb,limit);
++    s->flux_beta_nwb  = bounded((int64_t)s->x_beta_nwb  - li_b_nwb,limit);
++    if (s->samples != 65535u) s->samples++;
++    s->valid = (uint8_t)(s->samples >= 2u);
++    return 1u;
++}
+diff --git a/src/vesc_ebics_flux.h b/src/vesc_ebics_flux.h
+new file mode 100644
+index 0000000..03cf3c4
+--- /dev/null
++++ b/src/vesc_ebics_flux.h
+@@ -0,0 +1,27 @@
++/*
++ * VESC Ortega flux-observer model adapted to STM32F103 fixed-point arithmetic.
++ * Algorithm reference: vedderb/bldc motor/foc_math.c foc_observer_update,
++ * EBiCS/EBiCS_Firmware Sensorless_VESC Src/FOC.c observer_update.
++ * SPDX-License-Identifier: GPL-3.0-or-later
++ * Copyright (c) 2026 DeltaESC contributors; derived algorithm credit Benjamin Vedder.
++ * This module does not touch timer registers or release gate outputs.
++ */
++#pragma once
++#include <stdint.h>
++typedef struct {
++    int32_t x_alpha_nwb;
++    int32_t x_beta_nwb;
++    int32_t flux_alpha_nwb;
++    int32_t flux_beta_nwb;
++    uint16_t samples;
++    uint8_t valid;
++} vesc_ebics_flux_t;
++void vesc_ebics_flux_reset(vesc_ebics_flux_t *s);
++/* Inputs are phase-neutral commanded voltages (mV), alpha/beta current (mA),
++ *  phase resistance uOhm, inductance nH, magnet flux uWb, dt = 1/4000s.
++ * Output residual rotor-flux vector (nWb). No phase offset or atan2 here.
++ * Returns 0 for out-of-range parameters/input or observer divergence.
++ */
++uint8_t vesc_ebics_flux_step(vesc_ebics_flux_t *s,
++        int32_t va_mv, int32_t vb_mv, int32_t ia_ma, int32_t ib_ma,
++        uint32_t r_uohm, uint32_t l_nh, uint32_t flux_uwb);
+diff --git a/tools/run_v095_tests.sh b/tools/run_v096_tests.sh
+similarity index 76%
+rename from tools/run_v095_tests.sh
+rename to tools/run_v096_tests.sh
+index d7d95e1..82c6c62 100644
+--- a/tools/run_v095_tests.sh
++++ b/tools/run_v096_tests.sh
+@@ -6,12 +6,12 @@ python3 tools/pinmap_power_regression_test.py
+ make safe CC="${ARM_CC:-clang}" OBJCOPY="${ARM_OBJCOPY:-llvm-objcopy}" OBJDUMP="${ARM_OBJDUMP:-llvm-objdump}"
+ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+ checks=(
+-  'first_spin_safety_host_test.c sensorless_control.c'
++  'first_spin_safety_host_test.c sensorless_control.c vesc_ebics_flux.c'
+   'foc_adc_contract_host_test.c foc_adc_contract.c stock_current_frontend.c'
+-  'foc_adc_motor_handoff_host_test.c foc_adc_motor_handoff.c sensorless_control.c'
+-  'motor_id_host_test.c motor_id.c sensorless_control.c'
+-  'sensorless_plant_host_test.c sensorless_control.c'
+-  'motor_core_host_test.c sensorless_control.c'
++  'foc_adc_motor_handoff_host_test.c foc_adc_motor_handoff.c sensorless_control.c vesc_ebics_flux.c'
++  'motor_id_host_test.c motor_id.c sensorless_control.c vesc_ebics_flux.c'
++  'sensorless_plant_host_test.c sensorless_control.c vesc_ebics_flux.c'
++  'motor_core_host_test.c sensorless_control.c vesc_ebics_flux.c'
+   'power_logic_host_test.c power_logic.c'
+   'iap_ack_host_test.c iap_proto.c'
+   'iap_transport_host_test.c iap_proto.c'
+@@ -23,8 +23,9 @@ checks=(
+   'test_stock_adc_mode_guard.c stock_adc_mode_guard.c stock_dual_adc_plan.c stock_current_frontend.c'
+   'test_ble_motor_probe.c motor_probe.c ble_motor_probe.c'
+ )
+-checks+=('motor_pipeline_host_test.c motor_pipeline.c foc_adc_contract.c stock_current_frontend.c sensorless_control.c')
++checks+=('motor_pipeline_host_test.c motor_pipeline.c foc_adc_contract.c stock_current_frontend.c sensorless_control.c vesc_ebics_flux.c')
+ checks+=('stock_tim1_gate_host_test.c stock_tim1_gate.c')
++checks+=('vesc_ebics_flux_host_test.c vesc_ebics_flux.c')
+ for check in "${checks[@]}"; do
+   read -ra files <<< "$check"
+   test="${files[0]}"; args=()
+@@ -45,12 +46,13 @@ for flags in '-DPOWER_STAGE_ARM_ALLOWED=1 -DSENSORLESS_RUN_ALLOWED=0' '-DPOWER_S
+   grep -q 'DRV126 gate profile ready; powered build still requires valid ADC timing and current scaling' "$TMP/reject.log"
+   echo "PASS: motor-power compile rejection $flags"
+ done
+-if [ "$(stat -c %s build/DeltaESC_G30D_v0_9_5_ble_syncsafe.bin)" -ge 53248 ]; then
++if [ "$(stat -c %s build/DeltaESC_G30D_v0_9_6_ble_syncsafe.bin)" -ge 53248 ]; then
+   echo 'FAIL: exceeds G30 active application region' >&2; exit 1
+ fi
+ if command -v llvm-nm >/dev/null 2>&1; then
+-  llvm-nm build/DeltaESC_G30D_v0_9_5_ble_syncsafe.elf | grep -q 'motor_id_accept'
+-  llvm-nm build/DeltaESC_G30D_v0_9_5_ble_syncsafe.elf | grep -q 'motor_id_commit'
++  llvm-nm build/DeltaESC_G30D_v0_9_6_ble_syncsafe.elf | grep -q 'motor_id_accept'
++  llvm-nm build/DeltaESC_G30D_v0_9_6_ble_syncsafe.elf | grep -q 'motor_id_commit'
++  if llvm-nm -u build/DeltaESC_G30D_v0_9_6_ble_syncsafe.elf | grep -E '__aeabi_(f|d|[ui]?ldiv)'; then echo 'FAIL: floating point / 64-bit division in Cortex-M3 link' >&2; exit 1; fi
+ fi
+ if ! grep -q 'case 0xF7u:' src/main.c; then
+   echo 'FAIL: Motor ID read-only status missing' >&2; exit 1
+diff --git a/tools/vesc_ebics_flux_host_test.c b/tools/vesc_ebics_flux_host_test.c
+new file mode 100644
+index 0000000..03914b3
+--- /dev/null
++++ b/tools/vesc_ebics_flux_host_test.c
+@@ -0,0 +1,34 @@
++/* Host-only model test for the adapted VESC Ortega / EBiCS integer flux observer.
++ * The synthetic voltage follows an ideal permanent-magnet flux derivative,
++ * with no load or sensor offsets. No physical hardware validated. */
++#include <math.h>
++#include <stdio.h>
++#include <stdint.h>
++#include "vesc_ebics_flux.h"
++#define PI 3.14159265358979323846
++#define REQ(x) do { if(!(x)) { fprintf(stderr,"FAIL %s:%d: %s\n",__FILE__,__LINE__,#x); return 1; } }while(0)
++int main(void) {
++    vesc_ebics_flux_t f={0};
++    const double lambda=0.015, speed=80.0;
++    int good=0,bad=0;
++    for(int i=0;i<80000;i++) {
++        const double t=(double)i/4000.0, angle=t*speed;
++        const int32_t va=(int32_t)lround(-speed*lambda*sin(angle)*1000.0);
++        const int32_t vb=(int32_t)lround( speed*lambda*cos(angle)*1000.0);
++        REQ(vesc_ebics_flux_step(&f,va,vb,0,0,100000u,100000u,15000u));
++        if (i>20000 && i%100==0) {
++            const double observed=atan2((double)f.flux_beta_nwb,(double)f.flux_alpha_nwb);
++            const double error=remainder(observed-angle,2.0*PI);
++            if(fabs(error)<(20.0*PI/180.0)) good++; else bad++;
++        }
++    }
++    fprintf(stderr,"flux observer angle within 20 degrees: %d/%d\n",good,good+bad);
++    REQ(good>450 && bad<150);
++    REQ(f.valid);
++    REQ(!vesc_ebics_flux_step(&f,0,0,0,0,0,100000u,15000u));
++    REQ(!f.valid);
++    vesc_ebics_flux_reset(&f);
++    REQ(!f.samples && !f.x_alpha_nwb && !f.x_beta_nwb && !f.valid);
++    puts("PASS VESC Ortega / EBiCS fixed-point observer: synthetic flux phase, reset, invalid config");
++    return 0;
++}
