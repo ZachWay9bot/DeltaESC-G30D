@@ -1,0 +1,629 @@
+diff --git a/Makefile b/Makefile
+--- a/Makefile
++++ b/Makefile
+@@ -3,19 +3,19 @@
+ OBJDUMP ?= llvm-objdump
+ CFLAGS_COMMON = -g3 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Oz -Wall -Wextra -Werror -Isrc
+ LDFLAGS_COMMON = --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -nostdlib -Wl,-T,linker.ld,--gc-sections
+-SRC = src/main.c src/sensorless_control.c src/vesc_ebics_flux.c src/ninebot_link.c src/iap_update.c src/iap_proto.c src/iap_control.c src/dashboard_runtime.c src/power_logic.c src/motor_probe.c src/ble_motor_probe.c src/commissioning_guard.c src/stock_current_frontend.c src/g30_adc_current_window.c src/g30_adc_current_offsets.c src/stock_dual_adc_plan.c src/stock_dual_adc_runtime.c src/stock_adc_quality.c src/stock_adc_snapshot.c src/stock_adc_timing.c src/stock_adc_correlated.c src/stock_adc_mode_guard.c src/g30_fixed_scan.c src/motor_config_txn.c src/foc_adc_contract.c src/foc_adc_motor_handoff.c src/motor_id.c src/motor_id_auto.c src/motor_id_vector_output.c src/motor_pipeline.c src/stock_tim1_gate.c src/aeabi_mem.c
+-SAFE_ELF = build/DeltaESC_G30D_v0_9_10_ble_syncsafe.elf
+-SAFE_BIN = build/DeltaESC_G30D_v0_9_10_ble_syncsafe.bin
+-ACTIVE_ELF = build/DeltaESC_G30D_v0_9_10_ble_observer_zero_vector.elf
+-ACTIVE_BIN = build/DeltaESC_G30D_v0_9_10_ble_observer_zero_vector.bin
+-BENCH_ELF = build/DeltaESC_G30D_v0_9_10_ble_sensorless_bench.elf
+-BENCH_BIN = build/DeltaESC_G30D_v0_9_10_ble_sensorless_bench.bin
++SRC = src/main.c src/sensorless_control.c src/vesc_ebics_flux.c src/ninebot_link.c src/iap_update.c src/iap_proto.c src/iap_control.c src/dashboard_runtime.c src/power_logic.c src/motor_probe.c src/ble_motor_probe.c src/commissioning_guard.c src/stock_current_frontend.c src/g30_adc_current_window.c src/g30_adc_current_offsets.c src/stock_dual_adc_plan.c src/stock_dual_adc_runtime.c src/stock_adc_quality.c src/stock_adc_snapshot.c src/stock_adc_timing.c src/stock_adc_correlated.c src/stock_adc_mode_guard.c src/g30_fixed_scan.c src/motor_config_txn.c src/foc_adc_contract.c src/foc_adc_motor_handoff.c src/motor_id.c src/motor_id_auto.c src/motor_id_vector_output.c src/motor_id_adc_feedback.c src/motor_pipeline.c src/stock_tim1_gate.c src/aeabi_mem.c
++SAFE_ELF = build/DeltaESC_G30D_v0_9_11_ble_syncsafe.elf
++SAFE_BIN = build/DeltaESC_G30D_v0_9_11_ble_syncsafe.bin
++ACTIVE_ELF = build/DeltaESC_G30D_v0_9_11_ble_observer_zero_vector.elf
++ACTIVE_BIN = build/DeltaESC_G30D_v0_9_11_ble_observer_zero_vector.bin
++BENCH_ELF = build/DeltaESC_G30D_v0_9_11_ble_sensorless_bench.elf
++BENCH_BIN = build/DeltaESC_G30D_v0_9_11_ble_sensorless_bench.bin
+ all: safe
+ safe: $(SAFE_BIN)
+ build: ; mkdir -p build
+ $(SAFE_ELF): $(SRC) linker.ld | build
+-	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 -DSENSORLESS_CLOSED_LOOP_ALLOWED=1 $(SRC) $(LDFLAGS_COMMON) -Wl,--undefined=motor_id_accept -Wl,--undefined=motor_id_commit -Wl,--undefined=motor_id_vector_output_request -Wl,--undefined=motor_id_auto_tick -Wl,--undefined=motor_id_auto_bind_config -Wl,--undefined=g30_adc_current_flags -Wl,--undefined=g30_adc2_current_offset_normalize -Wl,-Map=build/v0_9_10_syncsafe.map -o $@
++	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 -DSENSORLESS_CLOSED_LOOP_ALLOWED=1 $(SRC) $(LDFLAGS_COMMON) -Wl,--undefined=motor_id_accept -Wl,--undefined=motor_id_commit -Wl,--undefined=motor_id_vector_output_request -Wl,--undefined=motor_id_adc_feedback_capture -Wl,--undefined=motor_id_auto_tick -Wl,--undefined=motor_id_auto_bind_config -Wl,--undefined=g30_adc_current_flags -Wl,--undefined=g30_adc2_current_offset_normalize -Wl,-Map=build/v0_9_11_syncsafe.map -o $@
+ $(SAFE_BIN): $(SAFE_ELF)
+ 	$(OBJCOPY) -O binary $< $@
+-	$(OBJDUMP) -h $< > build/v0_9_10_syncsafe_sections.txt
++	$(OBJDUMP) -h $< > build/v0_9_11_syncsafe_sections.txt
+ clean: ; rm -rf build
+diff --git a/src/main.c b/src/main.c
+--- a/src/main.c
++++ b/src/main.c
+@@ -4,6 +4,7 @@
+ #include "motor_id.h"
+ #include "motor_id_auto.h"
+ #include "motor_id_vector_output.h"
++#include "motor_id_adc_feedback.h"
+ #include "motor_pipeline.h"
+ #include "stock_tim1_gate.h"
+ #include "ninebot_link.h"
+@@ -50,13 +51,14 @@
+ #define HARD_OC_COUNTS                700u
+ #define ADC_STALE_MS                    5u
+ #define IRQ_ADC1_2 18u
++#define IRQ_TIM1_UP 25u
+ #define IRQ_USART2 38u
+ #define GATE_CCER_MASK STOCK_TIM1_GATE_CH_MASK
+ #define ADC_CCER_MASK STOCK_TIM1_GATE_ADC_CC4E
+ #define MAGIC_UNLOCK 0xC0DEu
+ #define PROTO_MAJOR 0u
+ #define PROTO_MINOR 2u
+-#define FW_BUILD 0x0910u
++#define FW_BUILD 0x0911u
+ #define COMM_DASH_STALE_MS 250u
+ #define COMM_INPUT_IDLE_MAX 3u
+ /* Gate I/O mapping is adopted from STOCK DRV126. This alone does not
+@@ -122,6 +124,7 @@
+  * The source-only build continues to deny physical bridge activation. */
+ static motor_id_auto_t g_motor_id_auto;
+ static motor_id_vector_output_t g_motor_id_vector;
++static motor_id_adc_feedback_t g_motor_id_feedback;
+ static volatile uint8_t g_motor_id_vector_owner;
+ static volatile uint32_t g_motor_id_vector_last_ms;
+ static motor_pipeline_t g_motor_pipeline;
+@@ -169,6 +172,7 @@
+ void Default_Handler(void);
+ void SysTick_Handler(void);
+ void ADC1_2_IRQHandler(void);
++void TIM1_UP_IRQHandler(void);
+ void USART2_IRQHandler(void);
+ static void power_stage_force_disarm(void);
+ 
+@@ -182,6 +186,7 @@
+     [11] = Default_Handler, [12] = Default_Handler, [13] = Default_Handler,
+     [14] = Default_Handler, [15] = SysTick_Handler,
+     [16u + IRQ_ADC1_2] = ADC1_2_IRQHandler,
++    [16u + IRQ_TIM1_UP] = TIM1_UP_IRQHandler,
+     [16u + IRQ_USART2] = USART2_IRQHandler
+ };
+ 
+@@ -238,6 +243,8 @@
+  * observer fault, ADC fault, shutdown, and dashboard watchdog. Never
+  * confuse the 50% duty software zero vector with hardware coast. */
+ static void power_stage_force_disarm(void) {
++    TIM_DIER(TIM1_BASE)&=~1u; /* TIM1 update IRQ only for Motor-ID PWM */
++    motor_id_adc_feedback_off(&g_motor_id_feedback);
+     TIM_CCER(TIM1_BASE)=stock_tim1_gate_ccer_off((uint16_t)TIM_CCER(TIM1_BASE));
+     gate_pins_to_safe_inputs();
+     __asm volatile("dsb" ::: "memory");
+@@ -369,6 +376,17 @@
+     if(!ok) {
+         power_stage_force_disarm();
+     } else {
++        /* CCR writes are PRELOADS. Publish only on the following physical
++         * TIM1 update IRQ, never at vector_mv() call time. Clearing UIF
++         * after all three writes prevents a previously pending update from
++         * certifying a vector that was not yet loaded by the timer. */
++        motor_id_adc_feedback_queue(&g_motor_id_feedback,
++            (uint16_t)TIM_CCR1(TIM1_BASE),
++            (uint16_t)TIM_CCR2(TIM1_BASE),
++            (uint16_t)TIM_CCR3(TIM1_BASE),angle_u16,
++            g_motor_id_vector.sector,g_motor_id_auto.command_epoch+1u);
++        TIM_SR(TIM1_BASE)&=~1u;
++        TIM_DIER(TIM1_BASE)|=1u;
+         g_motor_id_vector_last_ms=g_ms;
+     }
+     if(!(prior_primask&1u))irq_enable();
+@@ -580,6 +598,16 @@
+         g_poweroff_deadline_ms=g_ms;
+     }
+ }
++/* IRQ25: hardware TIM1 update event has transferred CCR preloads into
++ * active shadow registers. Priority above ADC IRQ means the ADC consumer
++ * cannot accidentally observe an unpublished/old vector. */
++void TIM1_UP_IRQHandler(void){
++    if(TIM_SR(TIM1_BASE)&1u){
++        TIM_SR(TIM1_BASE)&=~1u;
++        if(g_motor_id_vector_owner && g_power_armed)
++            motor_id_adc_feedback_on_update(&g_motor_id_feedback,DWT_CYCCNT);
++    }
++}
+ void USART2_IRQHandler(void){ninebot_link_irq();}
+ 
+ void ADC1_2_IRQHandler(void) {
+@@ -596,49 +624,52 @@
+         (uint16_t)TIM_CCER(TIM1_BASE),(uint16_t)TIM_BDTR(TIM1_BASE),
+         (uint16_t)TIM_SR(TIM1_BASE),t0);
+     if (g_power_armed && g_motor_id_vector_owner) {
+-        /* Motor-ID has exclusive TIM1 ownership. Never run the normal FOC
+-         * ISR, which would otherwise reject the unowned sample and kill
+-         * the requested pulse on its very first ADC interrupt.
+-         * This block is ONLY an immediate hardware-sample overcurrent veto:
+-         * it does NOT pretend to provide R/L/flux feedback to the sequencer. */
+-        const uint8_t sector=g_motor_id_vector.sector;
+-        const stock_adc_pair_t pair=stock_current_pair_for_sector(sector);
+-        const uint16_t raw1=(uint16_t)ADC_JDR1;
+-        uint16_t raw2=(uint16_t)ADC2_JDR1;
+-        const uint16_t offsets[3]={g_adc_offset[0],g_adc_offset[1],g_adc_offset[2]};
+-        const uint8_t offset_ok=g30_adc2_current_offset_normalize(
+-            sector,raw2,offsets,g_adc2_ch4_offset,g_adc2_ch5_offset,
+-            g_adc2_ch4_offset_valid,g_adc2_ch5_offset_valid,&raw2);
+-        uint8_t valid=(uint8_t)(sector>=1u && sector<=6u &&
+-            (sr2&ADC_SR_JEOC) &&
+-            (cr1&STOCK_ADC_MODE_REG_INJEC_SIMULT)==STOCK_ADC_MODE_REG_INJEC_SIMULT &&
+-            jsqr1==stock_current_jsqr_one(pair.adc1_channel) &&
+-            jsqr2==stock_current_jsqr_one(pair.adc2_channel) &&
+-            raw1<=4095u && raw2<=4095u && offset_ok &&
+-            (uint32_t)(g_ms-g_vbus_last_ms)<=100u);
+-        ADC_SR&=~ADC_SR_JEOC;
+-        ADC2_SR&=~ADC_SR_JEOC;
+-        if(valid) {
+-            /* Norm raw samples already refer to independent ADC1/ADC2
+-             * zero offsets; absolute counts here are not certified mA. */
+-            const stock_phase_currents_t z=stock_current_reconstruct_counts(
+-                sector,raw1,raw2,offsets);
+-            const uint16_t a=abs16s(z.ia),b=abs16s(z.ib),c=abs16s(z.ic);
+-            if(a>HARD_OC_COUNTS || b>HARD_OC_COUNTS || c>HARD_OC_COUNTS)
+-                valid=0u;
+-            else {
+-                uint16_t peak=a;
+-                if(b>peak)peak=b;
+-                if(c>peak)peak=c;
+-                g_last_abs_current=peak;
+-                if(peak>g_peak_abs_current)g_peak_abs_current=peak;
+-            }
+-        }
++        /* One physical ADC1/ADC2 injected pair, already in the owned
++         * stock sector. No blind use of requested mV or CCR preloads. */
++        const uint16_t raw1=(uint16_t)ADC_JDR1,raw2=(uint16_t)ADC2_JDR1;
++        const motor_id_adc_input_t in={
++            .now_cycles=t0,.clock_hz=SYSCLK_HZ,
++            .vbus_mv=(uint32_t)g_adc_raw[3]*14u,
++            .vbus_age_ms=g_ms-g_vbus_last_ms,
++            .jsqr1=jsqr1,.jsqr2=jsqr2,
++            .adc1_raw=raw1,.adc2_raw=raw2,
++            .offset={g_adc_offset[0],g_adc_offset[1],g_adc_offset[2]},
++            .adc2_ch4_offset=g_adc2_ch4_offset,
++            .adc2_ch5_offset=g_adc2_ch5_offset,
++            .tim1_arr=PWM_ARR,
++            .adc1_jeoc=(uint8_t)!!(sr1&ADC_SR_JEOC),
++            .adc2_jeoc=(uint8_t)!!(sr2&ADC_SR_JEOC),
++            .dual_mode_valid=(uint8_t)(
++                (cr1&STOCK_ADC_MODE_REG_INJEC_SIMULT)==STOCK_ADC_MODE_REG_INJEC_SIMULT),
++            .window_valid=(uint8_t)(
++                (g_timer_evidence.config_flags&~ADC_TIMING_GATE_ENABLED)==0u),
++            .adc2_ch4_offset_valid=g_adc2_ch4_offset_valid,
++            .adc2_ch5_offset_valid=g_adc2_ch5_offset_valid,
++            .current_scale_qualified=(uint8_t)(COMM_CURRENT_SCALE_HW_VALID && g_offset_cal_valid),
++            .timing_qualified=COMM_ADC_TIMING_HW_VALID
++        };
++        ADC_SR&=~ADC_SR_JEOC;ADC2_SR&=~ADC_SR_JEOC;
++        motor_id_auto_feedback_t fb={0};
++        const uint8_t valid=motor_id_adc_feedback_capture(
++            &g_motor_id_feedback,&in,&fb);
+         g_adc_samples++;
+         g_adc_last_ms=g_ms;
+-        if(!valid) {
++        if(valid){
++            g_motor_id_vector_last_ms=g_ms; /* real feedback keeps watchdog alive */
++            if(fb.command_epoch==g_motor_id_auto.command_epoch){
++                fb.throttle_idle=(uint8_t)(g_dash_throttle<=COMM_INPUT_IDLE_MAX);
++                fb.brake_active=g_dash_brake;
++                fb.fault_active=(uint8_t)(g_safety_latched || g_poweroff_requested);
++                fb.stop_requested=(uint8_t)(iap_update_active() || iap_update_pending());
++                if(!motor_id_auto_tick(&g_motor_id_auto,t0/(SYSCLK_HZ/1000000u),&fb)){
++                    g_safety_latched=0xA01Au;
++                    power_stage_force_disarm();
++                }
++            }
++        }else if(!g_motor_id_feedback.pending &&
++                 g_motor_id_feedback.active_valid){
++            /* Bad/misaligned actual sample with no in-flight preload. */
+             g_safety_latched=0xA019u;
+-            g_overcurrent_trips++;
+             power_stage_force_disarm();
+         }
+         return;
+@@ -766,6 +797,32 @@
+         return;
+     }
+     for(unsigned i=0u;i<3u;i++)g_adc_raw[i]=g_fixed_scan.raw[i];
++    /* Real coast/rest feedback after physical gate isolation uses all three
++     * channels from the existing passive injected diagnostic scan. No
++     * fictitious current or PWM voltage is injected. Flux BEMF/speed are
++     * deliberately NOT supplied (separate point 2.3). */
++    if(g_motor_id_auto.state==ID_AUTO_L_REST ||
++       g_motor_id_auto.state==ID_AUTO_FLUX_COAST){
++        if(g_offset_cal_valid && COMM_CURRENT_SCALE_HW_VALID &&
++           COMM_ADC_TIMING_HW_VALID && !g_power_armed &&
++           g_fixed_scan.offset_valid &&
++           (uint32_t)(g_ms-g_vbus_last_ms)<=100u){
++            motor_id_auto_feedback_t fb={0};
++            fb.command_epoch=g_motor_id_auto.command_epoch;
++            fb.adc_valid=1u;fb.voltage_valid=1u;
++            fb.applied_voltage_mv=0;
++            fb.phase_current_ma=stock_current_nominal_counts_to_ma(
++                (int32_t)g_fixed_scan.raw[0]-(int32_t)g_adc_offset[0]);
++            fb.throttle_idle=(uint8_t)(g_dash_throttle<=COMM_INPUT_IDLE_MAX);
++            fb.brake_active=g_dash_brake;
++            fb.fault_active=(uint8_t)(g_safety_latched || g_poweroff_requested);
++            fb.stop_requested=(uint8_t)(iap_update_active() || iap_update_pending());
++            if(!motor_id_auto_tick(&g_motor_id_auto,t0/(SYSCLK_HZ/1000000u),&fb)){
++                g_safety_latched=0xA01Au;
++                power_stage_force_disarm();
++            }
++        }
++    }
+     if(g_offset_cal_active && g_fixed_scan.offset_valid){
+         for(unsigned i=0u;i<3u;i++)g_adc_offset[i]=g_fixed_scan.offsets[i];
+         g_offset_cal_active=0u;g_offset_cal_valid=1u;
+@@ -1157,6 +1214,9 @@
+     motor_config_txn_init(&g_motor_cfg,g_cfg_test_current_ma);
+     /* The real TIM1 vector callback is connected, but cannot arm in a
+      * sync-safe build. Current and voltage feedback remain a separate task. */
++    motor_id_adc_feedback_init(&g_motor_id_feedback);
++    NVIC_IPR8(IRQ_TIM1_UP)=0x10u;
++    NVIC_ISER0=(1u<<IRQ_TIM1_UP);
+     const motor_id_vector_io_t vector_io={motor_hw_select_adc,motor_hw_pwm,
+                                          motor_hw_arm,motor_id_hw_gate_off};
+     motor_id_vector_output_init(&g_motor_id_vector,vector_io,0);
+diff --git a/src/motor_id_adc_feedback.h b/src/motor_id_adc_feedback.h
+new file mode 100644
+--- /dev/null
++++ b/src/motor_id_adc_feedback.h
+@@ -0,0 +1,55 @@
++/* DeltaESC v0.9.11: coherent injected-ADC -> Motor-ID feedback.
++ * TIM1 preloads are never treated as currently effective duty cycles.
++ * Source-only until analogue calibration and aperture verified on hardware. */
++#pragma once
++#include <stdint.h>
++#include "motor_id_auto.h"
++
++typedef struct {
++    uint16_t ccr[3];
++    uint16_t angle_u16;
++    uint8_t sector;
++    uint32_t epoch;
++} motor_id_pwm_frame_t;
++
++typedef struct {
++    motor_id_pwm_frame_t queued;
++    motor_id_pwm_frame_t active;
++    uint32_t active_update_cycle;
++    uint32_t samples_accepted;
++    uint32_t samples_rejected;
++    uint8_t pending;
++    uint8_t active_valid;
++} motor_id_adc_feedback_t;
++
++typedef struct {
++    uint32_t now_cycles;
++    uint32_t clock_hz;
++    uint32_t vbus_age_ms;
++    uint32_t vbus_mv;
++    uint32_t jsqr1,jsqr2;
++    uint16_t adc1_raw,adc2_raw;
++    uint16_t offset[3];
++    uint16_t adc2_ch4_offset,adc2_ch5_offset;
++    uint16_t tim1_arr;
++    uint8_t adc1_jeoc,adc2_jeoc;
++    uint8_t dual_mode_valid,window_valid;
++    uint8_t adc2_ch4_offset_valid,adc2_ch5_offset_valid;
++    uint8_t current_scale_qualified;
++    uint8_t timing_qualified;
++} motor_id_adc_input_t;
++
++void motor_id_adc_feedback_init(motor_id_adc_feedback_t *f);
++/* From vector callback while interrupts are masked, AFTER CCR preloads write.
++ * `epoch` is motor_id_auto.command_epoch + 1 (increment after callback). */
++void motor_id_adc_feedback_queue(motor_id_adc_feedback_t *f,
++    uint16_t c1,uint16_t c2,uint16_t c3,uint16_t angle,
++    uint8_t sector,uint32_t epoch);
++/* Called solely on a physical TIM1 update interrupt after preload transfer. */
++void motor_id_adc_feedback_on_update(motor_id_adc_feedback_t *f,uint32_t cycle);
++/* Immediate physical gate-off invalidates current effective PWM snapshot. */
++void motor_id_adc_feedback_off(motor_id_adc_feedback_t *f);
++/* Reconstructs REAL sampled ADC current, voltage from applied PWM and
++ * sampled VBUS, electrical angle projection. Fails closed on invalid data. */
++uint8_t motor_id_adc_feedback_capture(motor_id_adc_feedback_t *f,
++    const motor_id_adc_input_t *in,motor_id_auto_feedback_t *out);
+diff --git a/src/motor_id_adc_feedback.c b/src/motor_id_adc_feedback.c
+new file mode 100644
+--- /dev/null
++++ b/src/motor_id_adc_feedback.c
+@@ -0,0 +1,98 @@
++#include "motor_id_adc_feedback.h"
++#include "stock_current_frontend.h"
++#include "g30_adc_current_offsets.h"
++
++static const int16_t sine[256]={
++#include "sin_q15.inc"
++};
++static int32_t sine_q15(uint16_t angle){return sine[angle>>8];}
++static int32_t cosine_q15(uint16_t angle){return sine[(uint8_t)((angle>>8)+64u)];}
++void motor_id_adc_feedback_init(motor_id_adc_feedback_t *f){
++    if(f)*f=(motor_id_adc_feedback_t){0};
++}
++void motor_id_adc_feedback_queue(motor_id_adc_feedback_t *f,
++    uint16_t c1,uint16_t c2,uint16_t c3,uint16_t angle,
++    uint8_t sector,uint32_t epoch){
++    if(!f)return;
++    f->queued.ccr[0]=c1;f->queued.ccr[1]=c2;f->queued.ccr[2]=c3;
++    f->queued.angle_u16=angle;f->queued.sector=sector;f->queued.epoch=epoch;
++    f->pending=1u;
++}
++void motor_id_adc_feedback_on_update(motor_id_adc_feedback_t *f,uint32_t cycle){
++    if(!f)return;
++    if(f->pending){
++        f->active=f->queued;
++        f->active_valid=1u;
++        f->pending=0u;
++    }
++    if(f->active_valid)f->active_update_cycle=cycle;
++}
++void motor_id_adc_feedback_off(motor_id_adc_feedback_t *f){
++    if(!f)return;
++    f->active_valid=0u;f->pending=0u;f->active.epoch=0u;
++}
++static uint8_t fail(motor_id_adc_feedback_t *f){
++    if(f && f->samples_rejected!=0xffffffffu)f->samples_rejected++;
++    return 0u;
++}
++uint8_t motor_id_adc_feedback_capture(motor_id_adc_feedback_t *f,
++    const motor_id_adc_input_t *in,motor_id_auto_feedback_t *out){
++    if(!f||!in||!out)return 0u;
++    *out=(motor_id_auto_feedback_t){0};
++    const motor_id_pwm_frame_t *a=&f->active;
++    if(!f->active_valid || !in->adc1_jeoc || !in->adc2_jeoc ||
++       !in->dual_mode_valid || !in->window_valid ||
++       !in->current_scale_qualified || !in->timing_qualified ||
++       !in->clock_hz || !in->tim1_arr || a->sector<1u || a->sector>6u ||
++       !a->epoch || (uint32_t)(in->now_cycles-f->active_update_cycle)==0u ||
++       (uint32_t)(in->now_cycles-f->active_update_cycle)>in->clock_hz/4000u ||
++       in->vbus_age_ms>100u || in->vbus_mv<5000u || in->vbus_mv>60000u ||
++       in->adc1_raw>4095u || in->adc2_raw>4095u) return fail(f);
++    const stock_adc_pair_t pair=stock_current_pair_for_sector(a->sector);
++    /* Active CCR window, not the readable CCR preload register. */
++    if(a->ccr[0]>in->tim1_arr || a->ccr[1]>in->tim1_arr ||
++       a->ccr[2]>in->tim1_arr ||
++       a->ccr[pair.adc1_channel-3u]>3744u ||
++       a->ccr[pair.adc2_channel-3u]>3744u)return fail(f);
++    if(in->jsqr1!=stock_current_jsqr_one(pair.adc1_channel) ||
++       in->jsqr2!=stock_current_jsqr_one(pair.adc2_channel))return fail(f);
++    uint16_t adc2=in->adc2_raw;
++    if(!g30_adc2_current_offset_normalize(a->sector,adc2,in->offset,
++       in->adc2_ch4_offset,in->adc2_ch5_offset,
++       in->adc2_ch4_offset_valid,in->adc2_ch5_offset_valid,&adc2))return fail(f);
++    const stock_phase_currents_t p=stock_current_reconstruct_counts(a->sector,
++        in->adc1_raw,adc2,in->offset);
++    /* Reject all three raw phase currents BEFORE projection. Otherwise
++     * a large quadrature current could hide behind a tiny measured d axis. */
++    if(p.ia>40 || p.ia< -40 || p.ib>40 || p.ib< -40 ||
++       p.ic>40 || p.ic< -40)return fail(f);
++    /* Clarke alpha=Ia, beta=(Ib-Ic)/sqrt(3); then d axis.
++     * Convert counts to nominal mA BEFORE Q15 angle multiplication;
++     * doing the reverse loses one whole 50mA ADC LSB at angle zero. */
++    const int32_t ia_ma=stock_current_nominal_counts_to_ma(p.ia);
++    const int32_t ib_ma=stock_current_nominal_counts_to_ma(p.ib);
++    const int32_t ic_ma=stock_current_nominal_counts_to_ma(p.ic);
++    const int32_t ibeta_ma=(ib_ma-ic_ma)*18919/32768;
++    const int32_t id_ma=(ia_ma*cosine_q15(a->angle_u16))/32768 +
++                        (ibeta_ma*sine_q15(a->angle_u16))/32768;
++    if(id_ma>2000 || id_ma< -2000)return fail(f);
++    /* Actual DC bus measurement multiplied by active CCR voltage vector.
++     * CCx preload values cannot be used until TIM1 update IRQ publishes them.
++     * Scalar d-axis voltage, NOT the raw command amplitude. */
++    const int32_t va=(int32_t)(in->vbus_mv *
++         (2*(int32_t)a->ccr[0]-(int32_t)a->ccr[1]-(int32_t)a->ccr[2]) /
++         (3*(int32_t)in->tim1_arr));
++    const int32_t vb=((int32_t)in->vbus_mv *
++         ((int32_t)a->ccr[1]-(int32_t)a->ccr[2]) /
++         (int32_t)in->tim1_arr)*18919/32768;
++    const int32_t vd=(va*cosine_q15(a->angle_u16))/32768 +
++                     (vb*sine_q15(a->angle_u16))/32768;
++    if(vd>2000 || vd< -2000)return fail(f);
++    out->command_epoch=a->epoch;
++    out->applied_voltage_mv=vd;
++    out->phase_current_ma=id_ma;
++    out->adc_valid=1u;out->voltage_valid=1u;
++    /* BEMF/speed explicitly remain unavailable until separate point 2.3. */
++    if(f->samples_accepted!=0xffffffffu)f->samples_accepted++;
++    return 1u;
++}
+diff --git a/tools/motor_id_adc_feedback_host_test.c b/tools/motor_id_adc_feedback_host_test.c
+new file mode 100644
+--- /dev/null
++++ b/tools/motor_id_adc_feedback_host_test.c
+@@ -0,0 +1,92 @@
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include "motor_id_adc_feedback.h"
++#include "stock_current_frontend.h"
++
++#define CHECK(x) do { if(!(x)){fprintf(stderr,"FAIL line %d: %s\n",__LINE__,#x);exit(1);} }while(0)
++static motor_id_adc_feedback_t f;
++static motor_id_auto_feedback_t out;
++static motor_id_adc_input_t in;
++static void setup(void){
++    motor_id_adc_feedback_init(&f);
++    in=(motor_id_adc_input_t){0};
++    in.clock_hz=64000000u;in.now_cycles=200000;
++    in.vbus_mv=36000;in.tim1_arr=4000;
++    in.offset[0]=2048;in.offset[1]=2048;in.offset[2]=2048;
++    in.adc2_ch4_offset=2048;in.adc2_ch5_offset=2048;
++    in.adc2_ch4_offset_valid=1;in.adc2_ch5_offset_valid=1;
++    in.adc1_jeoc=1;in.adc2_jeoc=1;in.dual_mode_valid=1;
++    in.window_valid=1;in.current_scale_qualified=1;in.timing_qualified=1;
++    in.adc1_raw=2049;in.adc2_raw=2049;
++    in.jsqr1=stock_current_jsqr_one(4);in.jsqr2=stock_current_jsqr_one(5);
++}
++static void latch(uint32_t epoch){
++    motor_id_adc_feedback_queue(&f,2040,1980,1980,0,1,epoch);
++    motor_id_adc_feedback_on_update(&f,in.now_cycles-1000);
++}
++int main(void){
++    setup();
++    CHECK(!motor_id_adc_feedback_capture(&f,&in,&out)); /* no physical UEV */
++    motor_id_adc_feedback_queue(&f,2040,1980,1980,0,1,7);
++    CHECK(!motor_id_adc_feedback_capture(&f,&in,&out)); /* queued != applied */
++    motor_id_adc_feedback_on_update(&f,in.now_cycles-1000);
++    CHECK(motor_id_adc_feedback_capture(&f,&in,&out));
++    CHECK(out.adc_valid && out.voltage_valid && out.command_epoch==7);
++    CHECK(out.applied_voltage_mv>=350 && out.applied_voltage_mv<=370);
++    CHECK(out.phase_current_ma>=95 && out.phase_current_ma<=110);
++    CHECK(!out.bemf_valid && !out.speed_valid); /* point 2.3 still separate */
++    CHECK(f.samples_accepted==1);
++    in.jsqr1=stock_current_jsqr_one(3);
++    CHECK(!motor_id_adc_feedback_capture(&f,&in,&out));
++    CHECK(!out.adc_valid && !out.voltage_valid);
++    in.jsqr1=stock_current_jsqr_one(4);
++    in.adc2_ch5_offset_valid=0;
++    CHECK(!motor_id_adc_feedback_capture(&f,&in,&out));
++    in.adc2_ch5_offset_valid=1;
++    in.adc2_jeoc=0;
++    CHECK(!motor_id_adc_feedback_capture(&f,&in,&out));
++    in.adc2_jeoc=1;
++    in.current_scale_qualified=0;
++    CHECK(!motor_id_adc_feedback_capture(&f,&in,&out));
++    in.current_scale_qualified=1;
++    in.timing_qualified=0;
++    CHECK(!motor_id_adc_feedback_capture(&f,&in,&out));
++    in.timing_qualified=1;
++    in.now_cycles+=20000; /* >250us after last TIM1 update */
++    CHECK(!motor_id_adc_feedback_capture(&f,&in,&out));
++    motor_id_adc_feedback_on_update(&f,in.now_cycles-1000);
++    CHECK(motor_id_adc_feedback_capture(&f,&in,&out));
++    in.vbus_age_ms=101;
++    CHECK(!motor_id_adc_feedback_capture(&f,&in,&out));
++    in.vbus_age_ms=0;
++    in.vbus_mv=0;
++    CHECK(!motor_id_adc_feedback_capture(&f,&in,&out));
++    in.vbus_mv=36000;
++    in.adc2_raw=4096;
++    CHECK(!motor_id_adc_feedback_capture(&f,&in,&out));
++    in.adc2_raw=2049;
++    motor_id_adc_feedback_off(&f);
++    CHECK(!motor_id_adc_feedback_capture(&f,&in,&out));
++    CHECK(!f.active_valid && !f.pending);
++    /* Full 4-quadrant projection, reconstructed applied voltage signed. */
++    for(int n=0;n<4;n++){
++        setup();
++        const uint16_t angle=(uint16_t)(n*16384);
++        const uint8_t sector=(n==0)?1:(n==1)?2:(n==2)?4:5;
++        const stock_adc_pair_t p=stock_current_pair_for_sector(sector);
++        in.jsqr1=stock_current_jsqr_one(p.adc1_channel);
++        in.jsqr2=stock_current_jsqr_one(p.adc2_channel);
++        motor_id_adc_feedback_queue(&f,2040,1980,1980,angle,sector,100+n);
++        motor_id_adc_feedback_on_update(&f,in.now_cycles-1000);
++        CHECK(motor_id_adc_feedback_capture(&f,&in,&out));
++        CHECK(out.command_epoch==(uint32_t)(100+n));
++        CHECK(out.applied_voltage_mv<=400 && out.applied_voltage_mv>=-400);
++    }
++    setup();latch(3);
++    in.adc2_ch5_offset=2028;in.adc2_raw=2029; /* channel offset independent */
++    CHECK(motor_id_adc_feedback_capture(&f,&in,&out));
++    CHECK(out.phase_current_ma>=95 && out.phase_current_ma<=110);
++    puts("PASS: v0.9.11 ADC feedback: update shadow promotion, 6 validation classes, four angles, offsets, epoch, sample time, gate-off");
++    return 0;
++}
+diff --git a/tools/run_v101_tests.sh b/tools/run_v101_tests.sh
+new file mode 100644
+--- /dev/null
++++ b/tools/run_v101_tests.sh
+@@ -0,0 +1,101 @@
++#!/usr/bin/env bash
++# Software-only checks. No external hardware, no flashing, no motor enable.
++set -euo pipefail
++cd "$(dirname "$0")/.."
++python3 tools/pinmap_power_regression_test.py
++make safe CC="${ARM_CC:-clang}" OBJCOPY="${ARM_OBJCOPY:-llvm-objcopy}" OBJDUMP="${ARM_OBJDUMP:-llvm-objdump}"
++TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
++checks=(
++  'first_spin_safety_host_test.c sensorless_control.c vesc_ebics_flux.c'
++  'foc_adc_contract_host_test.c foc_adc_contract.c stock_current_frontend.c'
++  'foc_adc_motor_handoff_host_test.c foc_adc_motor_handoff.c sensorless_control.c vesc_ebics_flux.c'
++  'motor_id_host_test.c motor_id.c sensorless_control.c vesc_ebics_flux.c'
++  'sensorless_plant_host_test.c sensorless_control.c vesc_ebics_flux.c'
++  'motor_core_host_test.c sensorless_control.c vesc_ebics_flux.c'
++  'power_logic_host_test.c power_logic.c'
++  'iap_ack_host_test.c iap_proto.c'
++  'iap_transport_host_test.c iap_proto.c'
++  'stock_adc_timing_host_test.c stock_adc_timing.c'
++  'stock_adc_quality_host_test.c stock_adc_quality.c stock_current_frontend.c'
++  'stock_adc_snapshot_host_test.c stock_adc_snapshot.c stock_current_frontend.c'
++  'stock_dual_adc_runtime_host_test.c stock_dual_adc_runtime.c stock_dual_adc_plan.c stock_current_frontend.c'
++  'test_g30_fixed_scan.c g30_fixed_scan.c'
++  'test_stock_adc_mode_guard.c stock_adc_mode_guard.c stock_dual_adc_plan.c stock_current_frontend.c'
++  'test_ble_motor_probe.c motor_probe.c ble_motor_probe.c'
++)
++checks+=('motor_pipeline_host_test.c motor_pipeline.c foc_adc_contract.c stock_current_frontend.c sensorless_control.c vesc_ebics_flux.c')
++checks+=('stock_tim1_gate_host_test.c stock_tim1_gate.c')
++checks+=('vesc_ebics_flux_host_test.c vesc_ebics_flux.c')
++checks+=('g30_adc_current_window_host_test.c g30_adc_current_window.c stock_current_frontend.c')
++checks+=('g30_adc_current_offsets_host_test.c g30_adc_current_offsets.c')
++checks+=('drv126_adc_golden_host_test.c stock_current_frontend.c')
++checks+=('motor_id_auto_host_test.c motor_id_auto.c motor_id.c motor_config_txn.c sensorless_control.c vesc_ebics_flux.c')
++checks+=('motor_id_vector_output_host_test.c motor_id_vector_output.c sensorless_control.c vesc_ebics_flux.c')
++checks+=('motor_id_adc_feedback_host_test.c motor_id_adc_feedback.c g30_adc_current_offsets.c')
++for check in "${checks[@]}"; do
++  read -ra files <<< "$check"
++  test="${files[0]}"; args=()
++  for f in "${files[@]:1}"; do args+=("src/$f"); done
++  # Sensorless now calls the same physical-count model as ADC; avoid
++  # duplicate objects for tests already naming stock_current_frontend.c.
++  if [[ " $check " != *" stock_current_frontend.c "* ]]; then args+=("src/stock_current_frontend.c"); fi
++  extra_flags=()
++  if [ "$test" = sensorless_plant_host_test.c ] || [ "$test" = motor_pipeline_host_test.c ]; then
++      extra_flags+=(-DSENSORLESS_CLOSED_LOOP_ALLOWED=1)
++  fi
++  gcc -std=c11 -O1 -g -fsanitize=undefined -Isrc "${extra_flags[@]}" "tools/$test" "${args[@]}" -lm -o "$TMP/${test%.c}"
++  "$TMP/${test%.c}"
++  echo "PASS: $test"
++done
++for flags in '-DPOWER_STAGE_ARM_ALLOWED=1 -DSENSORLESS_RUN_ALLOWED=0' '-DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=1'; do
++  # shellcheck disable=SC2086
++  if "${ARM_CC:-clang}" --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -Isrc $flags -c src/main.c -o "$TMP/bad.o" >"$TMP/reject.log" 2>&1; then
++    echo 'FAIL: unexpectedly permitted motor power build' >&2; exit 1
++  fi
++  grep -q 'DRV126 gate profile ready; powered build still requires valid ADC timing and current scaling' "$TMP/reject.log"
++  echo "PASS: motor-power compile rejection $flags"
++done
++if [ "$(stat -c %s build/DeltaESC_G30D_v0_9_11_ble_syncsafe.bin)" -ge 53248 ]; then
++  echo 'FAIL: exceeds G30 active application region' >&2; exit 1
++fi
++if command -v llvm-nm >/dev/null 2>&1; then
++  llvm-nm build/DeltaESC_G30D_v0_9_11_ble_syncsafe.elf | grep -q 'motor_id_accept'
++  llvm-nm build/DeltaESC_G30D_v0_9_11_ble_syncsafe.elf | grep -q 'motor_id_commit'
++  if llvm-nm -u build/DeltaESC_G30D_v0_9_11_ble_syncsafe.elf | grep -E '__aeabi_(f|d|[ui]?ldiv)'; then echo 'FAIL: floating point / 64-bit division in Cortex-M3 link' >&2; exit 1; fi
++fi
++# Keep the complete symbol table in a file to avoid SIGPIPE with pipefail.
++llvm-objdump -t build/DeltaESC_G30D_v0_9_11_ble_syncsafe.elf > "$TMP/v098_symbols.txt"
++if ! grep -q 'g30_adc_current_flags' "$TMP/v098_symbols.txt"; then
++  echo 'FAIL: ADC timing contract is not linked into Cortex-M3 ELF' >&2; exit 1
++fi
++if ! grep -q 'motor_id_auto_tick' "$TMP/v098_symbols.txt"; then
++  echo 'FAIL: Motor ID auto sequencer not linked into Cortex-M3' >&2; exit 1
++fi
++if ! grep -q 'g30_adc2_current_offset_normalize' "$TMP/v098_symbols.txt"; then
++  echo 'FAIL: ADC2 channel offset normalization is not linked into Cortex-M3 ELF' >&2; exit 1
++fi
++if ! grep -q 'case 0xF7u:' src/main.c; then
++  echo 'FAIL: Motor ID read-only status missing' >&2; exit 1
++fi
++if ! grep -Fq 'const motor_id_auto_io_t id_io={motor_id_hw_vector_mv,motor_id_hw_gate_off,0};' src/main.c; then
++  echo 'FAIL: Motor-ID vector_mv not wired to target firmware' >&2; exit 1
++fi
++if ! grep -Fq 'g_motor_id_vector_owner' src/main.c; then
++  echo 'FAIL: PWM ownership arbitration missing' >&2; exit 1
++fi
++echo 'PASS: v0.9.11 Motor-ID vector_mv to stock TIM1/ADC actuator (source-only, no hardware enable)' 
++
++if [ -n "${DRV126_STOCK_BIN:-}" ]; then
++    python3 tools/audit_drv126_adc_stock.py "$DRV126_STOCK_BIN"
++fi
++
++# Strict v0.9.11 integration checks: MCU event IRQ, captured real JDR, epoch,
++# no unqualified build and no invented flux feedback.
++grep -Fq '[16u + IRQ_TIM1_UP] = TIM1_UP_IRQHandler' src/main.c
++grep -Fq 'motor_id_adc_feedback_queue(&g_motor_id_feedback' src/main.c
++grep -Fq 'motor_id_adc_feedback_capture(' src/main.c
++grep -Fq 'motor_id_auto_tick(&g_motor_id_auto,t0/' src/main.c
++grep -Fq 'fb.command_epoch==g_motor_id_auto.command_epoch' src/main.c
++grep -Fq 'COMM_CURRENT_SCALE_HW_VALID 0u' src/main.c
++grep -Fq 'COMM_ADC_TIMING_HW_VALID 0u' src/main.c
++printf 'PASS: v0.9.11 TIM1 UEV to ADC coherent Motor-ID feedback integrated, motor gates remain disabled\n'
