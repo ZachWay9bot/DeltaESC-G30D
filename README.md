@@ -14,6 +14,9 @@
 > [!WARNING]
 > **2026-10-10 actual G30D power-button SWD correction:** GPIOA_IDR PA12 was HIGH (`0xD804`) both released and **while button pressed**; GPIOC_IDR PC14 was LOW (`0x0000`) both released and in button test. **Neither PA12 nor PC14 is now proven to be the direct button input**; any prior README/documentation claiming confirmed PC14 active-high or PA12 active-low is superseded by these user measurements. The stock G30 dashboard has a **dedicated green button wire that grounds to black**, separate from yellow UART, and may switch upstream power-latch electronics. PB1 is measured **analog input** and PA11 is measured **HIGH output** in idle. Both v0.9.0 (PA12) and v0.9.1 (PC14) GPIO assumptions remain unsuitable for physical flash or active motor release. [Source measurements and citations](https://github.com/ZachWay9bot/DeltaESC-G30D/blob/dev/v0.9.2-mt8006a-release-guard/v0.9.2/DRV126_SWD_BUTTON_FOLLOWUP_2026-10-10.md). **NO FLASH / NO MOTOR APPROVAL.**
 >
+
+> **Latest real-hardware evidence:** The [v0.9.15 hardware-evidence audit](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/dev/v0.9.15-real-swd-hardware-evidence-audit/v0.9.15) reconciles 22 real SWD idle register reads, the already recorded pressed PA12/PC14 non-transitions and the G30D MT8006A/AMP_LIM schematic. PB12 is high as input at idle, TIM1.BKE=0, TIM1.AOE=1, LOCK=1; the v0.9.14 R/L/flux motor-detect firmware passes software CI but **has no real electrical motor-test authorization**. No further routine ST-Link idle/button read is required; analog/driver protection, current scaling and a current-limited test bench remain mandatory.
+
 ## Canonical development references (2026-10-09)
 
 The default `main` branch is a **repository index**, not the latest firmware. Do not select firmware by looking at the default branch or by choosing the highest version number alone.
