@@ -1,0 +1,46 @@
+name: DeltaESC v0.9.4 ADC FOC TIM1 gate-off integration
+on:
+  push:
+    branches: [dev/v0.9.4-end-to-end-adc-foc-tim1-gateoff]
+    paths:
+      - 'v0.9.4/**'
+      - '.github/workflows/v094-integrated-motor-path.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  cortex-m3-integrated-motor:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Cortex M3 toolchain
+        run: sudo apt-get update -qq && sudo apt-get install -y clang-18 llvm-18 gcc
+      - name: Download pinned baseline v0.9.0 (source only)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p base source
+          gh run download 37996878172 --repo "${{ github.repository }}" --name DeltaESC-v0.9.0-FIRSTSPIN-STOP-SAFETY-GATEOFF-SOURCE-ONLY --dir base
+          echo "b66dc23226b18d8936c4d526f3a78d69e6b8c927e40ecc4c2dc84277ceee89d4  base/DeltaESC_v090_FIRSTSPIN_STOP_SAFETY_GATEOFF_SOURCE_ONLY.tar.xz" | sha256sum -c -
+          tar -xJf base/DeltaESC_v090_FIRSTSPIN_STOP_SAFETY_GATEOFF_SOURCE_ONLY.tar.xz -C source
+      - name: Apply unmodified v0.9.1 v0.9.2 v0.9.3 overlays, then v0.9.4
+        run: |
+          set -euo pipefail
+          patch -s --batch --forward -d source -p1 < v0.9.1/v091_pinmap_safety.patch
+          cp v0.9.1/tools/pinmap_power_regression_test.py source/tools/
+          cp v0.9.1/tools/run_v091_tests.sh source/tools/
+          patch -s --batch --forward -d source -p1 < v0.9.2/v092_foc_adc_contract.patch
+          patch -s --batch --forward -d source -p1 < v0.9.3/v093_motor_id.patch
+          echo '8b1e275b90e265f5d26a53416680703c4b4e7d9b5c5b381772d702074076143e  v0.9.4/v094_motor_pipeline.patch' | sha256sum -c -
+          patch -s --batch --forward -d source -p1 < v0.9.4/v094_motor_pipeline.patch
+      - name: Full STM32F103 link, 17 host suites and hard no-motor compile assertions
+        run: |
+          set -euo pipefail
+          (cd source && ARM_CC=clang-18 ARM_OBJCOPY=llvm-objcopy-18 ARM_OBJDUMP=llvm-objdump-18 bash tools/run_v094_tests.sh)
+          test "$(stat -c %s source/build/DeltaESC_G30D_v0_9_4_ble_syncsafe.bin)" -lt 53248
+          grep -Fq '#define COMM_GATE_HW_VALID 0u' source/src/main.c
+          grep -Fq '#define COMM_CURRENT_SCALE_HW_VALID 0u' source/src/main.c
+          grep -Fq '#define COMM_ADC_TIMING_HW_VALID 0u' source/src/main.c
+          echo 'PASS source-only end-to-end integration. GATE-ON remains disabled. DO NOT FLASH.'
