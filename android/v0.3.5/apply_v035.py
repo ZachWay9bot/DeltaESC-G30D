@@ -98,9 +98,9 @@ main.write_text(s)
 final class MotorIdBenchProtocol {
   private MotorIdBenchProtocol(){}
   static final int BUILD=0x0913, START=0xE7, STOP=0xE6;
-  static byte[] start(){return NinebotProtocol.build(NinebotProtocol.ESC,0x03,START,new byte[]{(byte)0xDE,(byte)0xC0,0x49,0x4D});}
-  static byte[] stop(){return NinebotProtocol.build(NinebotProtocol.ESC,0x03,STOP,new byte[0]);}
-  static byte[] status(int reg){if(reg<0xF7||reg>0xF9)throw new IllegalArgumentException("status page");return NinebotProtocol.build(NinebotProtocol.ESC,0x02,reg,new byte[]{16});}
+  static byte[] start(){return NinebotProtocol.build(NinebotProtocol.PHONE,NinebotProtocol.ESC,0x03,START,new byte[]{(byte)0xDE,(byte)0xC0,0x49,0x4D});}
+  static byte[] stop(){return NinebotProtocol.build(NinebotProtocol.PHONE,NinebotProtocol.ESC,0x03,STOP,new byte[0]);}
+  static byte[] status(int reg){if(reg<0xF7||reg>0xF9)throw new IllegalArgumentException("status page");return NinebotProtocol.build(NinebotProtocol.PHONE,NinebotProtocol.ESC,0x02,reg,new byte[]{16});}
 }
 ''')
 g=r/'app/build.gradle'
