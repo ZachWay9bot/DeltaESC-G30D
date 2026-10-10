@@ -1,4 +1,4 @@
-# G30 Motor Bench v0.3.2 · DeltaESC v0.7.2
+# G30 Motor Bench v0.3.3 · DeltaESC v0.7.2
 
 **Target firmware: DeltaESC G30D v0.7.2 MOTOR TEST BENCH, build `0x0720`.**
 This is a separate Android app for the stock G30 BLE display; it does **not** replace the earlier v0.1.0 hardware-proven link probe or the v0.3.0 read-only app.
@@ -33,8 +33,8 @@ This app does NOT prove that v0.7.2 has a self-contained time limit or can turn 
 
 Workflow: `.github/workflows/android-v032-v072-motor-bench.yml`
 Output after a green run:
-- `G30_Bench_BLE_Motor_v0.3.2_v072.apk`
-- `G30_Bench_BLE_Motor_v0.3.2_v072_SOURCE.tar.xz`
+- `G30_Bench_BLE_Motor_v0.3.3_v072.apk`
+- `G30_Bench_BLE_Motor_v0.3.3_v072_SOURCE.tar.xz`
 - `SHA256SUMS.txt`
 
-The workflow reconstructs the SHA-pinned G30 v0.2.3 transport, overlays read-only v0.3.0, then existing v0.3.1 motor controls, and finally applies `android/v0.3.2/apply_v032.py`.
+The workflow reconstructs the SHA-pinned G30 v0.2.3 transport, overlays read-only v0.3.0, then existing v0.3.1 motor controls, and finally applies `android/v0.3.3/apply_v032.py`.
