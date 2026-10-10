@@ -1,0 +1,59 @@
+name: DeltaESC v0.9.3 motor R L flux source-only
+on:
+  push:
+    branches:
+      - dev/v0.9.3-motor-id-rlflux-gateoff
+    paths:
+      - 'v0.9.3/**'
+      - '.github/workflows/v093-motor-id.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  motor-id-cortex-m3:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install bare-metal LLVM and host compiler
+        run: sudo apt-get update -qq && sudo apt-get install -y clang-18 llvm-18 gcc
+      - name: Fetch v0.9.0 immutable source artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p base source
+          gh run download 37996878172 --repo "${{ github.repository }}" --name DeltaESC-v0.9.0-FIRSTSPIN-STOP-SAFETY-GATEOFF-SOURCE-ONLY --dir base
+          echo "b66dc23226b18d8936c4d526f3a78d69e6b8c927e40ecc4c2dc84277ceee89d4  base/DeltaESC_v090_FIRSTSPIN_STOP_SAFETY_GATEOFF_SOURCE_ONLY.tar.xz" | sha256sum -c -
+          tar -xJf base/DeltaESC_v090_FIRSTSPIN_STOP_SAFETY_GATEOFF_SOURCE_ONLY.tar.xz -C source
+      - name: Reconstruct v0.9.1 safely
+        run: |
+          set -euo pipefail
+          patch --batch --forward -p1 -d source < v0.9.1/v091_pinmap_safety.patch
+          cp v0.9.1/tools/pinmap_power_regression_test.py source/tools/
+          cp v0.9.1/tools/run_v091_tests.sh source/tools/
+      - name: Apply v0.9.2 sector-current contract
+        run: |
+          set -euo pipefail
+          patch --batch --forward -p1 -d source < v0.9.2/v092_foc_adc_contract.patch
+      - name: Apply v0.9.3 Motor ID patch
+        run: |
+          set -euo pipefail
+          patch --batch --forward -p1 -d source < v0.9.3/v093_motor_id.patch
+          grep -Fq '#define FW_BUILD 0x0903u' source/src/main.c
+      - name: Force-link Cortex-M3 Motor ID and run 15 host regression suites
+        run: |
+          set -euo pipefail
+          cd source
+          ARM_CC=clang-18 ARM_OBJCOPY=llvm-objcopy-18 ARM_OBJDUMP=llvm-objdump-18 bash tools/run_v093_tests.sh
+          test "$(stat -c %s build/DeltaESC_G30D_v0_9_3_ble_syncsafe.bin)" -lt 53248
+      - name: Confirm motor outputs remain hard-locked
+        run: |
+          set -euo pipefail
+          grep -Fq '#define COMM_GATE_HW_VALID 0u' source/src/main.c
+          grep -Fq '#define COMM_CURRENT_SCALE_HW_VALID 0u' source/src/main.c
+          grep -Fq '#define COMM_ADC_TIMING_HW_VALID 0u' source/src/main.c
+          grep -Fq '#if POWER_STAGE_ARM_ALLOWED || SENSORLESS_RUN_ALLOWED' source/src/main.c
+          echo 'SOURCE ONLY; gate outputs remain disabled; DO NOT FLASH / DO NOT RIDE'
