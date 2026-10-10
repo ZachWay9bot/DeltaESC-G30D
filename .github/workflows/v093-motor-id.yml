@@ -43,7 +43,7 @@ jobs:
           set -euo pipefail
           patch --batch --forward -p1 -d source < v0.9.3/v093_motor_id.patch
           grep -Fq '#define FW_BUILD 0x0903u' source/src/main.c
-      - name: Force-link Cortex-M3 Motor ID and run 15 host regression suites
+      - name: Force-link Cortex-M3 Motor ID and run 16 host regression suites
         run: |
           set -euo pipefail
           cd source
