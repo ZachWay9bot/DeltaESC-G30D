@@ -1,5 +1,6 @@
-# Stock Ninebot G30D STM32F103 / DRV126: SWD READ ONLY.
-# Works only with original firmware; hardware not validated for motor output.
+# Ninebot G30D STM32F103 / SHFW or DRV: SWD READ ONLY.
+# Installed firmware currently SHFW; captured registers reflect SHFW runtime, NOT stock DRV126.
+# Hardware not validated for motor output.
 # NO erase, write, flash, RDP change, option bytes, reset or run command.
 [CmdletBinding()]
 param(
@@ -40,9 +41,9 @@ if ($Phase -eq "Button") {
 if (!(Test-Path -LiteralPath $OutputFolder -PathType Container)) {
     New-Item -ItemType Directory -Path $OutputFolder -Force | Out-Null
 }
-$filename="DeltaESC_DRV126_SWD_"+$Phase+"_"+(Get-Date -Format "yyyyMMdd_HHmmss")+".txt"
+$filename="DeltaESC_SHFW_SWD_"+$Phase+"_"+(Get-Date -Format "yyyyMMdd_HHmmss")+".txt"
 $path=Join-Path $OutputFolder $filename
-("Stock DRV126 / "+$Phase+" / no flash commands") | Set-Content -LiteralPath $path
+("SHFW-installed runtime / "+$Phase+" / no flash commands; NOT original DRV126") | Set-Content -LiteralPath $path
 foreach ($item in $registers.GetEnumerator()) {
     ("### "+$item.Key+" "+$item.Value) | Add-Content -LiteralPath $path
     # ST UM2237: -r32 <address> <byte_count> is READ ONLY.
