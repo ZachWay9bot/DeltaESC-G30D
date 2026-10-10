@@ -1,0 +1,71 @@
+Patch SHA256: ac87dce599edf7b7f194f04aad82964a94abf7c9e8440d377bfe7dc2c9540c0e
+Patch bytes: 33914
+Baseline: v0.9.9 freeze; changes only output path.
+Previous 23 groups + one motor ID vector output host group passed, 24 total.
+Cortex-M3 BIN: 22572 bytes.
+Powered builds must remain blocked.
+
+PASS: PC14 declared power button
+PASS: PC14 configured only as input
+PASS: PC14 active-high sampled
+PASS: PA11 latch configured before PLL
+PASS: PA11 power latch
+PASS: PB1 never configured or written
+PASS: No PB1 gate control
+PASS: Powered builds require remaining ADC and current safeguards
+PASS: Gate channels disabled at init
+PASS: Stock gate route qualified, live current and timing still closed
+PASS: Power logic semantic name corrected
+clang -g3 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Oz -Wall -Wextra -Werror -Isrc -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 -DSENSORLESS_CLOSED_LOOP_ALLOWED=1 src/main.c src/sensorless_control.c src/vesc_ebics_flux.c src/ninebot_link.c src/iap_update.c src/iap_proto.c src/iap_control.c src/dashboard_runtime.c src/power_logic.c src/motor_probe.c src/ble_motor_probe.c src/commissioning_guard.c src/stock_current_frontend.c src/g30_adc_current_window.c src/g30_adc_current_offsets.c src/stock_dual_adc_plan.c src/stock_dual_adc_runtime.c src/stock_adc_quality.c src/stock_adc_snapshot.c src/stock_adc_timing.c src/stock_adc_correlated.c src/stock_adc_mode_guard.c src/g30_fixed_scan.c src/motor_config_txn.c src/foc_adc_contract.c src/foc_adc_motor_handoff.c src/motor_id.c src/motor_id_auto.c src/motor_id_vector_output.c src/motor_pipeline.c src/stock_tim1_gate.c src/aeabi_mem.c --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -nostdlib -Wl,-T,linker.ld,--gc-sections -Wl,--undefined=motor_id_accept -Wl,--undefined=motor_id_commit -Wl,--undefined=motor_id_vector_output_request -Wl,--undefined=motor_id_auto_tick -Wl,--undefined=motor_id_auto_bind_config -Wl,--undefined=g30_adc_current_flags -Wl,--undefined=g30_adc2_current_offset_normalize -Wl,-Map=build/v0_9_10_syncsafe.map -o build/DeltaESC_G30D_v0_9_10_ble_syncsafe.elf
+llvm-objcopy -O binary build/DeltaESC_G30D_v0_9_10_ble_syncsafe.elf build/DeltaESC_G30D_v0_9_10_ble_syncsafe.bin
+llvm-objdump -h build/DeltaESC_G30D_v0_9_10_ble_syncsafe.elf > build/v0_9_10_syncsafe_sections.txt
+PASS synchronous stop, unpowered observer hold and immediate neutral
+PASS: first_spin_safety_host_test.c
+PASS FOC ADC: 6 sector pairs, event ownership, wrap, 14 fail-closed cases, stale/duplicate frames
+PASS: foc_adc_contract_host_test.c
+PASS FOC handoff: hardware-kill callback on sample/qualification/fault, no callback => no torque
+PASS: foc_adc_motor_handoff_host_test.c
+PASS motor ID: R/L/flux synthetic units, 3-stage flow, guarded commit, abort, faults
+PASS: motor_id_host_test.c
+PASS synthetic sensorless PMSM: align->open-loop->handover->closed-loop, throttle coast, observer-loss same-tick stop
+PASS: sensorless_plant_host_test.c
+PASS: motor_core_host_test.c
+PASS: power_logic_host_test.c
+stock DRV126 IAP ACK vector: PASS
+PASS: iap_ack_host_test.c
+stock 128-byte IAP transport + checksum vector: PASS
+PASS: iap_transport_host_test.c
+PASS: ADC/TIM1 timing evidence EB/EC, wraparound, six gate/config checks, saturated counters
+PASS: stock_adc_timing_host_test.c
+PASS ADC quality: six sectors, register mapping, invalid 12-bit samples, timing counters, saturation
+PASS: stock_adc_quality_host_test.c
+PASS 6 sectors: ADC raw+JEOC+FULL JSQR are one IRQ snapshot, unaffected by upcoming sector
+PASS: stock_adc_snapshot_host_test.c
+PASS v0.8.5: six sectors, simultaneous pairs, 512/ch calibration, abort, zero-sum reconstruction
+PASS: stock_dual_adc_runtime_host_test.c
+PASS: STM32F103 static two-rank dual ADC, three distinct raw channels, 512 sample offsets and fail-closed EF
+PASS: test_g30_fixed_scan.c
+PASS STM32F103 ADC DUALMOD 0101, independent regular VBUS, ADC2 JEOC guard, EE little-endian and saturation
+PASS: test_stock_adc_mode_guard.c
+PASS BLE DA-DF snapshot serialization, consistency and read-only page set
+PASS: test_ble_motor_probe.c
+PASS: ADC->sector reconstruction->sensorless FOC/SVPWM->TIM1 callback->gate with 10 stop/fault cases
+PASS: motor_pipeline_host_test.c
+PASS: DRV126 0x1555 gate mapping, 65,536 transition cases, OFF preserves CH4
+PASS: stock_tim1_gate_host_test.c
+flux observer angle within 20 degrees: 599/599
+PASS VESC Ortega / EBiCS fixed-point observer: synthetic flux phase, reset, invalid config
+PASS: vesc_ebics_flux_host_test.c
+PASS G30D ADC timing + window + 6 sectors + nominal-current sign symmetry
+PASS: g30_adc_current_window_host_test.c
+PASS ADC1/ADC2 separate CH4+CH5 offsets; zero-current all sectors; invalid fail closed
+PASS: g30_adc_current_offsets_host_test.c
+PASS DRV126 exact ADC scaling/sign/sectors: 348486 golden vectors (6 sectors)
+PASS: drv126_adc_golden_host_test.c
+PASS motor ID auto: R plateau, L pulses, coast flux, guarded adoption, brake/timeout/ADC rejection, no fake speed
+PASS: motor_id_auto_host_test.c
+PASS: ID vector hardware callbacks: ADC sector BEFORE arm BEFORE CCR, full 256-angle rotation, gate-off on fault, fresh rearm
+PASS: motor_id_vector_output_host_test.c
+PASS: motor-power compile rejection -DPOWER_STAGE_ARM_ALLOWED=1 -DSENSORLESS_RUN_ALLOWED=0
+PASS: motor-power compile rejection -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=1
+PASS: v0.9.10 Motor-ID vector_mv to stock TIM1/ADC actuator (source-only, no hardware enable)
