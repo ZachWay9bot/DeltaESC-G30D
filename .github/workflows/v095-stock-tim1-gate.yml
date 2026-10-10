@@ -1,0 +1,53 @@
+name: DeltaESC v0.9.5 stock DRV126 TIM1 gate register integration
+on:
+  push:
+    branches:
+      - dev/v0.9.5-drv126-stock-tim1-gate
+    paths:
+      - 'v0.9.5/**'
+      - '.github/workflows/v095-stock-tim1-gate.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  stock-gate-cortex-m3:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ARM LLVM toolchain
+        run: sudo apt-get update -qq && sudo apt-get install -y clang-18 llvm-18 gcc
+      - name: Fetch unchanged v0.9.0 source archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p base source
+          gh run download 37996878172 --repo "${{ github.repository }}" --name DeltaESC-v0.9.0-FIRSTSPIN-STOP-SAFETY-GATEOFF-SOURCE-ONLY --dir base
+          echo 'b66dc23226b18d8936c4d526f3a78d69e6b8c927e40ecc4c2dc84277ceee89d4  base/DeltaESC_v090_FIRSTSPIN_STOP_SAFETY_GATEOFF_SOURCE_ONLY.tar.xz' | sha256sum -c -
+          tar -xJf base/DeltaESC_v090_FIRSTSPIN_STOP_SAFETY_GATEOFF_SOURCE_ONLY.tar.xz -C source
+      - name: Reconstruct source with immutable earlier patches plus stock-gate backend
+        run: |
+          set -euo pipefail
+          # Some older repo patch blobs have a missing final LF; normalize the stream.
+          apply() {
+            python3 -c 'import pathlib,sys; d=pathlib.Path(sys.argv[1]).read_bytes();sys.stdout.buffer.write(d if d.endswith(b"\n") else d+b"\n")' "$1" |
+              patch -s --batch --forward -d source -p1
+          }
+          apply v0.9.1/v091_pinmap_safety.patch
+          cp v0.9.1/tools/pinmap_power_regression_test.py source/tools/
+          cp v0.9.1/tools/run_v091_tests.sh source/tools/
+          apply v0.9.2/v092_foc_adc_contract.patch
+          apply v0.9.3/v093_motor_id.patch
+          apply v0.9.4/v094_motor_pipeline.patch
+          echo 'c45f7de6139ece4550ccbc480c71613a35ed18a971d3f2f4ef65b0a2e5fe9440  v0.9.5/v095_drv126_gate.patch' | sha256sum -c -
+          apply v0.9.5/v095_drv126_gate.patch
+      - name: Build STM32F103 Cortex-M3 source-only and all host tests
+        run: |
+          set -euo pipefail
+          (cd source && ARM_CC=clang-18 ARM_OBJCOPY=llvm-objcopy-18 ARM_OBJDUMP=llvm-objdump-18 bash tools/run_v095_tests.sh)
+          grep -Fq '#define COMM_GATE_STOCK_PROFILE_READY 1u' source/src/main.c
+          grep -Fq '#define COMM_CURRENT_SCALE_HW_VALID 0u' source/src/main.c
+          grep -Fq '#define COMM_ADC_TIMING_HW_VALID 0u' source/src/main.c
+          test "$(stat -c %s source/build/DeltaESC_G30D_v0_9_5_ble_syncsafe.bin)" -lt 53248
+          echo 'DRV126 STOCK TIM1 GATE 0x1555 implemented; actual motor-power build remains blocked for ADC/current requirements.'
