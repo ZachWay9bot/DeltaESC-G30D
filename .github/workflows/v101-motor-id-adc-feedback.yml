@@ -1,0 +1,56 @@
+name: DeltaESC v0.9.11 Motor-ID ADC feedback
+on:
+  push:
+    branches: [dev/v0.9.11-motor-id-real-adc-feedback]
+    paths: ['v0.9.11/**','.github/workflows/v101-motor-id-adc-feedback.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  cortex-m3-id-vector:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compiler packages
+        run: sudo apt-get update -qq && sudo apt-get install -y clang-18 llvm-18 gcc
+      - name: Reconstruct the versioned source chain
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p base source
+          gh run download 37996878172 --repo "${{ github.repository }}" --name DeltaESC-v0.9.0-FIRSTSPIN-STOP-SAFETY-GATEOFF-SOURCE-ONLY --dir base
+          echo 'b66dc23226b18d8936c4d526f3a78d69e6b8c927e40ecc4c2dc84277ceee89d4  base/DeltaESC_v090_FIRSTSPIN_STOP_SAFETY_GATEOFF_SOURCE_ONLY.tar.xz' | sha256sum -c -
+          tar -xJf base/DeltaESC_v090_FIRSTSPIN_STOP_SAFETY_GATEOFF_SOURCE_ONLY.tar.xz -C source
+          apply() {
+            python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]).read_bytes();sys.stdout.buffer.write(p if p.endswith(b"\n") else p+b"\n")' "$1" | patch -s --batch --forward -d source -p1
+          }
+          apply v0.9.1/v091_pinmap_safety.patch
+          cp v0.9.1/tools/pinmap_power_regression_test.py source/tools/
+          cp v0.9.1/tools/run_v091_tests.sh source/tools/
+          apply v0.9.2/v092_foc_adc_contract.patch
+          apply v0.9.3/v093_motor_id.patch
+          apply v0.9.4/v094_motor_pipeline.patch
+          apply v0.9.5/v095_drv126_gate.patch
+          apply v0.9.6/v096_vesc_ebics_port.patch
+          apply v0.9.7/v097_adc_current_only.patch
+          apply v0.9.8/v098_ADC_DRV126_REFERENCE.patch
+          apply v0.9.9/v099_AUTO_MOTOR_DETECT.patch
+          apply v0.9.10/v100_motor_id_vector.patch
+          apply v0.9.11/v101_motor_id_adc_feedback.patch
+      - name: Validate pinned Motor-ID ADC feedback software chain
+        run: |
+          set -euo pipefail
+          cd source
+          make clean
+          ARM_CC=clang-18 ARM_OBJCOPY=llvm-objcopy-18 ARM_OBJDUMP=llvm-objdump-18 bash tools/run_v101_tests.sh
+          test "$(stat -c %s build/DeltaESC_G30D_v0_9_11_ble_syncsafe.bin)" -lt 53248
+          grep -Fq '#define FW_BUILD 0x0911u' src/main.c
+          grep -Fq '#define COMM_CURRENT_SCALE_HW_VALID 0u' src/main.c
+          grep -Fq '#define COMM_ADC_TIMING_HW_VALID 0u' src/main.c
+          grep -Fq 'const motor_id_auto_io_t id_io={motor_id_hw_vector_mv,motor_id_hw_gate_off,0};' src/main.c
+          grep -Fq 'motor_id_adc_feedback_capture(' src/main.c
+          grep -Fq 'TIM1_UP_IRQHandler' src/main.c
+          grep -Fq 'motor_id_auto_tick(&g_motor_id_auto,t0/' src/main.c
+          echo '25 software test groups passed. Real hardware current scale/ADC aperture remain unqualified; motor enable blocked.'
