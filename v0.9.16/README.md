@@ -48,3 +48,17 @@ event after a break; `LOCK>=1` freezes BKE/BKP/AOE until MCU reset.
 The old v0.9.14 experimental motor-ID bench code is retained as history,
 not carried forward as an electrically approved image. Normal NinebotCrypto
 communication sources are untouched.
+
+## MT8006A direct logic and STM32 pull-down audit
+
+The Mosway [MT8006A datasheet](https://cloud.scooterhacking.org/tidings/wiki/esc1/pdf/MT8006A.pdf)
+specifies in-phase outputs: HIN=HIGH enables HO, LIN=HIGH enables LO.
+The B model is the **opposite polarity for LIN** and must NOT be substituted
+without explicitly redesigning the control logic.
+
+STM32F103 RM0008 states that nibble `0x8` is GPIO input pull-up/pull-down;
+`ODR=0` selects pull-DOWN. The source overlay now clears all six ODR bits
+**before** GPIO changes to input mode. The runtime guard confirms the 3+3
+mode nibbles are `0x888` and that PA8..10/PB13..15 ODR bits all equal zero.
+Tests exhaustively cover the 65,536 ODR values for each port. These are
+software-level assertions, not a scope reading at the actual MT8006A pads.
