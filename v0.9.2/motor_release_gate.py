@@ -19,19 +19,19 @@ args = p.parse_args()
 code = args.source.read_text()
 rules = {
  "motor arming compile-forbidden":
-     bool(re.search(r"#if\\s+POWER_STAGE_ARM_ALLOWED\\s*\\|\\|\\s*SENSORLESS_RUN_ALLOWED\\s*\\n#error",code)),
+     bool(re.search(r"#if\s+POWER_STAGE_ARM_ALLOWED\s*\|\|\s*SENSORLESS_RUN_ALLOWED\s*\n#error",code)),
  "no claimed hardware gate validity":
-     bool(re.search(r"#define\\s+COMM_GATE_HW_VALID\\s+0u",code)),
+     bool(re.search(r"#define\s+COMM_GATE_HW_VALID\s+0u",code)),
  "no claimed calibrated current scale":
-     bool(re.search(r"#define\\s+COMM_CURRENT_SCALE_HW_VALID\\s+0u",code)),
+     bool(re.search(r"#define\s+COMM_CURRENT_SCALE_HW_VALID\s+0u",code)),
  "no claimed PWM-coherent current samples":
-     bool(re.search(r"#define\\s+COMM_ADC_TIMING_HW_VALID\\s+0u",code)),
+     bool(re.search(r"#define\s+COMM_ADC_TIMING_HW_VALID\s+0u",code)),
  "no PWM half-bridge channel enable in TIM1 initialisation":
      "TIM_CCER(TIM1_BASE)=ADC_CCER_MASK;" in code,
  "PC14 button only after board-specific DRV126 comparison":
      "#define POWER_BUTTON_GPIO_BASE GPIOC_BASE" in code and "#define POWER_BUTTON_PIN 14u" in code,
  "PB1 not used as fictitious gate-enable":
-     "gate_enable_gpio_init" not in code and not bool(re.search(r"gpio_cfg_nibble\\(GPIOB_BASE\\s*,\\s*1\\s*,",code)),
+     "gate_enable_gpio_init" not in code and not bool(re.search(r"gpio_cfg_nibble\(GPIOB_BASE\s*,\s*1\s*,",code)),
 }
 for name, passed in rules.items():
     print(("PASS" if passed else "FAIL")+": "+name)
