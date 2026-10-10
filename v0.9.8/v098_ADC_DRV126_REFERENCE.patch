@@ -1,0 +1,943 @@
+diff --git a/Makefile b/Makefile
+index a30cd47..ce906f0 100644
+--- a/Makefile
++++ b/Makefile
+@@ -4,18 +4,18 @@ OBJDUMP ?= llvm-objdump
+ CFLAGS_COMMON = -g3 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Oz -Wall -Wextra -Werror -Isrc
+ LDFLAGS_COMMON = --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -nostdlib -Wl,-T,linker.ld,--gc-sections
+ SRC = src/main.c src/sensorless_control.c src/vesc_ebics_flux.c src/ninebot_link.c src/iap_update.c src/iap_proto.c src/iap_control.c src/dashboard_runtime.c src/power_logic.c src/motor_probe.c src/ble_motor_probe.c src/commissioning_guard.c src/stock_current_frontend.c src/g30_adc_current_window.c src/g30_adc_current_offsets.c src/stock_dual_adc_plan.c src/stock_dual_adc_runtime.c src/stock_adc_quality.c src/stock_adc_snapshot.c src/stock_adc_timing.c src/stock_adc_correlated.c src/stock_adc_mode_guard.c src/g30_fixed_scan.c src/motor_config_txn.c src/foc_adc_contract.c src/foc_adc_motor_handoff.c src/motor_id.c src/motor_pipeline.c src/stock_tim1_gate.c src/aeabi_mem.c
+-SAFE_ELF = build/DeltaESC_G30D_v0_9_7_ble_syncsafe.elf
+-SAFE_BIN = build/DeltaESC_G30D_v0_9_7_ble_syncsafe.bin
+-ACTIVE_ELF = build/DeltaESC_G30D_v0_9_7_ble_observer_zero_vector.elf
+-ACTIVE_BIN = build/DeltaESC_G30D_v0_9_7_ble_observer_zero_vector.bin
+-BENCH_ELF = build/DeltaESC_G30D_v0_9_7_ble_sensorless_bench.elf
+-BENCH_BIN = build/DeltaESC_G30D_v0_9_7_ble_sensorless_bench.bin
++SAFE_ELF = build/DeltaESC_G30D_v0_9_8_ble_syncsafe.elf
++SAFE_BIN = build/DeltaESC_G30D_v0_9_8_ble_syncsafe.bin
++ACTIVE_ELF = build/DeltaESC_G30D_v0_9_8_ble_observer_zero_vector.elf
++ACTIVE_BIN = build/DeltaESC_G30D_v0_9_8_ble_observer_zero_vector.bin
++BENCH_ELF = build/DeltaESC_G30D_v0_9_8_ble_sensorless_bench.elf
++BENCH_BIN = build/DeltaESC_G30D_v0_9_8_ble_sensorless_bench.bin
+ all: safe
+ safe: $(SAFE_BIN)
+ build: ; mkdir -p build
+ $(SAFE_ELF): $(SRC) linker.ld | build
+-	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 -DSENSORLESS_CLOSED_LOOP_ALLOWED=1 $(SRC) $(LDFLAGS_COMMON) -Wl,--undefined=motor_id_accept -Wl,--undefined=motor_id_commit -Wl,--undefined=g30_adc_current_flags -Wl,--undefined=g30_adc2_ch4_offset_normalize -Wl,-Map=build/v0_9_7_syncsafe.map -o $@
++	$(CC) $(CFLAGS_COMMON) -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 -DSENSORLESS_CLOSED_LOOP_ALLOWED=1 $(SRC) $(LDFLAGS_COMMON) -Wl,--undefined=motor_id_accept -Wl,--undefined=motor_id_commit -Wl,--undefined=g30_adc_current_flags -Wl,--undefined=g30_adc2_current_offset_normalize -Wl,-Map=build/v0_9_8_syncsafe.map -o $@
+ $(SAFE_BIN): $(SAFE_ELF)
+ 	$(OBJCOPY) -O binary $< $@
+-	$(OBJDUMP) -h $< > build/v0_9_7_syncsafe_sections.txt
++	$(OBJDUMP) -h $< > build/v0_9_8_syncsafe_sections.txt
+ clean: ; rm -rf build
+diff --git a/README_V097_ADC_ONLY.md b/README_V097_ADC_ONLY.md
+index f573f69..9eb6106 100644
+--- a/README_V097_ADC_ONLY.md
++++ b/README_V097_ADC_ONLY.md
+@@ -35,3 +35,10 @@ DRV126-Nachweis umfasst damit den synchronen zwei-ADC-Sektorpfad und den alten T
+ - Das reale ADC-Abtastfenster, Tim1-CC4-Flanke/Bezug und Interrupt-Laufzeit wurden nicht an laufender Leistungsstufe bestaetigt. Software-Windowschutz ist ein plausibles Modell, kein physikalischer Nachweis.
+ 
+ **Ergebnis:** Die identifizierten Softwarefehler sind behoben. Das gesamte ADC-/Stromregelungsthema fuer **realen aktiven Betrieb** ist damit noch **NICHT abgeschlossen**; alles andere zu behaupten waere unzutreffend.
++
++## ADC2 CH5 follow-up (2026-10-10)
++ADC2 CH5 is separately calibrated at idle. The previous ADC1 CH5 zero reference
++was erroneously also used as ADC2's zero. The pair reconstruction now
++normalizes either ADC2 CH4 or ADC2 CH5 to its ADC1-based coordinate, depending
++on the six-sector sampling plan. Both ADC2 calibration flags and the stock
++2048 +/-100 count zero plausibility gate are required. Software-only.
+diff --git a/README_V098_ADC_CURRENT.md b/README_V098_ADC_CURRENT.md
+new file mode 100644
+index 0000000..ed69102
+--- /dev/null
++++ b/README_V098_ADC_CURRENT.md
+@@ -0,0 +1,78 @@
++# DeltaESC G30D v0.9.8 — DRV126-abgeglichener ADC-/Strompfad
++
++**Scope ausschliesslich Punkt 1: ADC-Trigger / Stromrekonstruktion / Kanaloffsets / Skalierung / Vorzeichen.**
++Freeze v0.9.6 und der bestehende v0.9.7 Entwicklungsstand bleiben unveraendert. Keine
++Aenderung des VESC-Observers, Motor Detect, Leistungstreibers oder Ninebot-BLE-Transports.
++
++## Direkter Original-Firmware-Nachweis (esc126_fulldump.bin)
++
++Die DRV126-Referenz stammt aus der frueher im Projekt bereitgestellten Datei mit
++131072 Bytes und SHA256 `9235b466a2f7449b8184560dbef9012d7c12b099e4076100a223ef68d204bb68`.
++Der Originaldump wird bewusst **nicht mitgeliefert oder in GitHub gespeichert**.
++`tools/audit_drv126_adc_stock.py` validiert offline neun konkrete Thumb-Fingerprints,
++Registerwerte und Tabellen in genau dieser Datei.
++
++**Belegte Maschinenprogramm-Anker:**
++
++| Adresse | Original-Befund | v0.9.8-Umsetzung |
++|---|---|---|
++| `0x08005734–0x080057B8` | ADC1 JDR1 + ADC2 JDR1, sektorbezogene Vorzeichen | Identische 3 Sektorpaare; gesonderter exakter Golden-Test |
++| `0x08005766`, `0x08005786`, `0x080057A4` | Multiplikation `0xC977=51575`, danach signed `ASRS #10` | `stock_current_drv126_scaled_delta` mit korrekter negativer Abrundung |
++| `0x08005B2C–0x08005B60` | Sektor-Umschaltung beider JSQR-Einzelranks | Sektor 1/6: ADC1 CH4 + ADC2 CH5; 2/3: CH3 + CH5; 4/5: CH3 + CH4 |
++| `0x080048B8–0x080048CE` | TIM1 PSC=0, ARR=4000, CMS=1, RCR=1 | Gleiches Timer-Grundprofil |
++| `0x080048D8` | CH4-Modus PWM1, initial CCR4=3800 | CH4 PWM1 statt bisherigem PWM2 |
++| `0x08005712–0x08005724` | Laufzeit-CCR4=3996, CCER=0x1555 | CH4-Trigger `CCR4=3996`; TIM1-Registervertrag prueft die gesamte Konfiguration |
++| `0x08005AC4–0x08005B18` | Nullpunkt-Pruefung jedes ADC-Kanals nahe `2048±100` | Gleiche Offset-Plausibilitaetsgrenze |
++
++Die nachgebildete **Stock-interne Stromskala** `delta * 51575 >> 10` ist nun
++vorzeichen- und rundungsgetreu. Eine Umbenennung dieser Integerwerte in **physikalische mA**
++setzt aber den Shunt und den Analogeingangsverstaerker voraus; dieses elektrische
++Verstaerkungsverhaeltnis ist fuer den individuell umgebauten ESC durch das reine
++Maschinenprogramm nicht nachgewiesen. Die nominale mA-Konversion wird deshalb
++nur mit dieser Einschränkung angeboten.
++
++## Reparaturen am bisherigen ADC-Pfad
++
++1. **Beide ADCs besitzen eigene Nulloffsets:** ADC2 CH4 und CH5 werden mit je 256
++   Gate-OFF-Samples separat kalibriert, jeweils gegen 2048±100 validiert und in
++   die ADC1-Bezugsebene ueberfuehrt. Fehlender oder ueberlaufender Offset sperrt die Probe.
++2. **Originales Timerprofil statt Naeherung:** PWM ARR4000, ADC CH4 PWM1 und CCR4=3996,
++   PSC0, Center-Aligned1, RCR1; 8-kHz-Timertraeger bei 64 MHz, FOC weiter bei 4 kHz
++   (Divider 2). ADC-Fenster-Pruefung kennt die anschliessende Down-Count-Phase.
++3. **Korrekte Stromsignale:** Sektor-Gruppen und JSQR wurden direkt im Stock-Dump
++   identifiziert, mit 348486 synthetischen Goldvektoren inkl. negativer Werte bestaetigt.
++   Summierte Phasenstromwerte duerfen bei >4095 Counts nicht auf 0 fallen.
++4. **Validitaetskette:** gleiche injizierte ADC1/ADC2-Rank-Ereignisse, JEOC, JSQR,
++   Triggerkonfiguration, Samplezeiten, Duty-Fenster und Offset-Flags muessen passen,
++   ehe die Messung an FOC weitergereicht wird. Fehler fuehren zu STOP.
++
++## Verifizierung
++
++```
++# Ohne Originaldump: alle Host- und ARM-Build-Tests
++bash tools/run_v098_tests.sh
++
++# Zusaetzlich die Original-Thumb-Bytes gegen den Nutzer-Dump pruefen
++DRV126_STOCK_BIN=/pfad/esc126_fulldump.bin bash tools/run_v098_tests.sh
++```
++
++- **22 Hosttest-Gruppen bestanden**, darunter die neue Stock-Referenz mit **348486**
++  Datensaetzen. `gcc -fsanitize=undefined` fuer Host.
++- Vollstaendiger STM32F103 Cortex-M3-Link, **20096 Bytes GATE-OFF-BIN** unter 52 KiB.
++- 9 Thumb-/Tabellenanker gegen den echten Originaldump per SHA + Bytes bestaetigt.
++- Motor-Enable Builds mit `POWER_STAGE_ARM_ALLOWED=1` oder `SENSORLESS_RUN_ALLOWED=1`
++  schlagen weiterhin absichtlich fehl.
++
++## Praezise Abschlussgrenze
++
++**Softwareseitiger DRV126-Abgleich fuer ADC-Kanalpaare, Vorzeichen, Integer-Faktor,
++TIM1-Abtastprofil und getrennte Nulloffsets ist umgesetzt und offline getestet.**
++
++Dies ist **KEIN elektrischer Nachweis**, dass die physische Analogverstaerkung des
++umbebauten ESC genau zur Stock-mA-Skala passt oder die PWM-synchrone ADC-Phase
++unter realer Motorlast stabil ist. Der konservative Zeitfenster-Grenzwert von
++252 TIM1-Ticks ist ein DeltaESC-Schutzvertrag, keine aus DRV126 belegte Naturkonstante.
++`COMM_CURRENT_SCALE_HW_VALID=0` und `COMM_ADC_TIMING_HW_VALID=0` bleiben deshalb
++auf 0; es wird kein unqualifizierter Motor-Build freigegeben.
++
++**Keine weiteren allgemeinen Pinout-Runden; keine Aenderungen am Roller, SHFW bleibt.**
+diff --git a/src/g30_adc_current_offsets.c b/src/g30_adc_current_offsets.c
+index 8432938..4378ab1 100644
+--- a/src/g30_adc_current_offsets.c
++++ b/src/g30_adc_current_offsets.c
+@@ -1,19 +1,27 @@
+ #include "g30_adc_current_offsets.h"
+-uint8_t g30_adc2_ch4_offset_normalize(uint8_t sector,
+-    uint16_t adc2_raw, uint16_t adc1_ch4_offset,
+-    uint16_t adc2_ch4_offset, uint8_t adc2_ch4_calibrated,
+-    uint16_t *normalized) {
+-    if (!normalized || adc2_raw>4095u || adc1_ch4_offset>4095u ||
+-        adc2_ch4_offset>4095u || sector<1u || sector>6u)
++
++uint8_t g30_adc_offset_stock_zero_valid(uint16_t offset) {
++    return (uint8_t)(offset>=1948u && offset<=2148u);
++}
++
++uint8_t g30_adc2_current_offset_normalize(uint8_t sector,
++    uint16_t raw, const uint16_t adc1_offsets[3],
++    uint16_t adc2_ch4_offset, uint16_t adc2_ch5_offset,
++    uint8_t valid4, uint8_t valid5, uint16_t *normalized) {
++    if (!normalized || !adc1_offsets || sector<1u || sector>6u || raw>4095u)
+         return 0u;
+-    if (sector!=4u && sector!=5u) {
+-        *normalized=adc2_raw;
+-        return 1u;
++    uint16_t adc1_ref=0u, adc2_ref=0u;
++    if (sector==4u || sector==5u) {
++        if (!valid4) return 0u;
++        adc1_ref=adc1_offsets[1]; adc2_ref=adc2_ch4_offset;
++    } else {
++        if (!valid5) return 0u;
++        adc1_ref=adc1_offsets[2]; adc2_ref=adc2_ch5_offset;
+     }
+-    if (!adc2_ch4_calibrated) return 0u;
+-    const int32_t result=(int32_t)adc2_raw+
+-        (int32_t)adc1_ch4_offset-(int32_t)adc2_ch4_offset;
+-    if (result<0 || result>4095) return 0u;
+-    *normalized=(uint16_t)result;
++    if (!g30_adc_offset_stock_zero_valid(adc1_ref) ||
++        !g30_adc_offset_stock_zero_valid(adc2_ref)) return 0u;
++    const int32_t v=(int32_t)raw+(int32_t)adc1_ref-(int32_t)adc2_ref;
++    if (v<0 || v>4095) return 0u;
++    *normalized=(uint16_t)v;
+     return 1u;
+ }
+diff --git a/src/g30_adc_current_offsets.h b/src/g30_adc_current_offsets.h
+index 5c24ef2..810826f 100644
+--- a/src/g30_adc_current_offsets.h
++++ b/src/g30_adc_current_offsets.h
+@@ -1,8 +1,13 @@
+ #pragma once
+ #include <stdint.h>
+-/* ADC2 CH4 has its OWN offset. ADC1 CH4 zero cannot be used as ADC2 CH4
+- * zero; equal pin number does not imply equal ADC path offset. */
+-uint8_t g30_adc2_ch4_offset_normalize(uint8_t sector,
+-    uint16_t adc2_raw, uint16_t adc1_ch4_offset,
+-    uint16_t adc2_ch4_offset, uint8_t adc2_ch4_calibrated,
++/* The ADC1 and ADC2 input amplifiers have independent zero-current offsets.
++ * ADC2 CH5 is used in sectors 1/2/3/6 and CH4 in sectors 4/5.
++ * Convert the ADC2 raw value onto the ADC1-based legacy reconstruction
++ * coordinate system. Never silently substitute an ADC1 offset for ADC2. */
++uint8_t g30_adc2_current_offset_normalize(uint8_t sector,
++    uint16_t adc2_raw, const uint16_t adc1_offsets[3],
++    uint16_t adc2_ch4_offset, uint16_t adc2_ch5_offset,
++    uint8_t adc2_ch4_valid, uint8_t adc2_ch5_valid,
+     uint16_t *normalized);
++/* DRV126 stock boot offset acceptance: within 100 counts of 2048. */
++uint8_t g30_adc_offset_stock_zero_valid(uint16_t offset);
+diff --git a/src/g30_adc_current_window.c b/src/g30_adc_current_window.c
+index d00214c..781011a 100644
+--- a/src/g30_adc_current_window.c
++++ b/src/g30_adc_current_window.c
+@@ -1,8 +1,8 @@
+ #include "g30_adc_current_window.h"
+ #include "stock_current_frontend.h"
+ 
+-#define G30_ARR 1999u
+-#define G30_SAMPLE_TICK 1800u
++#define G30_ARR 4000u /* DRV126 TIM1 base profile @0x080048bc */
++#define G30_SAMPLE_TICK 3996u /* DRV126 SVPWM writer @0x08005716 */
+ #define G30_ADC_SAMPLE_CODE 2u /* 13.5 ADC clocks, RM0008 */
+ #define G30_ADC_PRESCALER_BITS (2u << 14) /* PCLK2 / 6 => 10.667 MHz */
+ #define G30_ADC_CLOCKS_FOR_CONVERSION 26u /* 13.5 sample + 12.5 conversion */
+@@ -11,7 +11,6 @@
+ #define G30_DEADTIME_TIMER_TICKS 64u
+ #define G30_EXTRA_SETTLE_TICKS 32u
+ #define G30_SAFE_LOW_SIDE_MARGIN (G30_ADC_CONVERT_TIMER_TICKS + G30_DEADTIME_TIMER_TICKS + G30_EXTRA_SETTLE_TICKS)
+-#define G30_TURNAROUND_MARGIN (G30_ADC_CONVERT_TIMER_TICKS + G30_EXTRA_SETTLE_TICKS)
+ #define ADC_DUALMODE_MASK (15u << 16)
+ #define ADC_DUALMODE_INJECTED_ONLY (5u << 16)
+ #define ADC_JEOCIE (1u << 7)
+@@ -52,7 +51,15 @@ uint32_t g30_adc_current_flags(const g30_adc_current_state_t *s) {
+             smpr(s->adc2_smpr2,ch)!=G30_ADC_SAMPLE_CODE)
+             f |= G30_ADC_F_SAMPLE;
+     }
+-    if (!(s->tim1_cr1 & TIM_CEN) || !(s->tim1_cr1 & TIM_CENTER_MASK) ||
++    /* Validate the REAL CH4 waveform used for the ADC injected trigger,
++     * not merely the CC4 interrupt flag. Stock OC4 PWM1 + CC4E,
++     * with a rising-edge at down-count compare near ARR; center-aligned 1,
++     * prescaler 0 and repetition counter 1 define the modeled aperture. */
++    if (!(s->tim1_cr1 & TIM_CEN) ||
++        (s->tim1_cr1 & TIM_CENTER_MASK)!=(1u<<5) ||
++        ((s->tim1_ccmr2>>12)&7u)!=6u ||
++        !((s->tim1_ccmr2>>11)&1u) ||
++        s->tim1_psc!=0u || s->tim1_rcr!=1u ||
+         s->tim1_arr!=G30_ARR || s->tim1_ccr4!=G30_SAMPLE_TICK ||
+         !(s->tim1_ccer & TIM_CC4E) || (s->tim1_ccer & TIM_CC4P))
+         f |= G30_ADC_F_TIM1;
+@@ -63,12 +70,13 @@ uint32_t g30_adc_current_flags(const g30_adc_current_state_t *s) {
+         const uint16_t ccr[3]={s->tim1_ccr1,s->tim1_ccr2,s->tim1_ccr3};
+         const uint16_t sampled_a=ccr[p.adc1_channel-3u];
+         const uint16_t sampled_b=ccr[p.adc2_channel-3u];
+-        /* Works for either compare travel direction: selected LOW-side
+-         * shunts have time to settle and complete conversion before the
+-         * next PWM edge. For low-side sample topology only. */
++        /* The stock OC4 PWM1 rising edge is on the descending count at
++         * CCR4=3996. Conversion may finish AFTER the 4-tick ARR turnaround,
++         * since the sampled phase's NEXT switch is when CNT falls to CCRx.
++         * Enforce ADC conversion+deadtime+settling ahead of that edge.
++         * (A condition requiring ARR-CCR4 >= conversion time was wrong.) */
+         if (sampled_a > G30_SAMPLE_TICK-G30_SAFE_LOW_SIDE_MARGIN ||
+-            sampled_b > G30_SAMPLE_TICK-G30_SAFE_LOW_SIDE_MARGIN ||
+-            (G30_ARR-G30_SAMPLE_TICK)<G30_TURNAROUND_MARGIN)
++            sampled_b > G30_SAMPLE_TICK-G30_SAFE_LOW_SIDE_MARGIN)
+             f |= G30_ADC_F_WINDOW;
+     }
+     return f;
+diff --git a/src/g30_adc_current_window.h b/src/g30_adc_current_window.h
+index ed8d8b2..7421bd7 100644
+--- a/src/g30_adc_current_window.h
++++ b/src/g30_adc_current_window.h
+@@ -9,7 +9,7 @@ typedef struct {
+     uint32_t adc1_cr1, adc2_cr1;
+     uint32_t adc1_cr2, adc2_cr2;
+     uint32_t adc1_smpr2, adc2_smpr2;
+-    uint16_t tim1_cr1, tim1_ccer;
++    uint16_t tim1_cr1, tim1_ccer, tim1_ccmr2, tim1_psc, tim1_rcr;
+     uint16_t tim1_arr, tim1_ccr4;
+     uint16_t tim1_ccr1, tim1_ccr2, tim1_ccr3;
+     uint8_t sector;
+diff --git a/src/main.c b/src/main.c
+index 57eef3a..7c0b9a8 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -34,9 +34,9 @@
+ #define SYSCLK_HZ                  64000000u
+ #define PWM_HZ                     16000u
+ #define CONTROL_HZ                  4000u
+-#define PWM_ARR                     1999u
++#define PWM_ARR                     4000u /* stock DRV126 TIM1 ARR */
+ #define PWM_ZERO_CCR               ((PWM_ARR + 1u) / 2u)
+-#define ADC_TRIGGER_CCR             1800u
++#define ADC_TRIGGER_CCR             3996u /* stock DRV126 CC4 / PWM1 */
+ #define CONTROL_BUDGET_CYCLES      (SYSCLK_HZ / CONTROL_HZ)
+ #define CONTROL_WARN_CYCLES         12000u
+ #define CONTROL_HARD_CYCLES         15000u
+@@ -54,7 +54,7 @@
+ #define MAGIC_UNLOCK 0xC0DEu
+ #define PROTO_MAJOR 0u
+ #define PROTO_MINOR 2u
+-#define FW_BUILD 0x0907u
++#define FW_BUILD 0x0908u
+ #define COMM_DASH_STALE_MS 250u
+ #define COMM_INPUT_IDLE_MAX 3u
+ /* Gate I/O mapping is adopted from STOCK DRV126. This alone does not
+@@ -123,7 +123,9 @@ static volatile uint32_t g_motor_irq_sequence;
+ static volatile uint8_t g_offset_cal_active;
+ static volatile uint8_t g_offset_cal_valid;
+ static volatile uint16_t g_adc2_ch4_offset;
++static volatile uint16_t g_adc2_ch5_offset;
+ static volatile uint8_t g_adc2_ch4_offset_valid;
++static volatile uint8_t g_adc2_ch5_offset_valid;
+ static stock_dual_adc_runtime_t g_dual_adc;
+ static stock_adc_quality_t g_adc_quality;
+ static stock_adc_snapshot_t g_pair_snapshot;
+@@ -263,7 +265,7 @@ static uint8_t motor_hw_pwm(void *ignored,uint16_t c1,uint16_t c2,uint16_t c3) {
+      * TIM1_CC4 enough settle + deadtime + ADC conversion room.
+      * Without this, a future sector switch can invalidate the next sample. */
+     if (c1>PWM_ARR || c2>PWM_ARR || c3>PWM_ARR ||
+-        c1>1548u || c2>1548u || c3>1548u ||
++        c1>3744u || c2>3744u || c3>3744u ||
+         g_safety_latched || g_dash_brake || g_dash_throttle<=COMM_INPUT_IDLE_MAX)
+         return 0u;
+     if (!g_power_armed && (c1!=PWM_ZERO_CCR ||
+@@ -355,34 +357,47 @@ static void adc1_calibrate_injected_offsets(void) {
+         sum0+=(uint16_t)ADC_JDR1; sum1+=(uint16_t)ADC_JDR2; sum2+=(uint16_t)ADC_JDR3;
+     }
+     g_adc_offset[0]=(uint16_t)(sum0>>8); g_adc_offset[1]=(uint16_t)(sum1>>8); g_adc_offset[2]=(uint16_t)(sum2>>8);
++    if (!g30_adc_offset_stock_zero_valid(g_adc_offset[0]) ||
++        !g30_adc_offset_stock_zero_valid(g_adc_offset[1]) ||
++        !g30_adc_offset_stock_zero_valid(g_adc_offset[2]))
++        g_safety_latched=0xA012u;
+     ADC_SR&=~ADC_SR_JEOC;
+ }
+ 
+-/* ADC2 CH4 is used by the active sector-4/5 pair. Sampling ADC1 CH4
+- * during boot does NOT calibrate ADC2 CH4. Do an independent software-
+- * injected conversion with bridge pins inactive before enabling dual mode. */
+-static void adc2_calibrate_injected_ch4_offset(void) {
+-    uint32_t sum=0u;
++/* Both ADC2 current channels (CH4 and CH5) must be calibrated separately.
++ * One-rank software injected conversions, with all six bridge GPIOs inactive.
++ * ADC2 cannot inherit ADC1 CH5's offset: that created false current in four
++ * PWM sectors even after v0.9.7 fixed ADC2 CH4 for the other two sectors. */
++static void adc2_calibrate_injected_current_offsets(void) {
+     g_adc2_ch4_offset_valid=0u;
++    g_adc2_ch5_offset_valid=0u;
+     ADC2_CR1=0u;
+-    ADC2_JSQR=(4u<<15); /* exactly ONE injected rank, ADC2 CH4 */
+     ADC2_CR2=(ADC_CR2_ADON|ADC_CR2_JEXTSEL_JSWSTART|ADC_CR2_JEXTTRIG);
+-    for(unsigned i=0u;i<256u;i++) {
+-        ADC2_SR &= ~ADC_SR_JEOC;
+-        ADC2_CR2 |= ADC_CR2_JSWSTART;
+-        const uint32_t start=DWT_CYCCNT;
+-        while(!(ADC2_SR & ADC_SR_JEOC)) {
+-            if((uint32_t)(DWT_CYCCNT-start)>20000u) {
+-                g_safety_latched=0xA011u;
+-                return;
++    for(uint8_t ch=4u;ch<=5u;ch++) {
++        uint32_t sum=0u;
++        ADC2_JSQR=((uint32_t)ch<<15); /* exactly ONE rank */
++        for(unsigned i=0u;i<256u;i++) {
++            ADC2_SR &= ~ADC_SR_JEOC;
++            ADC2_CR2 |= ADC_CR2_JSWSTART;
++            const uint32_t start=DWT_CYCCNT;
++            while(!(ADC2_SR & ADC_SR_JEOC)) {
++                if((uint32_t)(DWT_CYCCNT-start)>20000u) {
++                    g_safety_latched=0xA011u;
++                    return;
++                }
+             }
++            const uint32_t value=ADC2_JDR1;
++            if(value>4095u) { g_safety_latched=0xA011u;return; }
++            sum+=value;
+         }
+-        const uint32_t value=ADC2_JDR1;
+-        if(value>4095u) { g_safety_latched=0xA011u;return; }
+-        sum+=value;
++        const uint16_t offset=(uint16_t)(sum>>8);
++        if (!g30_adc_offset_stock_zero_valid(offset)) {
++            g_safety_latched=0xA013u;
++            return;
++        }
++        if(ch==4u) {g_adc2_ch4_offset=offset;g_adc2_ch4_offset_valid=1u;}
++        else {g_adc2_ch5_offset=offset;g_adc2_ch5_offset_valid=1u;}
+     }
+-    g_adc2_ch4_offset=(uint16_t)(sum>>8);
+-    g_adc2_ch4_offset_valid=1u;
+     ADC2_SR &= ~ADC_SR_JEOC;
+ }
+ 
+@@ -413,7 +428,7 @@ static void adc1_injected_init(void) {
+     ADC2_CR2|=ADC_CR2_RSTCAL;while(ADC2_CR2&ADC_CR2_RSTCAL){}
+     ADC2_CR2|=ADC_CR2_CAL;while(ADC2_CR2&ADC_CR2_CAL){}
+     adc1_calibrate_injected_offsets();
+-    if(!g_safety_latched) adc2_calibrate_injected_ch4_offset();
++    if(!g_safety_latched) adc2_calibrate_injected_current_offsets();
+     uint16_t offsets[3]={g_adc_offset[0],g_adc_offset[1],g_adc_offset[2]};
+     stock_dual_adc_runtime_init(&g_dual_adc,offsets);
+     g30_fixed_scan_init(&g_fixed_scan,offsets);
+@@ -458,7 +473,7 @@ static void adc_vbus_poll(void){
+ static void tim1_pwm_and_adc_trigger_init(void) {
+     RCC_APB2ENR|=(1u<<11); TIM_CR1(TIM1_BASE)=0u; TIM_CR2(TIM1_BASE)=0u; TIM_PSC(TIM1_BASE)=0u; TIM_ARR(TIM1_BASE)=PWM_ARR; TIM_RCR(TIM1_BASE)=1u;
+     TIM_CCR1(TIM1_BASE)=PWM_ZERO_CCR; TIM_CCR2(TIM1_BASE)=PWM_ZERO_CCR; TIM_CCR3(TIM1_BASE)=PWM_ZERO_CCR; TIM_CCR4(TIM1_BASE)=ADC_TRIGGER_CCR;
+-    TIM_CCMR1(TIM1_BASE)=(6u<<4)|(1u<<3)|(6u<<12)|(1u<<11); TIM_CCMR2(TIM1_BASE)=(6u<<4)|(1u<<3)|(7u<<12)|(1u<<11);
++    TIM_CCMR1(TIM1_BASE)=(6u<<4)|(1u<<3)|(6u<<12)|(1u<<11); TIM_CCMR2(TIM1_BASE)=(6u<<4)|(1u<<3)|(6u<<12)|(1u<<11);
+     TIM_CCER(TIM1_BASE)=stock_tim1_gate_ccer_off(STOCK_TIM1_GATE_RUN_CCER); TIM_BDTR(TIM1_BASE)=DEADTIME_DTG|TIM_BDTR_OSSI|TIM_BDTR_OSSR|TIM_BDTR_MOE;
+     TIM_EGR(TIM1_BASE)=TIM_EGR_UG; TIM_SR(TIM1_BASE)=0u; TIM_CR1(TIM1_BASE)=TIM_CR1_CMS_0|TIM_CR1_ARPE|TIM_CR1_CEN;
+ }
+@@ -509,12 +524,15 @@ void ADC1_2_IRQHandler(void) {
+         sample.adc1_sr=(uint16_t)sr1;sample.adc2_sr=(uint16_t)sr2;
+         sample.adc1_jdr1=(uint16_t)ADC_JDR1;
+         sample.adc2_jdr1=(uint16_t)ADC2_JDR1;
+-        /* ADC2 CH4 needs its own independently acquired zero-current
+-         * offset; normalize to the ADC1 CH4 offset used by the count model.
+-         * Missing or out-of-range normalization is an ADC fault. */
+-        const uint8_t offset_pair_ok=g30_adc2_ch4_offset_normalize(
+-             sample.sector,sample.adc2_jdr1,g_adc_offset[1],
+-             g_adc2_ch4_offset,g_adc2_ch4_offset_valid,&sample.adc2_jdr1);
++        /* ADC2 CH4 and CH5 each have an independent zero-current offset.
++         * Both are normalized to the ADC1-based reconstruction coordinate;
++         * a missing/invalid channel calibration invalidates this entire pair. */
++        const uint16_t reference_offsets[3]={g_adc_offset[0],g_adc_offset[1],g_adc_offset[2]};
++        const uint8_t offset_pair_ok=g30_adc2_current_offset_normalize(
++             sample.sector,sample.adc2_jdr1,reference_offsets,
++             g_adc2_ch4_offset,g_adc2_ch5_offset,
++             g_adc2_ch4_offset_valid,g_adc2_ch5_offset_valid,
++             &sample.adc2_jdr1);
+         sample.dual_injected_simultaneous=(uint8_t)(
+             (cr1&STOCK_ADC_MODE_REG_INJEC_SIMULT)==STOCK_ADC_MODE_REG_INJEC_SIMULT);
+         /* Model validity is checked against THE SAME PWM period's sector,
+@@ -527,6 +545,9 @@ void ADC1_2_IRQHandler(void) {
+             .adc1_smpr2=ADC_SMPR2,.adc2_smpr2=ADC2_SMPR2,
+             .tim1_cr1=(uint16_t)TIM_CR1(TIM1_BASE),
+             .tim1_ccer=(uint16_t)TIM_CCER(TIM1_BASE),
++            .tim1_ccmr2=(uint16_t)TIM_CCMR2(TIM1_BASE),
++            .tim1_psc=(uint16_t)TIM_PSC(TIM1_BASE),
++            .tim1_rcr=(uint16_t)TIM_RCR(TIM1_BASE),
+             .tim1_arr=(uint16_t)TIM_ARR(TIM1_BASE),
+             .tim1_ccr4=(uint16_t)TIM_CCR4(TIM1_BASE),
+             .tim1_ccr1=(uint16_t)TIM_CCR1(TIM1_BASE),
+@@ -557,7 +578,7 @@ void ADC1_2_IRQHandler(void) {
+                 g_safety_latched=0xA00Bu;
+                 motor_pipeline_stop(&g_motor_pipeline,MOTOR_STOP_FAULT);
+             }
+-            if ((g_motor_irq_sequence&3u)==0u)g_control_ticks++;
++            if ((g_motor_irq_sequence&1u)==0u)g_control_ticks++;
+         }
+         g_adc_samples++;
+         const uint32_t cost=DWT_CYCCNT-t0;
+@@ -629,7 +650,7 @@ void ADC1_2_IRQHandler(void) {
+     if(z>peak)peak=z;z=abs16s(ic);if(z>peak)peak=z;
+     g_last_abs_current=peak;
+     if(peak>g_peak_abs_current)g_peak_abs_current=peak;
+-    if(++g_control_div4>=4u){
++    if(++g_control_div4>=2u){
+         g_control_div4=0u;
+         phase_current_counts_t current={(int16_t)ia,(int16_t)ib,(int16_t)ic};
+         const uint32_t c0=DWT_CYCCNT;
+diff --git a/src/motor_pipeline.c b/src/motor_pipeline.c
+index 1796a60..e1c6d7b 100644
+--- a/src/motor_pipeline.c
++++ b/src/motor_pipeline.c
+@@ -103,7 +103,7 @@ uint8_t motor_pipeline_on_adc(motor_pipeline_t *p, foc_adc_sample_t *s,
+        c>p->current_hard_limit_counts) {
+         motor_pipeline_stop(p,MOTOR_STOP_FAULT); return 0u;
+     }
+-    if (++p->sample_divider>=4u) {
++    if (++p->sample_divider>=2u) {
+         p->sample_divider=0u;
+         const phase_current_counts_t phase={current.counts.ia,current.counts.ib,current.counts.ic};
+         sensorless_control_step(p->foc,phase,vbus_adc,p->arr,1u);
+diff --git a/src/stock_current_frontend.c b/src/stock_current_frontend.c
+index 6a380f3..8546037 100644
+--- a/src/stock_current_frontend.c
++++ b/src/stock_current_frontend.c
+@@ -1,4 +1,5 @@
+ #include "stock_current_frontend.h"
++#include <limits.h>
+ 
+ #define G30_NOMINAL_MA_NUM 51575LL
+ #define G30_NOMINAL_MA_SHIFT 10
+@@ -56,10 +57,40 @@ stock_phase_currents_t stock_current_reconstruct_counts(uint8_t sector,
+     return r;
+ }
+ 
++int32_t stock_current_drv126_scaled_delta(int32_t adc_delta) {
++    /* Original DRV126 at 0x08005766, 0x08005786, 0x080057A4:
++     * signed 32-bit MUL #0xC977 followed by ASRS #10. For normal injected
++     * ADC deltas [-4095,4095] signed multiplication fits 32 bits.
++     * Avoid implementation-dependent C right-shift of negative values. */
++    const int64_t product=(int64_t)adc_delta * 51575;
++    const int64_t result=product>=0 ? product / 1024 :
++        -((-product+1023) / 1024);
++    /* Single ADC deltas [-4095,4095] are identical to stock ARM MUL+ASRS.
++     * Aggregated reconstructed phase counts can span [-8190,8190], so
++     * overflow/zero-on-overrange behavior would silently defeat protection. */
++    if(result>INT32_MAX) return INT32_MAX;
++    if(result<INT32_MIN) return INT32_MIN;
++    return (int32_t)result;
++}
++
++stock_drv126_scaled_currents_t stock_current_drv126_reconstruct_scaled(
++    uint8_t sector, int32_t adc1_delta, int32_t adc2_delta) {
++    stock_drv126_scaled_currents_t r={0,0,0};
++    const int32_t x=stock_current_drv126_scaled_delta(adc1_delta);
++    const int32_t y=stock_current_drv126_scaled_delta(adc2_delta);
++    switch(sector) {
++    case 1u: case 6u: r.ia=x+y; r.ib=-x; r.ic=-y; break;
++    case 2u: case 3u: r.ia=-x; r.ib=x+y; r.ic=-y; break;
++    case 4u: case 5u: r.ia=-x; r.ib=-y; r.ic=x+y; break;
++    default: break;
++    }
++    return r;
++}
++
+ int32_t stock_current_nominal_counts_to_ma(int32_t counts) {
+-    /* No 32-bit multiplication overflow, fixed-point sign preserved. */
+-    int64_t product = (int64_t)counts * G30_NOMINAL_MA_NUM;
+-    return (int32_t)(product / (1LL << G30_NOMINAL_MA_SHIFT));
++    /* DRV126 numerical fixed-point transform, used as nominal physical mA.
++     * Analogue shunt+gain scaling on the modified ESC is not certified. */
++    return stock_current_drv126_scaled_delta(counts);
+ }
+ int16_t stock_current_nominal_ma_to_counts(uint16_t ma) {
+     int32_t counts = (int32_t)(((uint32_t)ma << G30_NOMINAL_MA_SHIFT) / 51575u);
+@@ -68,5 +99,5 @@ int16_t stock_current_nominal_ma_to_counts(uint16_t ma) {
+     return (int16_t)counts;
+ }
+ int32_t stock_current_scaled_unit_from_delta(int32_t adc_delta) {
+-    return stock_current_nominal_counts_to_ma(adc_delta);
++    return stock_current_drv126_scaled_delta(adc_delta);
+ }
+diff --git a/src/stock_current_frontend.h b/src/stock_current_frontend.h
+index 2ce7b21..1cec04a 100644
+--- a/src/stock_current_frontend.h
++++ b/src/stock_current_frontend.h
+@@ -12,6 +12,12 @@ typedef struct {
+     uint8_t adc2_channel;
+ } stock_adc_pair_t;
+ 
++/* Internal scaled units reproduced byte-for-byte from DRV126's
++ * signed MUL + ASRS #10. They are not independently calibrated amperes. */
++typedef struct { int32_t ia, ib, ic; } stock_drv126_scaled_currents_t;
++int32_t stock_current_drv126_scaled_delta(int32_t adc_delta);
++stock_drv126_scaled_currents_t stock_current_drv126_reconstruct_scaled(
++    uint8_t sector, int32_t adc1_delta, int32_t adc2_delta);
+ uint32_t stock_current_jsqr_one(uint8_t channel);
+ stock_adc_pair_t stock_current_pair_for_sector(uint8_t sector);
+ uint8_t stock_current_sector_from_ab(int32_t a, int32_t b);
+diff --git a/tools/audit_drv126_adc_stock.py b/tools/audit_drv126_adc_stock.py
+new file mode 100644
+index 0000000..76e3f17
+--- /dev/null
++++ b/tools/audit_drv126_adc_stock.py
+@@ -0,0 +1,47 @@
++#!/usr/bin/env python3
++"""Read-only fingerprint check against user's DRV126 full flash dump.
++
++Checks known Thumb instruction bytes and immutable binary SHA-256. This is
++an evidence audit, not a motor qualification or substitute for ampere gain.
++Does not distribute, rewrite or patch the copyrighted stock firmware.
++Usage: python3 tools/audit_drv126_adc_stock.py /path/to/esc126_fulldump.bin
++"""
++import hashlib
++from pathlib import Path
++import sys
++
++EXPECTED = '9235b466a2f7449b8184560dbef9012d7c12b099e4076100a223ef68d204bb68'
++CHECKS = {
++    # Signed three-sector dispatch and the six LUT entries.
++    0x0800574E: ('sector TBB', 'dfe80cf0330414142525'),
++    # Three applications of MOVW #0xC977, and ARM ASRS #10.
++    0x08005766: ('pair 1/6 scale', '4cf6771251438a12'),
++    0x08005786: ('pair 2/3 scale', '4cf6771251438a12'),
++    0x080057A4: ('pair 4/5 scale', '4cf67713'),
++    # ADC pair JSQR TBB branches and input ADC1/ADC2 register addresses.
++    0x08005B46: ('JSQR six-sector dispatch', 'dfe805f00804060609090400026000e0'),
++    0x08005B34: ('JSQR selector constants', '0d494ff400324ff420334ff4c03407'),
++    # Center-aligned TIM1 (CMS=01), ARR=0xFA0, RCR=1.
++    0x080048B8: ('TIM1 ARR/RCR init', 'adf822004ff47a60adf8240001258df82850'),
++    0x080048D8: ('TIM1 CH4 PWM1 mode=0x60', '6020adf80000'),
++    # TIM1 CCER=0x1555, CCR4=0x0F9C.
++    0x08005712: ('TIM1 CCER and CCR4 constants', '41f2555340f69c71'),
++}
++
++def main() -> int:
++    if len(sys.argv) != 2:
++        print('usage: audit_drv126_adc_stock.py esc126_fulldump.bin',file=sys.stderr)
++        return 2
++    p=Path(sys.argv[1]); data=p.read_bytes()
++    assert len(data)==131072, 'reference dump length mismatch'
++    assert hashlib.sha256(data).hexdigest()==EXPECTED, 'not the referenced DRV126 full dump'
++    for address,(label,code) in CHECKS.items():
++        b=bytes.fromhex(code)
++        actual=data[address-0x08000000:address-0x08000000+len(b)]
++        assert actual==b, f'{label} fingerprint mismatch at {address:#x}'
++        print(f'PASS {label}: {address:#010x}')
++    print('PASS: original DRV126 SHA256 + 9 instruction anchors; no motor power qualification')
++    return 0
++
++if __name__=='__main__':
++    raise SystemExit(main())
+diff --git a/tools/drv126_adc_golden_host_test.c b/tools/drv126_adc_golden_host_test.c
+new file mode 100644
+index 0000000..c231cee
+--- /dev/null
++++ b/tools/drv126_adc_golden_host_test.c
+@@ -0,0 +1,62 @@
++/* DRV126 reference at 0x08005734..0x080057B8, 0x08005B2C..0x08005B60.
++ * All expected equations and sectors are checked independently of the
++ * implementation, including negative ASRS rounding and separate ADC ranks. */
++#include <assert.h>
++#include <stdint.h>
++#include <stdio.h>
++#include "stock_current_frontend.h"
++
++static int32_t arm_reference(int32_t n) {
++    /* signed 32-bit MUL #0xC977 then ASRS #10 for 12-bit ADC values */
++    const int32_t product=n * 51575;
++    int32_t q=product/1024;
++    if (product<0 && (product % 1024)!=0) --q;
++    return q;
++}
++
++int main(void) {
++    const uint8_t ch1[7]={0,4,3,3,3,3,4};
++    const uint8_t ch2[7]={0,5,5,5,4,4,5};
++    const uint16_t offsets[3]={2017,2089,2048};
++    unsigned long cases=0;
++    for(uint8_t sector=1; sector<=6;sector++) {
++        stock_adc_pair_t pair=stock_current_pair_for_sector(sector);
++        assert(pair.adc1_channel==ch1[sector]);
++        assert(pair.adc2_channel==ch2[sector]);
++        for(int32_t dx=-120;dx<=120;dx++) {
++            for(int32_t dy=-120;dy<=120;dy++) {
++                const int32_t x=arm_reference(dx);
++                const int32_t y=arm_reference(dy);
++                int32_t a=0,b=0,c=0;
++                if(sector==1 || sector==6) {a=x+y;b=-x;c=-y;}
++                if(sector==2 || sector==3) {a=-x;b=x+y;c=-y;}
++                if(sector==4 || sector==5) {a=-x;b=-y;c=x+y;}
++                const stock_drv126_scaled_currents_t s=
++                    stock_current_drv126_reconstruct_scaled(sector,dx,dy);
++                assert(s.ia==a && s.ib==b && s.ic==c);
++                assert(s.ia+s.ib+s.ic==0);
++                assert(stock_current_drv126_scaled_delta(dx)==x);
++                const stock_phase_currents_t raw=stock_current_reconstruct_counts(
++                    sector,(uint16_t)(offsets[pair.adc1_channel-3]+dx),
++                           (uint16_t)(offsets[pair.adc2_channel-3]+dy),offsets);
++                assert(raw.ia+raw.ib+raw.ic==0);
++                /* Reconstructing before rather than after ARM's individual
++                 * ASRS can differ by up to one scaled unit per ADC input. */
++                assert(raw.ia>=-240 && raw.ia<=240);
++                cases++;
++            }
++        }
++    }
++    assert(stock_current_drv126_scaled_delta(-100)==-5037);
++    assert(stock_current_drv126_scaled_delta(100)==5036);
++    assert(stock_current_drv126_scaled_delta(-1)==-51);
++    assert(stock_current_drv126_scaled_delta(1)==50);
++    assert(stock_current_drv126_scaled_delta(-4095)==arm_reference(-4095));
++    assert(stock_current_drv126_scaled_delta(4095)==arm_reference(4095));
++    assert(stock_current_drv126_scaled_delta(8190)>0);
++    assert(stock_current_drv126_scaled_delta(-8190)<0);
++    assert(stock_current_drv126_scaled_delta(INT32_MAX)==INT32_MAX);
++    assert(stock_current_drv126_scaled_delta(INT32_MIN)==INT32_MIN);
++    printf("PASS DRV126 exact ADC scaling/sign/sectors: %lu golden vectors (6 sectors)\n", cases);
++    return 0;
++}
+diff --git a/tools/g30_adc_current_offsets_host_test.c b/tools/g30_adc_current_offsets_host_test.c
+index 64cbafb..d322829 100644
+--- a/tools/g30_adc_current_offsets_host_test.c
++++ b/tools/g30_adc_current_offsets_host_test.c
+@@ -2,18 +2,51 @@
+ #include <stdint.h>
+ #include <stdio.h>
+ #include "g30_adc_current_offsets.h"
++#include "stock_current_frontend.h"
+ int main(void) {
+     uint16_t out=0u;
++    const uint16_t a1[3]={2040u,2070u,2080u};
++    const uint16_t a2ch4=2090u,a2ch5=2010u;
++    assert(g30_adc_offset_stock_zero_valid(2048u));
++    assert(g30_adc_offset_stock_zero_valid(1948u));
++    assert(g30_adc_offset_stock_zero_valid(2148u));
++    assert(!g30_adc_offset_stock_zero_valid(1947u));
++    assert(!g30_adc_offset_stock_zero_valid(2149u));
+     for(uint8_t sector=1u;sector<=6u;sector++) {
+-        assert(g30_adc2_ch4_offset_normalize(sector,2130u,2040u,2070u,1u,&out));
+-        assert(out==((sector==4u||sector==5u)?2100u:2130u));
+-        assert(g30_adc2_ch4_offset_normalize(sector,2130u,2040u,2070u,0u,&out)==
+-               (uint8_t)((sector!=4u&&sector!=5u)?1u:0u));
++        const uint8_t uses_ch4=(uint8_t)(sector==4u || sector==5u);
++        /* ADC2 sees +30 counts, ADC1 reference must see exactly +30. */
++        uint16_t raw=(uint16_t)((uses_ch4?a2ch4:a2ch5)+30u);
++        assert(g30_adc2_current_offset_normalize(sector,raw,a1,a2ch4,a2ch5,1u,1u,&out));
++        assert(out==(uint16_t)((uses_ch4?a1[1]:a1[2])+30u));
++        /* Each quadrant requires calibration of the ADC2 channel ACTUALLY used. */
++        assert(g30_adc2_current_offset_normalize(sector,raw,a1,a2ch4,a2ch5,0u,1u,&out)==!uses_ch4);
++        assert(g30_adc2_current_offset_normalize(sector,raw,a1,a2ch4,a2ch5,1u,0u,&out)==uses_ch4);
++        const stock_adc_pair_t pair=stock_current_pair_for_sector(sector);
++        assert(pair.adc2_channel==(uses_ch4?4u:5u));
++        /* Both ADCs at zero => all three reconstructed phase currents zero. */
++        const uint16_t rawzero=(uint16_t)(uses_ch4?a2ch4:a2ch5);
++        assert(g30_adc2_current_offset_normalize(sector,rawzero,a1,a2ch4,a2ch5,1u,1u,&out));
++        const uint16_t raw1=a1[pair.adc1_channel-3u];
++        const stock_phase_currents_t z=stock_current_reconstruct_counts(sector,raw1,out,a1);
++        assert(z.ia==0 && z.ib==0 && z.ic==0);
++        /* Across 201 legal signed deltas, using either ADC2 physical zero
++         * reproduces precisely the same signed current as ADC1's reference. */
++        for(int16_t delta=-100;delta<=100;delta++) {
++            const uint16_t raw_pair=(uint16_t)((uses_ch4?a2ch4:a2ch5)+delta);
++            assert(g30_adc2_current_offset_normalize(sector,raw_pair,a1,
++                a2ch4,a2ch5,1u,1u,&out));
++            assert((int32_t)out-(int32_t)a1[pair.adc2_channel-3u]==delta);
++            const stock_phase_currents_t phase=stock_current_reconstruct_counts(sector,raw1,out,a1);
++            assert((int32_t)phase.ia+phase.ib+phase.ic==0);
++        }
+     }
+-    assert(!g30_adc2_ch4_offset_normalize(4u,4090u,4095u,2000u,1u,&out));
+-    assert(!g30_adc2_ch4_offset_normalize(4u,1u,0u,200u,1u,&out));
+-    assert(!g30_adc2_ch4_offset_normalize(0u,2000u,2100u,2100u,1u,&out));
+-    assert(!g30_adc2_ch4_offset_normalize(4u,2000u,2100u,2100u,1u,0));
+-    puts("PASS ADC2 CH4 independent offset and 6-sector bias normalization");
++    assert(!g30_adc2_current_offset_normalize(0,2048,a1,a2ch4,a2ch5,1,1,&out));
++    assert(!g30_adc2_current_offset_normalize(7,2048,a1,a2ch4,a2ch5,1,1,&out));
++    assert(!g30_adc2_current_offset_normalize(1,4095,a1,a2ch4,a2ch5,1,1,&out));
++    assert(!g30_adc2_current_offset_normalize(4,0,a1,a2ch4,a2ch5,1,1,&out));
++    assert(!g30_adc2_current_offset_normalize(1,2048,0,a2ch4,a2ch5,1,1,&out));
++    assert(!g30_adc2_current_offset_normalize(1,2048,a1,a2ch4,0,1,1,&out));
++    assert(!g30_adc2_current_offset_normalize(1,2048,a1,a2ch4,a2ch5,1,1,0));
++    puts("PASS ADC1/ADC2 separate CH4+CH5 offsets; zero-current all sectors; invalid fail closed");
+     return 0;
+ }
+diff --git a/tools/g30_adc_current_window_host_test.c b/tools/g30_adc_current_window_host_test.c
+index 7bbe8d1..ed74678 100644
+--- a/tools/g30_adc_current_window_host_test.c
++++ b/tools/g30_adc_current_window_host_test.c
+@@ -16,8 +16,11 @@ static g30_adc_current_state_t fixture(uint8_t sector) {
+     s.adc2_smpr2=SMPR2;
+     s.tim1_cr1=(1u<<0)|(1u<<5)|(1u<<7);
+     s.tim1_ccer=0x1555u;
+-    s.tim1_arr=1999u;
+-    s.tim1_ccr4=1800u;
++    s.tim1_ccmr2=(6u<<4)|(1u<<3)|(6u<<12)|(1u<<11);
++    s.tim1_psc=0u;
++    s.tim1_rcr=1u;
++    s.tim1_arr=4000u;
++    s.tim1_ccr4=3996u;
+     s.tim1_ccr1=1100u;
+     s.tim1_ccr2=1100u;
+     s.tim1_ccr3=1100u;
+@@ -40,11 +43,11 @@ static void check_current_model(void) {
+         assert(v.ic>=-140 && v.ic<=140);
+         g30_adc_current_state_t s=fixture(sector);
+         assert(g30_adc_current_flags(&s)==0u);
+-        s.tim1_ccr1=1700u;s.tim1_ccr2=1700u;s.tim1_ccr3=1700u;
++        s.tim1_ccr1=3900u;s.tim1_ccr2=3900u;s.tim1_ccr3=3900u;
+         assert(g30_adc_current_flags(&s)&G30_ADC_F_WINDOW);
+     }
+     assert(stock_current_nominal_counts_to_ma(100)==5036);
+-    assert(stock_current_nominal_counts_to_ma(-100)==-5036);
++    assert(stock_current_nominal_counts_to_ma(-100)==-5037);
+     assert(stock_current_nominal_ma_to_counts(500)==9);
+     assert(stock_current_scaled_unit_from_delta(100)==stock_current_nominal_counts_to_ma(100));
+ }
+@@ -61,11 +64,16 @@ int main(void) {
+     s.tim1_ccer|=(1u<<13);assert(g30_adc_current_flags(&s)&G30_ADC_F_TIM1);s=fixture(1u);
+     s.tim1_ccer&=~(1u<<12);assert(g30_adc_current_flags(&s)&G30_ADC_F_TIM1);s=fixture(1u);
+     s.tim1_cr1&=~(3u<<5);assert(g30_adc_current_flags(&s)&G30_ADC_F_TIM1);s=fixture(1u);
+-    s.tim1_ccr4=1750u;assert(g30_adc_current_flags(&s)&G30_ADC_F_TIM1);s=fixture(1u);
++    s.tim1_ccr4=3995u;assert(g30_adc_current_flags(&s)&G30_ADC_F_TIM1);s=fixture(1u);
++    s.tim1_cr1=(s.tim1_cr1&~(3u<<5))|(2u<<5);assert(g30_adc_current_flags(&s)&G30_ADC_F_TIM1);s=fixture(1u);
++    s.tim1_ccmr2&=~(6u<<12);assert(g30_adc_current_flags(&s)&G30_ADC_F_TIM1);s=fixture(1u);
++    s.tim1_ccmr2&=~(1u<<11);assert(g30_adc_current_flags(&s)&G30_ADC_F_TIM1);s=fixture(1u);
++    s.tim1_psc=1u;assert(g30_adc_current_flags(&s)&G30_ADC_F_TIM1);s=fixture(1u);
++    s.tim1_rcr=0u;assert(g30_adc_current_flags(&s)&G30_ADC_F_TIM1);s=fixture(1u);
+     s.sector=0u;assert(g30_adc_current_flags(&s)&G30_ADC_F_SECTOR);s=fixture(1u);
+-    s.tim1_ccr2=1549u;assert(g30_adc_current_flags(&s)&G30_ADC_F_WINDOW);s=fixture(1u);
+-    s.tim1_ccr3=1549u;assert(g30_adc_current_flags(&s)&G30_ADC_F_WINDOW);s=fixture(1u);
+-    s.tim1_ccr1=1549u;assert(g30_adc_current_flags(&s)==0u); /* A not sampled in sector 1 */
++    s.tim1_ccr2=3745u;assert(g30_adc_current_flags(&s)&G30_ADC_F_WINDOW);s=fixture(1u);
++    s.tim1_ccr3=3745u;assert(g30_adc_current_flags(&s)&G30_ADC_F_WINDOW);s=fixture(1u);
++    s.tim1_ccr1=3745u;assert(g30_adc_current_flags(&s)==0u); /* A not sampled in sector 1 */
+     assert(g30_adc_current_flags(NULL)!=0u);
+     puts("PASS G30D ADC timing + window + 6 sectors + nominal-current sign symmetry");
+     return 0;
+diff --git a/tools/run_v097_tests.sh b/tools/run_v097_tests.sh
+index dc89439..36aca35 100755
+--- a/tools/run_v097_tests.sh
++++ b/tools/run_v097_tests.sh
+@@ -1,73 +1,3 @@
+ #!/usr/bin/env bash
+-# Software-only checks. No external hardware, no flashing, no motor enable.
+ set -euo pipefail
+-cd "$(dirname "$0")/.."
+-python3 tools/pinmap_power_regression_test.py
+-make safe CC="${ARM_CC:-clang}" OBJCOPY="${ARM_OBJCOPY:-llvm-objcopy}" OBJDUMP="${ARM_OBJDUMP:-llvm-objdump}"
+-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+-checks=(
+-  'first_spin_safety_host_test.c sensorless_control.c vesc_ebics_flux.c'
+-  'foc_adc_contract_host_test.c foc_adc_contract.c stock_current_frontend.c'
+-  'foc_adc_motor_handoff_host_test.c foc_adc_motor_handoff.c sensorless_control.c vesc_ebics_flux.c'
+-  'motor_id_host_test.c motor_id.c sensorless_control.c vesc_ebics_flux.c'
+-  'sensorless_plant_host_test.c sensorless_control.c vesc_ebics_flux.c'
+-  'motor_core_host_test.c sensorless_control.c vesc_ebics_flux.c'
+-  'power_logic_host_test.c power_logic.c'
+-  'iap_ack_host_test.c iap_proto.c'
+-  'iap_transport_host_test.c iap_proto.c'
+-  'stock_adc_timing_host_test.c stock_adc_timing.c'
+-  'stock_adc_quality_host_test.c stock_adc_quality.c stock_current_frontend.c'
+-  'stock_adc_snapshot_host_test.c stock_adc_snapshot.c stock_current_frontend.c'
+-  'stock_dual_adc_runtime_host_test.c stock_dual_adc_runtime.c stock_dual_adc_plan.c stock_current_frontend.c'
+-  'test_g30_fixed_scan.c g30_fixed_scan.c'
+-  'test_stock_adc_mode_guard.c stock_adc_mode_guard.c stock_dual_adc_plan.c stock_current_frontend.c'
+-  'test_ble_motor_probe.c motor_probe.c ble_motor_probe.c'
+-)
+-checks+=('motor_pipeline_host_test.c motor_pipeline.c foc_adc_contract.c stock_current_frontend.c sensorless_control.c vesc_ebics_flux.c')
+-checks+=('stock_tim1_gate_host_test.c stock_tim1_gate.c')
+-checks+=('vesc_ebics_flux_host_test.c vesc_ebics_flux.c')
+-checks+=('g30_adc_current_window_host_test.c g30_adc_current_window.c stock_current_frontend.c')
+-checks+=('g30_adc_current_offsets_host_test.c g30_adc_current_offsets.c')
+-for check in "${checks[@]}"; do
+-  read -ra files <<< "$check"
+-  test="${files[0]}"; args=()
+-  for f in "${files[@]:1}"; do args+=("src/$f"); done
+-  # Sensorless now calls the same physical-count model as ADC; avoid
+-  # duplicate objects for tests already naming stock_current_frontend.c.
+-  if [[ " $check " != *" stock_current_frontend.c "* ]]; then args+=("src/stock_current_frontend.c"); fi
+-  extra_flags=()
+-  if [ "$test" = sensorless_plant_host_test.c ] || [ "$test" = motor_pipeline_host_test.c ]; then
+-      extra_flags+=(-DSENSORLESS_CLOSED_LOOP_ALLOWED=1)
+-  fi
+-  gcc -std=c11 -O1 -g -fsanitize=undefined -Isrc "${extra_flags[@]}" "tools/$test" "${args[@]}" -lm -o "$TMP/${test%.c}"
+-  "$TMP/${test%.c}"
+-  echo "PASS: $test"
+-done
+-for flags in '-DPOWER_STAGE_ARM_ALLOWED=1 -DSENSORLESS_RUN_ALLOWED=0' '-DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=1'; do
+-  # shellcheck disable=SC2086
+-  if "${ARM_CC:-clang}" --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -Isrc $flags -c src/main.c -o "$TMP/bad.o" >"$TMP/reject.log" 2>&1; then
+-    echo 'FAIL: unexpectedly permitted motor power build' >&2; exit 1
+-  fi
+-  grep -q 'DRV126 gate profile ready; powered build still requires valid ADC timing and current scaling' "$TMP/reject.log"
+-  echo "PASS: motor-power compile rejection $flags"
+-done
+-if [ "$(stat -c %s build/DeltaESC_G30D_v0_9_7_ble_syncsafe.bin)" -ge 53248 ]; then
+-  echo 'FAIL: exceeds G30 active application region' >&2; exit 1
+-fi
+-if command -v llvm-nm >/dev/null 2>&1; then
+-  llvm-nm build/DeltaESC_G30D_v0_9_7_ble_syncsafe.elf | grep -q 'motor_id_accept'
+-  llvm-nm build/DeltaESC_G30D_v0_9_7_ble_syncsafe.elf | grep -q 'motor_id_commit'
+-  if llvm-nm -u build/DeltaESC_G30D_v0_9_7_ble_syncsafe.elf | grep -E '__aeabi_(f|d|[ui]?ldiv)'; then echo 'FAIL: floating point / 64-bit division in Cortex-M3 link' >&2; exit 1; fi
+-fi
+-# Keep the complete symbol table in a file to avoid SIGPIPE with pipefail.
+-llvm-objdump -t build/DeltaESC_G30D_v0_9_7_ble_syncsafe.elf > "$TMP/v097_symbols.txt"
+-if ! grep -q 'g30_adc_current_flags' "$TMP/v097_symbols.txt"; then
+-  echo 'FAIL: ADC timing contract is not linked into Cortex-M3 ELF' >&2; exit 1
+-fi
+-if ! grep -q 'g30_adc2_ch4_offset_normalize' "$TMP/v097_symbols.txt"; then
+-  echo 'FAIL: ADC2 channel offset normalization is not linked into Cortex-M3 ELF' >&2; exit 1
+-fi
+-if ! grep -q 'case 0xF7u:' src/main.c; then
+-  echo 'FAIL: Motor ID read-only status missing' >&2; exit 1
+-fi
+-echo 'PASS: ADC-current integration tests (not a hardware/flash release)'
++exec bash "$(dirname "$0")/run_v098_tests.sh" "$@"
+diff --git a/tools/run_v098_tests.sh b/tools/run_v098_tests.sh
+new file mode 100644
+index 0000000..557badd
+--- /dev/null
++++ b/tools/run_v098_tests.sh
+@@ -0,0 +1,78 @@
++#!/usr/bin/env bash
++# Software-only checks. No external hardware, no flashing, no motor enable.
++set -euo pipefail
++cd "$(dirname "$0")/.."
++python3 tools/pinmap_power_regression_test.py
++make safe CC="${ARM_CC:-clang}" OBJCOPY="${ARM_OBJCOPY:-llvm-objcopy}" OBJDUMP="${ARM_OBJDUMP:-llvm-objdump}"
++TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
++checks=(
++  'first_spin_safety_host_test.c sensorless_control.c vesc_ebics_flux.c'
++  'foc_adc_contract_host_test.c foc_adc_contract.c stock_current_frontend.c'
++  'foc_adc_motor_handoff_host_test.c foc_adc_motor_handoff.c sensorless_control.c vesc_ebics_flux.c'
++  'motor_id_host_test.c motor_id.c sensorless_control.c vesc_ebics_flux.c'
++  'sensorless_plant_host_test.c sensorless_control.c vesc_ebics_flux.c'
++  'motor_core_host_test.c sensorless_control.c vesc_ebics_flux.c'
++  'power_logic_host_test.c power_logic.c'
++  'iap_ack_host_test.c iap_proto.c'
++  'iap_transport_host_test.c iap_proto.c'
++  'stock_adc_timing_host_test.c stock_adc_timing.c'
++  'stock_adc_quality_host_test.c stock_adc_quality.c stock_current_frontend.c'
++  'stock_adc_snapshot_host_test.c stock_adc_snapshot.c stock_current_frontend.c'
++  'stock_dual_adc_runtime_host_test.c stock_dual_adc_runtime.c stock_dual_adc_plan.c stock_current_frontend.c'
++  'test_g30_fixed_scan.c g30_fixed_scan.c'
++  'test_stock_adc_mode_guard.c stock_adc_mode_guard.c stock_dual_adc_plan.c stock_current_frontend.c'
++  'test_ble_motor_probe.c motor_probe.c ble_motor_probe.c'
++)
++checks+=('motor_pipeline_host_test.c motor_pipeline.c foc_adc_contract.c stock_current_frontend.c sensorless_control.c vesc_ebics_flux.c')
++checks+=('stock_tim1_gate_host_test.c stock_tim1_gate.c')
++checks+=('vesc_ebics_flux_host_test.c vesc_ebics_flux.c')
++checks+=('g30_adc_current_window_host_test.c g30_adc_current_window.c stock_current_frontend.c')
++checks+=('g30_adc_current_offsets_host_test.c g30_adc_current_offsets.c')
++checks+=('drv126_adc_golden_host_test.c stock_current_frontend.c')
++for check in "${checks[@]}"; do
++  read -ra files <<< "$check"
++  test="${files[0]}"; args=()
++  for f in "${files[@]:1}"; do args+=("src/$f"); done
++  # Sensorless now calls the same physical-count model as ADC; avoid
++  # duplicate objects for tests already naming stock_current_frontend.c.
++  if [[ " $check " != *" stock_current_frontend.c "* ]]; then args+=("src/stock_current_frontend.c"); fi
++  extra_flags=()
++  if [ "$test" = sensorless_plant_host_test.c ] || [ "$test" = motor_pipeline_host_test.c ]; then
++      extra_flags+=(-DSENSORLESS_CLOSED_LOOP_ALLOWED=1)
++  fi
++  gcc -std=c11 -O1 -g -fsanitize=undefined -Isrc "${extra_flags[@]}" "tools/$test" "${args[@]}" -lm -o "$TMP/${test%.c}"
++  "$TMP/${test%.c}"
++  echo "PASS: $test"
++done
++for flags in '-DPOWER_STAGE_ARM_ALLOWED=1 -DSENSORLESS_RUN_ALLOWED=0' '-DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=1'; do
++  # shellcheck disable=SC2086
++  if "${ARM_CC:-clang}" --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -Isrc $flags -c src/main.c -o "$TMP/bad.o" >"$TMP/reject.log" 2>&1; then
++    echo 'FAIL: unexpectedly permitted motor power build' >&2; exit 1
++  fi
++  grep -q 'DRV126 gate profile ready; powered build still requires valid ADC timing and current scaling' "$TMP/reject.log"
++  echo "PASS: motor-power compile rejection $flags"
++done
++if [ "$(stat -c %s build/DeltaESC_G30D_v0_9_8_ble_syncsafe.bin)" -ge 53248 ]; then
++  echo 'FAIL: exceeds G30 active application region' >&2; exit 1
++fi
++if command -v llvm-nm >/dev/null 2>&1; then
++  llvm-nm build/DeltaESC_G30D_v0_9_8_ble_syncsafe.elf | grep -q 'motor_id_accept'
++  llvm-nm build/DeltaESC_G30D_v0_9_8_ble_syncsafe.elf | grep -q 'motor_id_commit'
++  if llvm-nm -u build/DeltaESC_G30D_v0_9_8_ble_syncsafe.elf | grep -E '__aeabi_(f|d|[ui]?ldiv)'; then echo 'FAIL: floating point / 64-bit division in Cortex-M3 link' >&2; exit 1; fi
++fi
++# Keep the complete symbol table in a file to avoid SIGPIPE with pipefail.
++llvm-objdump -t build/DeltaESC_G30D_v0_9_8_ble_syncsafe.elf > "$TMP/v098_symbols.txt"
++if ! grep -q 'g30_adc_current_flags' "$TMP/v098_symbols.txt"; then
++  echo 'FAIL: ADC timing contract is not linked into Cortex-M3 ELF' >&2; exit 1
++fi
++if ! grep -q 'g30_adc2_current_offset_normalize' "$TMP/v098_symbols.txt"; then
++  echo 'FAIL: ADC2 channel offset normalization is not linked into Cortex-M3 ELF' >&2; exit 1
++fi
++if ! grep -q 'case 0xF7u:' src/main.c; then
++  echo 'FAIL: Motor ID read-only status missing' >&2; exit 1
++fi
++echo 'PASS: DRV126 stock-verified software ADC-current profile (source only)'
++
++if [ -n "${DRV126_STOCK_BIN:-}" ]; then
++    python3 tools/audit_drv126_adc_stock.py "$DRV126_STOCK_BIN"
++fi
