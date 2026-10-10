@@ -22,6 +22,13 @@ def one(s,old,new):
 source=p.read_text()
 source=one(source,'#include "stock_tim1_gate.h"',
     '#include "stock_tim1_gate.h"\n#include "tim1_bdtr_guard.h"')
+source=one(source,'static void gate_pins_to_safe_inputs(void) {',
+'''static void gate_pins_to_safe_inputs(void) {
+    /* Set STM32F1 ODR LOW *before* configuring input with pull-up/down.
+       On STM32F103 0x8 means input-pull; ODR=0 selects pull-DOWN.
+       MT8006A HIN/LIN require LOW for both MOSFETs off. */
+    GPIO_BRR(GPIOA_BASE)=(1u<<8)|(1u<<9)|(1u<<10);
+    GPIO_BRR(GPIOB_BASE)=(1u<<13)|(1u<<14)|(1u<<15);''')
 source=one(source,'#define FW_BUILD 0x0914u',
     '#define FW_BUILD 0x0916u\n'
     '#if MOTOR_ID_BENCH_ALLOWED\n'
@@ -60,6 +67,12 @@ source=one(source,'    if (!(TIM_BDTR(TIM1_BASE)&TIM_BDTR_MOE)) ok=0u;',
     if (!tim1_bdtr_guard_passive((uint16_t)TIM_BDTR(TIM1_BASE),
                                  (uint8_t)DEADTIME_DTG,
                                  (uint16_t)ccer)) ok=0u;''')
+source=one(source,
+'        if (gate_pin_mode_word_a()!=0x888u || gate_pin_mode_word_b()!=0x888u) ok=0u;',
+'''        if (!tim1_bdtr_guard_gpio_down((uint16_t)gate_pin_mode_word_a(),
+                                        (uint16_t)gate_pin_mode_word_b(),
+                                        (uint16_t)GPIO_ODR(GPIOA_BASE),
+                                        (uint16_t)GPIO_ODR(GPIOB_BASE))) ok=0u;''')
 p.write_text(source)
 make=m.read_text()
 if "v0_9_14" not in make:
@@ -72,4 +85,5 @@ shutil.copyfile(root/"v0.9.16/src/tim1_bdtr_guard.h",dest)
 assert "MOTOR_ID_BENCH_ALLOWED" in source
 assert source.count("tim1_bdtr_guard_passive(")==2
 assert source.count("tim1_bdtr_guard_preinit(")==1
+assert source.count("tim1_bdtr_guard_gpio_down(")==1
 print("PASS: v0.9.16 FAIL-CLOSED source overlay (AOE=0, no BKE guess, no live motor build)")
