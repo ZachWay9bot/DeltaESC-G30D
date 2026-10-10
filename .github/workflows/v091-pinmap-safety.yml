@@ -1,0 +1,55 @@
+name: DeltaESC v0.9.1 PC14 PB1 safety source-only
+on:
+  push:
+    branches: [dev/v0.9.1-pc14-pb1-power-stage-safety]
+    paths:
+      - 'v0.9.1/**'
+      - '.github/workflows/v091-pinmap-safety.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  pc14-pb1-safety:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Cortex-M3 compiler
+        run: sudo apt-get update -qq && sudo apt-get install -y clang-18 llvm-18
+      - name: Retrieve unchanged v0.9.0 CI source archive (not firmware)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p base source
+          gh run download 37996878172 --repo "${{ github.repository }}" --name DeltaESC-v0.9.0-FIRSTSPIN-STOP-SAFETY-GATEOFF-SOURCE-ONLY --dir base
+          echo "b66dc23226b18d8936c4d526f3a78d69e6b8c927e40ecc4c2dc84277ceee89d4  base/DeltaESC_v090_FIRSTSPIN_STOP_SAFETY_GATEOFF_SOURCE_ONLY.tar.xz" | sha256sum -c -
+          tar -xJf base/DeltaESC_v090_FIRSTSPIN_STOP_SAFETY_GATEOFF_SOURCE_ONLY.tar.xz -C source
+      - name: Prove old source fails the pin map regression
+        run: |
+          cp v0.9.1/tools/pinmap_power_regression_test.py source/tools/
+          if (cd source && python3 tools/pinmap_power_regression_test.py); then
+            echo "ERROR: old PA12 / PB1 mapping unexpectedly passed!"
+            exit 1
+          fi
+      - name: Apply exact checked v0.9.1 source patch and pass tests
+        run: |
+          patch -d source -p1 < v0.9.1/v091_pinmap_safety.patch
+          (cd source && python3 tools/pinmap_power_regression_test.py)
+          (cd source && make safe CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18)
+          (cd source && gcc -std=c11 -O2 -Wall -Wextra -Werror -fsanitize=undefined -Isrc tools/power_logic_host_test.c src/power_logic.c -o /tmp/power_logic_host && /tmp/power_logic_host)
+      - name: Motor-power and sensorless binaries must be impossible to compile
+        run: |
+          if (cd source && clang-18 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -Isrc -DPOWER_STAGE_ARM_ALLOWED=1 -DSENSORLESS_RUN_ALLOWED=0 -c src/main.c -o /tmp/bad_motor.o); then
+            echo "ERROR: Motor arming unexpectedly compiled"
+            exit 1
+          fi
+          if (cd source && clang-18 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -Isrc -DPOWER_STAGE_ARM_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=1 -c src/main.c -o /tmp/bad_sensorless.o); then
+            echo "ERROR: Sensorless power unexpectedly compiled"
+            exit 1
+          fi
+      - name: Source-only conclusion
+        run: |
+          echo "PASS: corrected power GPIO assumptions, Cortex-M3 syncsafe build; MOTOR OUTPUTS LOCKED"
+          echo "No signed release, no flash authorization, no binary artifact published."
