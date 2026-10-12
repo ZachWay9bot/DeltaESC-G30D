@@ -43,5 +43,16 @@ Observed on the supplied image:
 - literal references found for TIM1, ADC1, ADC2, GPIOA/B/C, RCC, DMA1 and
   USART1/2/3, consistent with those peripherals being used by stock firmware.
 
-Those are **static binary facts**, not proof of PCB routing or analog/gate
-electrical behaviour. The dump itself is not committed to this repository.
+The existing v0.9.8 exact DRV126 fingerprint audit was also re-run against the
+supplied dump and all **nine** anchors matched, including:
+
+- six-sector ADC current dispatch;
+- the signed stock scaling constant `51575` followed by `ASRS #10`;
+- sector-specific ADC1/ADC2 JSQR selection;
+- TIM1 PSC=0, ARR=4000, center-aligned profile and RCR=1;
+- CH4 PWM1 ADC trigger setup;
+- runtime `CCER=0x1555` and `CCR4=3996`.
+
+Those are **static binary facts**, not proof of PCB routing, physical ampere
+gain, MT8006A polarity/isolation or safe switching behaviour. The dump itself
+is not committed to this repository.
