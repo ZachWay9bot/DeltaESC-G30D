@@ -88,7 +88,7 @@ jobs:
           javac -d /tmp/testclasses \
             /tmp/app/v031/app/src/main/java/de/deltaesc/tool/NinebotProtocol.java \
             /tmp/app/v031/app/src/main/java/de/deltaesc/tool/AdcProofTelemetry.java \
-            android/v0.3.7/TestAdcProofTelemetry.java
+            android/v0.3.8/TestAdcProofTelemetry.java
           java -cp /tmp/testclasses de.deltaesc.tool.TestAdcProofTelemetry
       - name: Regression frozen real G30 NinebotCrypto and fragmentation
         run: |
