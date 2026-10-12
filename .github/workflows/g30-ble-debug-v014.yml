@@ -27,7 +27,7 @@ jobs:
         run: |
           mkdir -p /tmp/g30-debug
           base64 -d android/ble-debug-v014/source.tar.xz.b64 > /tmp/g30-debug-source.tar.xz
-          echo "ff0eaf258fea28273d9da78af9a1f97e0f1c316af463db066fa4502d0c5afebd  /tmp/g30-debug-source.tar.xz" | sha256sum -c -
+          echo "eeca2d10fbc16464f2a39880e1fa09fc9682bbaef3ae41427ed7b6f4de6d3795  /tmp/g30-debug-source.tar.xz" | sha256sum -c -
           tar -xJf /tmp/g30-debug-source.tar.xz -C /tmp/g30-debug
           ls -l /tmp/g30-debug/src/de/ebics/g30bench
       - name: Confirm preserved crypto/packet sources
