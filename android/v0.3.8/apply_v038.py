@@ -26,6 +26,10 @@ s=once(s,'DeltaESC 0x0918 · ADC DIAGNOSE (NUR LESEN)',
        'DeltaESC 0x0919 · ADC DIAGNOSE (NUR LESEN)')
 s=once(s,'Nur für angemeldete DeltaESC Firmware 0x0918; kein Zugriff auf Stock.',
        'Nur für angemeldete DeltaESC Firmware 0x0919; kein Zugriff auf Stock.')
+# v0.3.7 removed E7 controls but left an F7-F9 receive handler referring
+# to a TextView deleted with that UI. ADC-only must drop this dead callback.
+s=once(s,'if(f.arg>=0xF7&&f.arg<=0xF9){String value=MotorIdBenchProtocol.describe(f.arg,f.payload);if(motorIdResultText!=null)motorIdResultText.setText(value);append("MOTOR-ID "+value);return;}','')
+assert 'motorIdResultText' not in s
 assert 'sendEncrypted(MotorIdBenchProtocol.start()' not in s
 assert 'addMotorIdBenchControls()' not in s
 assert 'sendEncrypted(AdcProofTelemetry.read(reg)' in s
