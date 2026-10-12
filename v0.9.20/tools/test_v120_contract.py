@@ -8,6 +8,8 @@ main=(root/'src/main.c').read_text()
 make=(root/'Makefile').read_text()
 obs=(root/'src/vesc_ebics_flux.c').read_text()
 ctl=(root/'src/sensorless_control.c').read_text()
+auto=(root/'src/motor_id_auto.c').read_text()
+tests=(root/'tools/run_v114_tests.sh').read_text()
 
 def req(x,msg):
     if not x:
@@ -33,4 +35,13 @@ req('case 0xFAu: case 0xFBu:' in main,'read-only ADC proof retained')
 req('vesc_ebics_flux_step' in obs,'VESC/EBiCS observer retained')
 req('SENSORLESS_HANDOVER' in ctl and 'SENSORLESS_CLOSED_LOOP' in ctl,
     'STOP/OPEN/HANDOVER/CLOSED sensorless state machine retained')
+req('sensorless_control_t staged_control' in auto and
+    'motor_id_commit(&a->id,&staged_control)' in auto and
+    'copy_struct(a->control,&staged_control' in auto,
+    'Motor-ID R/L/Flux adoption into sensorless control retained')
+req('sensorless_plant_host_test.c' in tests,'synthetic sensorless plant regression retained')
+req('motor_pipeline_host_test.c' in tests,'ADC-to-FOC pipeline regression retained')
+req('vesc_ebics_flux_host_test.c' in tests,'observer regression retained')
+req('hall' not in ctl.lower() and 'hall' not in obs.lower(),
+    'no Hall dependency in sensorless observer/control core')
 print('PASS: v0.9.20 is Hall-free sensorless software integration, not a gate-arm release')
