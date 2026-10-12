@@ -1,0 +1,51 @@
+name: G30 BLE Debug 0.1.4 APK
+on:
+  push:
+    branches:
+      - dev/g30-ble-debug-v014
+    paths:
+      - android/ble-debug-v014/**
+      - .github/workflows/g30-ble-debug-v014.yml
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install SDK 35
+        run: |
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Decode exact source snapshot
+        run: |
+          mkdir -p /tmp/g30-debug
+          base64 -d android/ble-debug-v014/source.tar.xz.b64 > /tmp/g30-debug-source.tar.xz
+          echo "ff0eaf258fea28273d9da78af9a1f97e0f1c316af463db066fa4502d0c5afebd  /tmp/g30-debug-source.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/g30-debug-source.tar.xz -C /tmp/g30-debug
+          ls -l /tmp/g30-debug/src/de/ebics/g30bench
+      - name: Confirm preserved crypto/packet sources
+        run: |
+          cd /tmp/g30-debug/src/de/ebics/g30bench
+          echo "c65dd6505ff5953f6ef91c934e8dd7bc5ebd9cac91702bdc9f1fb323f01a2a4a  LegacyCrypto.java" | sha256sum -c -
+          echo "5c5c6f7c832755e35b9f0e94155b17b5fa520eb461fa17f5ab6041743b26b85c  Packet.java" | sha256sum -c -
+          echo "89f4f2b9c6fa5430818925b1232309bb7fccae817d7c8962e9267e86c44cc87a  WireDecoder.java" | sha256sum -c -
+          grep -q 'package="de.ebics.g30bench.debug"' /tmp/g30-debug/AndroidManifest.xml
+      - name: Compile sign verify APK
+        working-directory: /tmp/g30-debug
+        run: |
+          python3 build.py --android-jar "${ANDROID_HOME}/platforms/android-35/android.jar" --build-tools "${ANDROID_HOME}/build-tools/35.0.0"
+      - name: Upload signed debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: G30_BLE_DEBUG_v0.1.4_APK
+          path: /tmp/g30-debug/dist/G30_Motor_BLE_v0.1.4_DEBUG.apk
+          if-no-files-found: error
+          retention-days: 30
