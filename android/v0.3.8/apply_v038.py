@@ -37,7 +37,7 @@ s=once(s,'G30D DeltaESC v0.9.18','G30D DeltaESC v0.9.19')
 # The existing v0.3.7 decoder kept a stale protocol error even after a
 # valid retry. Reset it only AFTER full 18-byte/version validation succeeds.
 s=once(s,'        byte[] p=Arrays.copyOf(data,LENGTH);',
-       '        error="";\\n        byte[] p=Arrays.copyOf(data,LENGTH);')
+       '        error="";\n        byte[] p=Arrays.copyOf(data,LENGTH);')
 p.write_text(s)
 g=root/'app/build.gradle'
 s=g.read_text()
