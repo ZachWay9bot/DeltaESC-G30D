@@ -1,0 +1,159 @@
+name: DeltaESC G30D v0.9.19 RC E7 plus FA FB read-only ADC
+on:
+  push:
+    branches: [dev/motor-rc-adc-integration-v0919]
+    paths: ['integration/**','v0.9.18/**','.github/workflows/motor-rc-adc-v119.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  cortex-m3-id-vector:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compiler packages
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y clang-18 llvm-18 gcc
+          sudo ln -sf "$(command -v llvm-objdump-18)" /usr/local/bin/llvm-objdump
+      - name: Reconstruct the versioned source chain
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p base source
+          gh run download 37996878172 --repo "${{ github.repository }}" --name DeltaESC-v0.9.0-FIRSTSPIN-STOP-SAFETY-GATEOFF-SOURCE-ONLY --dir base
+          echo 'b66dc23226b18d8936c4d526f3a78d69e6b8c927e40ecc4c2dc84277ceee89d4  base/DeltaESC_v090_FIRSTSPIN_STOP_SAFETY_GATEOFF_SOURCE_ONLY.tar.xz' | sha256sum -c -
+          tar -xJf base/DeltaESC_v090_FIRSTSPIN_STOP_SAFETY_GATEOFF_SOURCE_ONLY.tar.xz -C source
+          apply() {
+            python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]).read_bytes();sys.stdout.buffer.write(p if p.endswith(b"\n") else p+b"\n")' "$1" | patch -s --batch --forward -d source -p1
+          }
+          apply v0.9.1/v091_pinmap_safety.patch
+          cp v0.9.1/tools/pinmap_power_regression_test.py source/tools/
+          cp v0.9.1/tools/run_v091_tests.sh source/tools/
+          apply v0.9.2/v092_foc_adc_contract.patch
+          apply v0.9.3/v093_motor_id.patch
+          apply v0.9.4/v094_motor_pipeline.patch
+          apply v0.9.5/v095_drv126_gate.patch
+          apply v0.9.6/v096_vesc_ebics_port.patch
+          apply v0.9.7/v097_adc_current_only.patch
+          # v0.9.8 also changes a README absent from the original frozen v0.9.0 archive.
+          # Exclude README hunks only; replay every source and test change.
+          python3 - <<'PY' > /tmp/v098-source-only.patch
+          import pathlib,re,sys
+          s=pathlib.Path('v0.9.8/v098_ADC_DRV126_REFERENCE.patch').read_text()
+          for chunk in re.split(r'(?=^diff --git )',s,flags=re.M):
+              if re.search(r'^diff --git a/README_',chunk,re.M):
+                  continue
+              sys.stdout.write(chunk if chunk.endswith(chr(10)) else chunk+chr(10))
+          PY
+          apply /tmp/v098-source-only.patch
+          apply v0.9.9/v099_AUTO_MOTOR_DETECT.patch
+          apply v0.9.10/v100_motor_id_vector.patch
+          apply v0.9.11/v101_motor_id_adc_feedback.patch
+          apply v0.9.12/v102_LIVE_MOTOR_ID.patch
+          apply v0.9.13/v103_DRIVEN_FLUX.patch
+          apply v0.9.14/v114_VESC_METHOD_FROM_v113.patch
+      - name: Replay exact v0.9.14 VESC-adapted motor-detect profile
+        run: |
+          set -euo pipefail
+          cd source
+          make clean
+          ARM_CC=clang-18 ARM_OBJCOPY=llvm-objcopy-18 ARM_OBJDUMP=llvm-objdump-18 bash tools/run_v114_tests.sh
+          test "$(stat -c %s build/DeltaESC_G30D_v0_9_14_ble_syncsafe.bin)" -lt 53248
+          grep -Fq '#define FW_BUILD 0x0914u' src/main.c
+          grep -Fq '#define COMM_CURRENT_SCALE_HW_VALID 0u' src/main.c
+          grep -Fq '#define COMM_ADC_TIMING_HW_VALID 0u' src/main.c
+          grep -Fq 'const motor_id_auto_io_t id_io={motor_id_hw_vector_mv,motor_id_hw_gate_off,0};' src/main.c
+          grep -Fq 'motor_id_adc_feedback_capture(' src/main.c
+          grep -Fq 'TIM1_UP_IRQHandler' src/main.c
+          grep -Fq 'motor_id_auto_tick(&g_motor_id_auto,t0/' src/main.c
+          grep -Fq '#define ID_BENCH_MAX_ACTIVE_MS 2500u' src/main.c
+          grep -Fq '#define ID_BENCH_MAX_TOTAL_MS 3600u' src/main.c
+          grep -Fq 'AUTO_L_SAMPLES 24u' src/motor_id_auto.c
+          grep -Fq 'AUTO_FLUX_RAMP_US 950000u' src/motor_id_auto.c
+          grep -Fq 'out->applied_at_us=f->active_command_cycle/' src/motor_id_adc_feedback.c
+          test "$(stat -c %s build/DeltaESC_G30D_v0_9_14_motor_id_bench.bin)" -lt 53248
+          echo 'v0.9.14 VESC-method firmware: 26 host test groups, both ARM images and real motor-ID-only E7 build linked.'
+
+      - name: Regression - repeated coast vs terminal shutdown
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror -O2 -Iv0.9.16/src -Iv0.9.17/src motor-rc/tools/motor_rc_gate_host_test.c -o /tmp/gate_rc
+          /tmp/gate_rc
+      - name: Apply v116 and v117 safety layers and motor-RC E7-only repair
+        run: |
+          set -euo pipefail
+          python3 v0.9.16/tools/apply_v116.py source
+          python3 v0.9.17/tools/apply_v117.py source
+          python3 motor-rc/tools/apply_motor_rc.py source
+          grep -Fq 'static void motor_id_bench_coast(void)' source/src/main.c
+          grep -Fq 'motor_id_bench_coast();' source/src/main.c
+          grep -Fq 'g_gate_kill_latched=1u;' source/src/main.c
+          grep -Fq 'cmd==0xE6u' source/src/main.c
+          grep -Fq 'g_gate_kill_latched || g_id_bench_requested' source/src/main.c
+          grep -Fq '#define FW_BUILD 0x0914u' source/src/main.c
+          grep -Fq '#error "Motor RC permits E7-only Motor-ID' source/src/main.c
+      - name: Cortex M3 release-candidate SAFE and real E7-only Motor-ID images
+        run: |
+          set -euo pipefail
+          cd source
+          make clean
+          make safe id-bench CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+          test -s build/DeltaESC_G30D_v0_9_14_rc_ble_syncsafe.bin
+          test -s build/DeltaESC_G30D_v0_9_14_rc_motor_id_bench.bin
+          test "$(stat -c %s build/DeltaESC_G30D_v0_9_14_rc_motor_id_bench.bin)" -lt 53248
+          echo "Motor-Bench image size: $(stat -c %s build/DeltaESC_G30D_v0_9_14_rc_motor_id_bench.bin) bytes"
+          sha256sum build/DeltaESC_G30D_v0_9_14_rc_*.bin
+          if clang-18 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb \
+            -ffreestanding -Isrc -DPOWER_STAGE_ARM_ALLOWED=1 \
+            -DMOTOR_ID_BENCH_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 \
+            -fsyntax-only src/main.c >/tmp/drive-forbidden.txt 2>&1; then
+              echo 'ERROR: regular drive unexpectedly built' >&2
+              exit 1
+          fi
+          grep -Fq 'Motor RC permits E7-only' /tmp/drive-forbidden.txt
+          echo "PASS Motor RC: guarded E7 PWM path linked, E6 terminal stop, normal drive forbidden"
+      - name: ADC proof passive host regression from PR 5
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -Iv0.9.18/src v0.9.18/tools/g30_adc_proof_host_test.c -o /tmp/test_rc_adc
+          /tmp/test_rc_adc
+      - name: Integrate FA FB into RC with separate 0x0919 build identity
+        run: |
+          set -euo pipefail
+          python3 integration/tools/apply_v119.py source
+          python3 integration/tools/test_v119_contract.py source
+          grep -Fq '#define FW_BUILD 0x0919u' source/src/main.c
+          grep -Fq 'case 0xFAu: case 0xFBu:' source/src/main.c
+          grep -Fq '#error "Motor RC permits E7-only Motor-ID' source/src/main.c
+          grep -Fq 'TIM_BDTR(TIM1_BASE)&=(uint32_t)~D_GUARD_MOE;' source/src/main.c
+      - name: Compile Cortex-M3 safe and E7-only experimental variants
+        run: |
+          set -euo pipefail
+          cd source
+          make clean
+          make safe id-bench CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+          test -s build/DeltaESC_G30D_v0_9_19_ble_syncsafe.bin
+          test -s build/DeltaESC_G30D_v0_9_19_motor_id_bench.bin
+          test "$(stat -c %s build/DeltaESC_G30D_v0_9_19_motor_id_bench.bin)" -lt 53248
+          if clang-18 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb \
+            -ffreestanding -Isrc -DPOWER_STAGE_ARM_ALLOWED=1 \
+            -DMOTOR_ID_BENCH_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 \
+            -fsyntax-only src/main.c > /tmp/v119-reject-drive.txt 2>&1; then
+            echo "FAIL: production drive unexpectedly compiled" >&2
+            exit 1
+          fi
+          grep -Fq 'Motor RC permits E7-only' /tmp/v119-reject-drive.txt
+          sha256sum build/DeltaESC_G30D_v0_9_19_*.bin
+          echo 'PASS: v0.9.19 FA/FB + E7-only + E6 latched stop; no E5'
+      - name: Publish for offline inspection only
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-G30D-v0.9.19-COMBINED-RC-EXPERIMENTAL-DO-NOT-FLASH
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            source/build/DeltaESC_G30D_v0_9_19_ble_syncsafe.bin
+            source/build/DeltaESC_G30D_v0_9_19_motor_id_bench.bin
+            source/build/DeltaESC_G30D_v0_9_19_motor_id_bench.elf
