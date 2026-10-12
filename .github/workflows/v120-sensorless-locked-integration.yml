@@ -172,9 +172,10 @@ jobs:
           test -s build/v0_9_20_sensorless_locked.map
           test -s build/v0_9_20_sensorless_locked_sections.txt
           test ! -e build/DeltaESC_G30D_v0_9_20_sensorless_locked.bin
-          llvm-nm-18 build/DeltaESC_G30D_v0_9_20_sensorless_locked.elf | grep -Fq ' sensorless_control_step'
-          llvm-nm-18 build/DeltaESC_G30D_v0_9_20_sensorless_locked.elf | grep -Fq ' vesc_ebics_flux_step'
-          llvm-nm-18 build/DeltaESC_G30D_v0_9_20_sensorless_locked.elf | grep -Fq ' motor_pipeline_on_adc'
+          llvm-nm-18 build/DeltaESC_G30D_v0_9_20_sensorless_locked.elf > build/v0_9_20_sensorless_locked_symbols.txt
+          grep -Fq ' sensorless_control_step' build/v0_9_20_sensorless_locked_symbols.txt
+          grep -Fq ' vesc_ebics_flux_step' build/v0_9_20_sensorless_locked_symbols.txt
+          grep -Fq ' motor_pipeline_on_adc' build/v0_9_20_sensorless_locked_symbols.txt
           if clang-18 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb             -ffreestanding -Isrc -DPOWER_STAGE_ARM_ALLOWED=1             -DMOTOR_ID_BENCH_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=1             -DSENSORLESS_CLOSED_LOOP_ALLOWED=1             -fsyntax-only src/main.c >/tmp/v120-arm-reject.txt 2>&1; then
             echo 'FAIL: physical bridge arm unexpectedly compiled' >&2
             exit 1
@@ -192,6 +193,7 @@ jobs:
             source/build/DeltaESC_G30D_v0_9_20_sensorless_locked.elf
             source/build/v0_9_20_sensorless_locked.map
             source/build/v0_9_20_sensorless_locked_sections.txt
+            source/build/v0_9_20_sensorless_locked_symbols.txt
             v0.9.20/README.md
             v0.9.20/tools/apply_v120_sensorless_locked.py
             v0.9.20/tools/test_v120_contract.py
