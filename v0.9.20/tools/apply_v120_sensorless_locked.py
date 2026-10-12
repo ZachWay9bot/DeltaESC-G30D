@@ -33,6 +33,22 @@ s=one(s,
 #endif''',
 'sensorless compile lock')
 
+s=one(s,
+'''#if SENSORLESS_RUN_ALLOWED || POWER_STAGE_ARM_ALLOWED
+#if !COMM_CURRENT_SCALE_HW_VALID || !COMM_ADC_TIMING_HW_VALID
+#error "DRV126 gate profile ready; powered build still requires valid ADC timing and current scaling"
+#endif
+#endif''',
+'''/* SENSORLESS_RUN_ALLOWED may be compiled for source/link proof with the
+ * bridge hard-disabled. Only a build that can physically arm the bridge must
+ * satisfy the not-yet-qualified current-scale and ADC-timing gates. */
+#if POWER_STAGE_ARM_ALLOWED
+#if !COMM_CURRENT_SCALE_HW_VALID || !COMM_ADC_TIMING_HW_VALID
+#error "DRV126 gate profile ready; powered build still requires valid ADC timing and current scaling"
+#endif
+#endif''',
+'powered hardware qualification guard')
+
 # Do not weaken any of the terminal shutdown or unqualified-hardware guards.
 required=[
     'g_gate_kill_latched=1u;',
