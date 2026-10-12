@@ -1,0 +1,124 @@
+name: G30 ADC read-only FA FB Android v0.3.8 for 0x0919
+on:
+  push:
+    branches: [ "dev/android-v0.3.8-adcproof-v0919" ]
+    paths:
+      - "android/v0.3.2/**"
+      - "android/v0.3.5/**"
+      - "android/v0.3.6/**"
+      - "android/v0.3.7/**"
+      - "android/v0.3.8/**"
+      - "android/v0.3.1/**"
+      - ".github/workflows/android-v038-adcproof-v0919.yml"
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Reconstruct frozen v0.3.0 source
+        run: |
+          mkdir -p /tmp/app
+          tar -xJf android/DeltaESC_Android_v0_1_source.tar.xz -C /tmp/app
+          mv /tmp/app/DeltaESC_Android_v0_1 /tmp/app/v031
+          cat android/v0.2/chunks/*.b64 | tr -d '\n\r ' | base64 -d > /tmp/android_v02.patch.xz
+          echo "269e9793c3bcbb7abf7cb7cd74d24d460a6cc070eadf9658cec515d76b46d7ec  /tmp/android_v02.patch.xz" | sha256sum -c -
+          xz -dc /tmp/android_v02.patch.xz | patch -d /tmp/app/v031 -p1
+          rm -f /tmp/app/v031/app/src/main/java/de/deltaesc/tool/DeltaEscProtocol.java
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('/tmp/app/v031/app/src/main/java/de/deltaesc/tool/MainActivity.java')
+          s=p.read_text()
+          old='private void readDeltaSnapshot(){if(stage!=4){toast("Nicht angemeldet");return;}int[] r={0xD0,0xD1,0xD8,0xD9};'
+          new='private void readDeltaSnapshot(){if(stage!=4){toast("Nicht angemeldet");return;}if(!deltaDetected){toast("DeltaESC-Signatur fehlt; Snapshot gesperrt");return;}int[] r={0xD0,0xD1,0xD8,0xD9};'
+          assert old in s
+          p.write_text(s.replace(old,new))
+          PY
+          echo "5ab8ab7a389795c26d7049f1e2e6aeadccf72bfb0e2d3cc08bb8b05de98678d2  android/v0.2.2/v022.patch.xz" | sha256sum -c -
+          xz -dc android/v0.2.2/v022.patch.xz | patch -d /tmp/app/v031 -p1
+          echo "adee921e20c9e183cd2f118f792c198e379286ef4a42614a1bc968128645e504  android/v0.2.3/v023.patch.xz" | sha256sum -c -
+          xz -dc android/v0.2.3/v023.patch.xz | patch -d /tmp/app/v031 -p1
+          python3 android/v0.3.0/apply_v030.py /tmp/app/v031
+      - name: Apply v0.3.1 motor bench overlay
+        run: python3 android/v0.3.1/apply_v031.py /tmp/app/v031
+      - name: Adapt app to v0.7.2 build 0x0720
+        run: python3 android/v0.3.2/apply_v032.py /tmp/app/v031
+      - name: Apply v0.3.5 Motor-ID controls, preserving tested NinebotCrypto
+        run: python3 android/v0.3.5/apply_v035.py /tmp/app/v031
+      - name: Match VESC-method Motor-ID firmware and retain encrypted transport
+        run: python3 android/v0.3.6/apply_v036.py /tmp/app/v031
+      - name: Apply existing v0.3.7 read-only FA/FB GUI
+        run: python3 android/v0.3.7/apply_v037.py /tmp/app/v031
+      - name: Retarget FA/FB to combined Motor-RC 0x0919, preserve crypto
+        run: python3 android/v0.3.8/apply_v038.py /tmp/app/v031
+      - name: Enforce read-only 0x0919 and byte-identical NinebotCrypto
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          root=Path('/tmp/app/v031/app/src/main/java/de/deltaesc/tool')
+          hashes={
+            'BleUartClient.java':'3bbf0a9e06dd277ef30cecae9baf579f8f843b0e5db505853cfe78c916b14485',
+            'NinebotCrypto.java':'57d88389891ad2fe5dc42dc69748c2a81dc24edc3930081a74ceee45ae035705',
+            'NinebotProtocol.java':'866fb803a439faf78ce50655cf54cae15a4467766826088e0bfa86b8468e84a3'}
+          for n,h in hashes.items():assert hashlib.sha256((root/n).read_bytes()).hexdigest()==h,n
+          main=(root/'MainActivity.java').read_text()
+          adc=(root/'AdcProofTelemetry.java').read_text()
+          grad=Path('/tmp/app/v031/app/build.gradle').read_text()
+          assert 'BUILD=0x0919' in adc and 'BUILD=0x0918' not in adc
+          assert 'DeltaESC 0x0919 · ADC DIAGNOSE (NUR LESEN)' in main
+          assert 'sendEncrypted(AdcProofTelemetry.read(reg)' in main
+          assert 'sendEncrypted(MotorIdBenchProtocol.start()' not in main
+          assert 'addMotorIdBenchControls()' not in main
+          assert "applicationId 'de.deltaesc.adcproof0919'" in grad
+          assert "versionName '0.3.8'" in grad
+          print('PASS: Android v0.3.8 ADC only; tested G30 transport identical; no E7 UI')
+          PY
+      - name: ADC FA/FB request and response host vectors
+        run: |
+          mkdir -p /tmp/testclasses
+          javac -d /tmp/testclasses \
+            /tmp/app/v031/app/src/main/java/de/deltaesc/tool/NinebotProtocol.java \
+            /tmp/app/v031/app/src/main/java/de/deltaesc/tool/AdcProofTelemetry.java \
+            android/v0.3.7/TestAdcProofTelemetry.java
+          java -cp /tmp/testclasses de.deltaesc.tool.TestAdcProofTelemetry
+      - name: Regression frozen real G30 NinebotCrypto and fragmentation
+        run: |
+          mkdir -p /tmp/cryptoclasses
+          javac -d /tmp/cryptoclasses \
+            /tmp/app/v031/app/src/main/java/de/deltaesc/tool/Hex.java \
+            /tmp/app/v031/app/src/main/java/de/deltaesc/tool/NinebotProtocol.java \
+            /tmp/app/v031/app/src/main/java/de/deltaesc/tool/NinebotCrypto.java \
+            /tmp/app/v031/tools/TestCrypto.java \
+            /tmp/app/v031/tools/TestRealG30Vector.java \
+            /tmp/app/v031/tools/TestRealG30Handshake.java \
+            /tmp/app/v031/tools/TestRealG30FullHandshake.java \
+            /tmp/app/v031/tools/TestRealG30Fragmentation.java
+          for t in TestCrypto TestRealG30Vector TestRealG30Handshake TestRealG30FullHandshake TestRealG30Fragmentation; do
+            java -cp /tmp/cryptoclasses de.deltaesc.tool.$t
+          done
+      - name: Build read-only debug APK
+        working-directory: /tmp/app/v031
+        run: gradle :app:assembleDebug --stacktrace
+      - name: Package APK, reproducible source, SHA256
+        run: |
+          cp /tmp/app/v031/app/build/outputs/apk/debug/app-debug.apk /tmp/DeltaESC_ADC_Proof_v0_3_8_build0919.apk
+          tar --exclude=.gradle --exclude=app/build -C /tmp/app -cJf /tmp/DeltaESC_ADC_Proof_v0_3_8_SOURCE.tar.xz v031
+          sha256sum /tmp/DeltaESC_ADC_Proof_v0_3_8_build0919.apk /tmp/DeltaESC_ADC_Proof_v0_3_8_SOURCE.tar.xz | tee /tmp/SHA256SUMS_v038.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-Android-v0.3.8-ADC-ONLY-FW0919-NO-MOTOR
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            /tmp/DeltaESC_ADC_Proof_v0_3_8_build0919.apk
+            /tmp/DeltaESC_ADC_Proof_v0_3_8_SOURCE.tar.xz
+            /tmp/SHA256SUMS_v038.txt
