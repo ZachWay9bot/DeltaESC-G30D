@@ -1,7 +1,7 @@
 name: DeltaESC G30D v0.9.19 RC E7 plus FA FB read-only ADC
 on:
   push:
-    branches: [dev/motor-rc-adc-integration-v0919]
+    branches: [dev/motor-rc-adc-integration-v0919, dev/v0.9.20-sensorless-integration]
     paths: ['integration/**','v0.9.18/**','.github/workflows/motor-rc-adc-v119.yml']
   workflow_dispatch:
 permissions:
@@ -128,6 +128,12 @@ jobs:
           grep -Fq 'case 0xFAu: case 0xFBu:' source/src/main.c
           grep -Fq '#error "Motor RC permits E7-only Motor-ID' source/src/main.c
           grep -Fq 'TIM_BDTR(TIM1_BASE)&=(uint32_t)~D_GUARD_MOE;' source/src/main.c
+      - name: v0.9.20 sensorless continuity contract
+        run: |
+          set -euo pipefail
+          python3 integration/tools/test_v120_sensorless_contract.py source
+          echo 'PASS: sensorless target preserved; normal E5 drive remains locked'
+
       - name: Compile Cortex-M3 safe and E7-only experimental variants
         run: |
           set -euo pipefail
