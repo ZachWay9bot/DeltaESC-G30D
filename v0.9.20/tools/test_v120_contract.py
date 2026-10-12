@@ -21,8 +21,10 @@ req('-DPOWER_STAGE_ARM_ALLOWED=0' in make,'locked target cannot arm bridge')
 req('-DSENSORLESS_RUN_ALLOWED=1' in make,'sensorless run code compiled')
 req('-DSENSORLESS_CLOSED_LOOP_ALLOWED=1' in make,'observer closed-loop code compiled')
 req('sensorless_control_step' in make and 'vesc_ebics_flux_step' in make,'sensorless symbols forced into ELF')
-req('.bin' not in make.split('# v0.9.20 source/link proof only.',1)[1],
-    'locked target section must not create a flashable BIN')
+locked=make.split('# v0.9.20 source/link proof only.',1)[1]
+req('SENSORLESS_LOCKED_BIN' not in locked and
+    'DeltaESC_G30D_v0_9_20_sensorless_locked.bin' not in locked,
+    'locked target must not define a flashable BIN')
 req('g_gate_kill_latched=1u;' in main,'terminal kill latch inherited')
 req('TIM_BDTR(TIM1_BASE)&=(uint32_t)~D_GUARD_MOE;' in main,'terminal MOE clear inherited')
 req('#define COMM_CURRENT_SCALE_HW_VALID 0u' in main,'physical current gain remains unqualified')
