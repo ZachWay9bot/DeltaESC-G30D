@@ -18,8 +18,7 @@ main=j/'MainActivity.java';s=main.read_text()
 s=one(s,'setContentView(buildUi());addAdcProofControls();',
         'setContentView(buildUi());addR6Controls();')
 s=one(s,'if(f.cmd!=NinebotProtocol.READ_ACK)return;',
-        'if(f.cmd!=NinebotProtocol.READ_ACK)return;\n'
-        '        if(r6Pending==f.arg && R6ReadOnlyTelemetry.supported(f.arg)){onR6Page(f.arg,f.payload);return;}')
+        'if(r6Pending==f.cmd && (f.cmd==0x7C||f.cmd==0x7E||f.cmd==0x7F||f.cmd==0x79)){onR6Page(f.cmd,f.payload);return;}(f.cmd!=NinebotProtocol.READ_ACK)return;(r6Pending==f.arg && R6ReadOnlyTelemetry.supported(f.arg)){onR6Page(f.arg,f.payload);return;}')
 # Fail closed: also block legacy E5/E6 / WRITE callbacks still present in historical
 # activity code. Handshake stage 0..3 remains untouched; stage 4 permits only
 # Ninebot CMD01 READ bodies. This is protection in addition to hiding E7 UI.
@@ -28,7 +27,11 @@ pattern=r'(private\s+boolean\s+sendEncrypted\s*\(\s*byte\[\]\s+(\w+)\s*,\s*Strin
 match=re.search(pattern,s)
 if match is None:raise RuntimeError("Read-only gate cannot locate encrypted transport wrapper")
 frame=match.group(2)
-guard='\n        if(stage==4 && ('+frame+'==null || '+frame+'.length<7 || ('+frame+'[5]&255)!=NinebotProtocol.READ))return false;'
+guard=(f"\\n        if(stage==4 && ({frame}==null || {frame}.length<7 || "
+       f"!(({frame}[5]&255)==NinebotProtocol.READ || "
+       f"({frame}.length==7 && ({frame}[6]&255)==0 && "
+       f"(({frame}[5]&255)==0x7C || ({frame}[5]&255)==0x7E || "
+       f"({frame}[5]&255)==0x7F || ({frame}[5]&255)==0x79))))return false;")
 s=s[:match.end()]+guard+s[match.end():]
 assert s.rstrip().endswith('}')
 s=s.rstrip()[:-1]
