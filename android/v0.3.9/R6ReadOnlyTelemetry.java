@@ -37,6 +37,12 @@ final class R6ReadOnlyTelemetry {
         if(reg==D0 && (u16(payload,14)&1)==0){
             error="D0: Ausgangssperre nicht bestaetigt. Kein weiterer Diagnoselauf.";return false;
         }
+        if((reg==DIAG && u32(payload,0)!=0x47333044L) ||
+           (reg==PWM && u32(payload,0)!=0x50573047L) ||
+           (reg==ACQ && u32(payload,0)!=0x53413347L) ||
+           (reg==MOTOR_STATUS && u32(payload,0)!=0x3353424DL)){
+            error=String.format(Locale.US,"Register %02X: falsche Diagnosesignatur",reg);return false;
+        }
         pages[at]=payload.clone();error="";return true;
     }
     boolean identity(){return pages[0]!=null&&pages[1]!=null&&pages[2]!=null;}
@@ -73,31 +79,31 @@ final class R6ReadOnlyTelemetry {
         if(pages[5]!=null){
             byte[] p=pages[5];
             s.append(String.format(Locale.US,
-                "7E ISR: samples %d, max %d Zyklen, Fault 0x%08X, missed %d, UART overruns %d\\n",
+                "7E ISR: samples %d, max %d Zyklen, Fault 0x%08X, missed %d, UART overruns %d\n",
                 u32(p,8),u32(p,12),u32(p,16),u32(p,52),u32(p,48)));
             s.append("7E Offsets IA IB IC:");
             for(int i=0;i<3;i++)s.append(' ').append(u16(p,40+2*i));
-            s.append(String.format(Locale.US," | ADC cal %d\\n",u16(p,60)));
+            s.append(String.format(Locale.US," | ADC cal %d\n",u16(p,60)));
         }
         if(pages[6]!=null){
             byte[] p=pages[6];
             s.append(String.format(Locale.US,
-                "7F PWM carrier %d Hz, sample %d Hz, commits %d, deadline events %d, flags 0x%04X\\n",
+                "7F PWM carrier %d Hz, sample %d Hz, commits %d, deadline events %d, flags 0x%04X\n",
                 u32(p,4),u32(p,8),u32(p,16),u32(p,24),u16(p,46)));
         }
         if(pages[7]!=null){
             byte[] p=pages[7];
             s.append(String.format(Locale.US,
-                "7C ADC IRQ: valid samples %d, frame ticks %d, invalid frames %d, late commits %d\\n",
+                "7C ADC IRQ: valid samples %d, frame ticks %d, invalid frames %d, late commits %d\n",
                 u32(p,8),u32(p,12),u32(p,16),u32(p,20)));
             s.append(String.format(Locale.US,
-                "7C sector %d mask 0x%02X | offset counts %d,%d,%d | sample period %d\\n",
+                "7C sector %d mask 0x%02X | offset counts %d,%d,%d | sample period %d\n",
                 p[50]&255,p[51]&255,u16(p,42),u16(p,44),u16(p,46),u32(p,52)));
         }
         if(pages[8]!=null){
             byte[] p=pages[8];
             s.append(String.format(Locale.US,
-                "79 Motorservice: status %d, fault 0x%08X, calibrated %d\\n",
+                "79 Motorservice: status %d, fault 0x%08X, calibrated %d\n",
                 (int)u32(p,32),(int)u32(p,52),(int)u32(p,56)));
         }
         s.append("Keine automatische Freigabe von Gates, Motor-ID oder Fahrbetrieb.");
