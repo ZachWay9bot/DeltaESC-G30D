@@ -24,11 +24,11 @@ s=one(s,'if(f.cmd!=NinebotProtocol.READ_ACK)return;',
 # activity code. Handshake stage 0..3 remains untouched; stage 4 permits only
 # Ninebot CMD01 READ bodies. This is protection in addition to hiding E7 UI.
 import re
-pattern=r'(private\\s+boolean\\s+sendEncrypted\\s*\\(\\s*byte\\[\\]\\s+(\\w+)\\s*,\\s*String\\s+\\w+\\s*\\)\\s*\\{)'
+pattern=r'(private\s+boolean\s+sendEncrypted\s*\(\s*byte\[\]\s+(\w+)\s*,\s*String\s+\w+\s*\)\s*\{)'
 match=re.search(pattern,s)
 if match is None:raise RuntimeError("Read-only gate cannot locate encrypted transport wrapper")
 frame=match.group(2)
-guard='\\n        if(stage==4 && ('+frame+'==null || '+frame+'.length<7 || ('+frame+'[5]&255)!=NinebotProtocol.READ))return false;'
+guard='\n        if(stage==4 && ('+frame+'==null || '+frame+'.length<7 || ('+frame+'[5]&255)!=NinebotProtocol.READ))return false;'
 s=s[:match.end()]+guard+s[match.end():]
 assert s.rstrip().endswith('}')
 s=s.rstrip()[:-1]
