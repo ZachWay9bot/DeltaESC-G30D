@@ -1,5 +1,7 @@
 name: G30 EBiCS r6 read-only D0 E0 D8 Android v0.3.9
 on:
+  pull_request:
+    branches: [ "dev/android-v0.3.8-adcproof-v0919" ]
   push:
     branches: [ "dev/android-r6-readonly-diagnostics-2026-10-13" ]
     paths:
