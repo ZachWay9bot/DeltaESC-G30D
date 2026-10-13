@@ -18,7 +18,7 @@ main=j/'MainActivity.java';s=main.read_text()
 s=one(s,'setContentView(buildUi());addAdcProofControls();',
         'setContentView(buildUi());addR6Controls();')
 s=one(s,'if(f.cmd!=NinebotProtocol.READ_ACK)return;',
-        'if(f.cmd!=NinebotProtocol.READ_ACK)return;\\n'
+        'if(f.cmd!=NinebotProtocol.READ_ACK)return;\n'
         '        if(r6Pending==f.arg && R6ReadOnlyTelemetry.supported(f.arg)){onR6Page(f.arg,f.payload);return;}')
 assert s.rstrip().endswith('}')
 s=s.rstrip()[:-1]
