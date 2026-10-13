@@ -6,8 +6,9 @@ import java.util.Locale;
 /** EBiCS 0x0034 revision 6, read-only. Not DeltaESC FA/FB and not a motor gate. */
 final class R6ReadOnlyTelemetry {
     static final int FW=0x1A, REV=0xF0, D0=0xD0, E0=0xE0, D8=0xD8;
-    static final int[] REGS={FW,REV,D0,E0,D8};
-    static final int[] LENGTHS={2,2,16,32,16};
+    static final int DIAG=0x7E, PWM=0x7F, ACQ=0x7C, MOTOR_STATUS=0x79;
+    static final int[] REGS={FW,REV,D0,E0,D8,DIAG,PWM,ACQ,MOTOR_STATUS};
+    static final int[] LENGTHS={2,2,16,32,16,64,48,64,96};
     private final byte[][] pages=new byte[REGS.length][];
     private String error="";
     static int u16(byte[] p,int i){return (p[i]&255)|((p[i+1]&255)<<8);}
@@ -15,6 +16,9 @@ final class R6ReadOnlyTelemetry {
     static boolean supported(int reg){for(int r:REGS)if(r==reg)return true;return false;}
     static int length(int reg){for(int i=0;i<REGS.length;i++)if(REGS[i]==reg)return LENGTHS[i];throw new IllegalArgumentException("read-only register");}
     static byte[] read(int reg){
+        if(reg==DIAG||reg==PWM||reg==ACQ||reg==MOTOR_STATUS)
+            return NinebotProtocol.build(NinebotProtocol.PHONE,NinebotProtocol.ESC,
+                reg,0,new byte[0]); // documented action=0: status only
         return NinebotProtocol.build(NinebotProtocol.PHONE,NinebotProtocol.ESC,
             NinebotProtocol.READ,reg,new byte[]{(byte)length(reg)});
     }
@@ -65,6 +69,36 @@ final class R6ReadOnlyTelemetry {
             s.append("ADC raw counts:");
             for(int i=0;i<8;i++)s.append(' ').append(u16(p,i*2));
             s.append("\nReihenfolge IA IB IC VBAT VA VB VC IBAT. Keine kalibrierten Ampere.\n");
+        }
+        if(pages[5]!=null){
+            byte[] p=pages[5];
+            s.append(String.format(Locale.US,
+                "7E ISR: samples %d, max %d Zyklen, Fault 0x%08X, missed %d, UART overruns %d\\n",
+                u32(p,8),u32(p,12),u32(p,16),u32(p,52),u32(p,48)));
+            s.append("7E Offsets IA IB IC:");
+            for(int i=0;i<3;i++)s.append(' ').append(u16(p,40+2*i));
+            s.append(String.format(Locale.US," | ADC cal %d\\n",u16(p,60)));
+        }
+        if(pages[6]!=null){
+            byte[] p=pages[6];
+            s.append(String.format(Locale.US,
+                "7F PWM carrier %d Hz, sample %d Hz, commits %d, deadline events %d, flags 0x%04X\\n",
+                u32(p,4),u32(p,8),u32(p,16),u32(p,24),u16(p,46)));
+        }
+        if(pages[7]!=null){
+            byte[] p=pages[7];
+            s.append(String.format(Locale.US,
+                "7C ADC IRQ: valid samples %d, frame ticks %d, invalid frames %d, late commits %d\\n",
+                u32(p,8),u32(p,12),u32(p,16),u32(p,20)));
+            s.append(String.format(Locale.US,
+                "7C sector %d mask 0x%02X | offset counts %d,%d,%d | sample period %d\\n",
+                p[50]&255,p[51]&255,u16(p,42),u16(p,44),u16(p,46),u32(p,52)));
+        }
+        if(pages[8]!=null){
+            byte[] p=pages[8];
+            s.append(String.format(Locale.US,
+                "79 Motorservice: status %d, fault 0x%08X, calibrated %d\\n",
+                (int)u32(p,32),(int)u32(p,52),(int)u32(p,56)));
         }
         s.append("Keine automatische Freigabe von Gates, Motor-ID oder Fahrbetrieb.");
         return s.toString();
