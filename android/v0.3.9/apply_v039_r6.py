@@ -33,7 +33,7 @@ guard=(f"\n        if(stage==4 && ({frame}==null || {frame}.length<7 || "
        f"!(({frame}[5]&255)==NinebotProtocol.READ || "
        f"({frame}.length==7 && ({frame}[6]&255)==0 && "
        f"(({frame}[5]&255)==0x7C || ({frame}[5]&255)==0x7E || "
-       f"({frame}[5]&255)==0x7F || ({frame}[5]&255)==0x79))))return false;")
+       f"({frame}[5]&255)==0x7F || ({frame}[5]&255)==0x79)))))return false;")
 s=s[:match.end()]+guard+s[match.end():]
 assert s.rstrip().endswith('}')
 s=s.rstrip()[:-1]
