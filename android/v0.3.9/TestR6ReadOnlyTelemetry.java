@@ -4,7 +4,7 @@ public final class TestR6ReadOnlyTelemetry {
     static void put16(byte[] p,int i,int n){p[i]=(byte)n;p[i+1]=(byte)(n>>>8);}
     static void checkRead(int reg,int length){
         byte[] f=R6ReadOnlyTelemetry.read(reg);
-        ok(f.length==10,"request length");
+        ok(f.length==8,"request body length (NinebotCrypto adds framing footer)");
         ok((f[0]&255)==0x5A&&(f[1]&255)==0xA5,"header");
         ok((f[2]&255)==1&&(f[3]&255)==0x3E&&(f[4]&255)==0x20,"phone to esc");
         ok((f[5]&255)==1&&(f[6]&255)==reg&&(f[7]&255)==length,"READ only");
