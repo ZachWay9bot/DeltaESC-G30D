@@ -20,6 +20,16 @@ s=one(s,'setContentView(buildUi());addAdcProofControls();',
 s=one(s,'if(f.cmd!=NinebotProtocol.READ_ACK)return;',
         'if(f.cmd!=NinebotProtocol.READ_ACK)return;\n'
         '        if(r6Pending==f.arg && R6ReadOnlyTelemetry.supported(f.arg)){onR6Page(f.arg,f.payload);return;}')
+# Fail closed: also block legacy E5/E6 / WRITE callbacks still present in historical
+# activity code. Handshake stage 0..3 remains untouched; stage 4 permits only
+# Ninebot CMD01 READ bodies. This is protection in addition to hiding E7 UI.
+import re
+pattern=r'(private\\s+boolean\\s+sendEncrypted\\s*\\(\\s*byte\\[\\]\\s+(\\w+)\\s*,\\s*String\\s+\\w+\\s*\\)\\s*\\{)'
+match=re.search(pattern,s)
+if match is None:raise RuntimeError("Read-only gate cannot locate encrypted transport wrapper")
+frame=match.group(2)
+guard='\\n        if(stage==4 && ('+frame+'==null || '+frame+'.length<7 || ('+frame+'[5]&255)!=NinebotProtocol.READ))return false;'
+s=s[:match.end()]+guard+s[match.end():]
 assert s.rstrip().endswith('}')
 s=s.rstrip()[:-1]
 s+="""
