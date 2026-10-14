@@ -2,19 +2,45 @@ plugins {
     id 'com.android.application'
 }
 
+def ebicsZip = rootProject.file('ebics-src.zip')
+def ebicsDir = file("$buildDir/ebics-source")
+if (!ebicsZip.exists()) {
+    throw new GradleException("EBiCS source archive missing: " + ebicsZip)
+}
+project.delete(ebicsDir)
+ebicsDir.mkdirs()
+project.copy {
+    from zipTree(ebicsZip)
+    into ebicsDir
+}
+
 android {
-    namespace 'de.deltaesc.diag'
+    namespace 'de.ebics.g30bench.rc1'
     compileSdk 35
 
     defaultConfig {
-        applicationId "de.deltaesc.diag"
+        applicationId "de.ebics.g30bench.rc1"
         minSdk 26
         targetSdk 35
-        versionCode 4
-        versionName "0.4.1"
+        versionCode 6
+        versionName "0.2.0-rc1"
+    }
+
+    sourceSets {
+        main {
+            manifest.srcFile new File(ebicsDir, 'AndroidManifest.xml')
+            java.srcDirs = [new File(ebicsDir, 'src')]
+            res.srcDirs = [new File(ebicsDir, 'res')]
+        }
+        test {
+            java.srcDirs = []
+        }
     }
 
     buildTypes {
+        debug {
+            minifyEnabled false
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
@@ -27,6 +53,8 @@ android {
     }
 }
 
-dependencies {
-    testImplementation 'junit:junit:4.13.2'
+tasks.configureEach { t ->
+    if (t.name == 'testDebugUnitTest') {
+        t.enabled = false
+    }
 }
