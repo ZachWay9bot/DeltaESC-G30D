@@ -104,9 +104,9 @@ static void sample_all(void){adc_vbat=adc_read(1);adc_ia=adc_read(3);adc_ib=adc_
 static void wr16(uint8_t*p,uint16_t v){p[0]=(uint8_t)v;p[1]=(uint8_t)(v>>8);}static void wr32(uint8_t*p,uint32_t v){p[0]=(uint8_t)v;p[1]=(uint8_t)(v>>8);p[2]=(uint8_t)(v>>16);p[3]=(uint8_t)(v>>24);}
 
 static uint16_t map_word(uint8_t idx){
- static const uint8_t sn[14]={'X','B','O','T','S','L','0','2','V','0','0','2','0','0'};
+ static const uint8_t sn[14]={'X','B','O','T','S','L','0','2','V','0','0','2','0','1'};
  if(idx>=16u&&idx<23u){unsigned o=(idx-16u)*2u;return (uint16_t)sn[o]|((uint16_t)sn[o+1]<<8);}
- if(idx==26u)return 0x0200u;
+ if(idx==26u)return 0x0201u;
  if(idx>=218u&&idx<224u){const uint8_t*uid=(const uint8_t*)0x1FFFF7E8u;unsigned o=(idx-218u)*2u;return (uint16_t)uid[o]|((uint16_t)uid[o+1]<<8);}
  return 0u;
 }
