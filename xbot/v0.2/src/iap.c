@@ -44,7 +44,7 @@ uint8_t iap_write(uint8_t index,const uint8_t*data,uint8_t len){
   uint8_t dec[8];
   for(unsigned j=0;j<8;j++)s.enc_sum+=(uint32_t)data[off+j];
   ninebot_tea_decrypt_block(&s.tea,data+off,dec);
-  if(s.written==0u){if(!vector_valid(dec)){flash_lock();s.begun=0;return IAPERROR_FORM;}s.vector_ok=1;}
+  if((s.written+off)==0u){if(!vector_valid(dec)){flash_lock();s.begun=0;return IAPERROR_FORM;}s.vector_ok=1;}
   uint32_t abs=s.written+off;
   uint32_t body_end=s.total-4u;
   if(abs+4u<=body_end)s.body_sum+=rd32(dec);
