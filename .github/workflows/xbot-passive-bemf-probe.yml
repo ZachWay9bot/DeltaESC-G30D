@@ -1,0 +1,32 @@
+name: Xbot passive BEMF probe
+on:
+  push:
+    branches: ["dev/xbot-passive-bemf-probe-v001"]
+    paths: ["xbot/v0.1/**", ".github/workflows/xbot-passive-bemf-probe.yml"]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y clang-18 llvm-18
+      - name: Host detector tests
+        working-directory: xbot/v0.1
+        run: chmod +x tools/run_tests.sh && ./tools/run_tests.sh
+      - name: ARM build
+        working-directory: xbot/v0.1
+        run: make clean all CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+      - name: Verify size and identity
+        working-directory: xbot/v0.1
+        run: |
+          set -euo pipefail
+          test $(stat -c%s build/XBOT_SENSORLESS_PASSIVE_BEMF_PROBE_v0.1.bin) -lt 61440
+          sha256sum build/XBOT_SENSORLESS_PASSIVE_BEMF_PROBE_v0.1.bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: XBOT-PASSIVE-BEMF-PROBE-v0.1-UNVALIDATED
+          path: |
+            xbot/v0.1/build/XBOT_SENSORLESS_PASSIVE_BEMF_PROBE_v0.1.bin
+            xbot/v0.1/build/XBOT_SENSORLESS_PASSIVE_BEMF_PROBE_v0.1.elf
+            xbot/v0.1/build/XBOT_SENSORLESS_PASSIVE_BEMF_PROBE_v0.1.map
+            xbot/v0.1/README.md
