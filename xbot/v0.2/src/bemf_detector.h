@@ -5,5 +5,6 @@ typedef struct{uint16_t threshold_span,span,common;uint8_t sector,last_sector;in
 void bemf_detector_init(bemf_detector_t*,uint16_t);
 void bemf_detector_reset_stats(bemf_detector_t*);
 void bemf_detector_update(bemf_detector_t*,uint16_t,uint16_t,uint16_t,uint32_t);
+void bemf_detector_expire(bemf_detector_t*,uint32_t,uint32_t);
 uint32_t bemf_electrical_hz_x10(const bemf_detector_t*,uint32_t);
 uint32_t bemf_mechanical_rpm_x10(const bemf_detector_t*,uint32_t,uint32_t);
