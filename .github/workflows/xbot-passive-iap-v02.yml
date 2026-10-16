@@ -1,0 +1,47 @@
+name: Xbot passive BEMF + IAP v0.2
+on:
+  push:
+    branches: ["dev/xbot-iap-recovery-v002"]
+    paths:
+      - 'xbot/v0.2/**'
+      - '.github/workflows/xbot-passive-iap-v02.yml'
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ARM toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18 llvm-18
+      - name: Build
+        working-directory: xbot/v0.2
+        run: make clean all CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+      - name: Host and source-safety tests
+        working-directory: xbot/v0.2
+        run: |
+          chmod +x tools/run_tests.sh
+          ./tools/run_tests.sh
+          python3 -m py_compile tools/ninebot_pack.py tools/xbot_probe.py
+      - name: Create user-facing aliases
+        working-directory: xbot/v0.2
+        run: |
+          cp build/ESC2_XBOT_SL02_v0.2_Driver_FIRM.bin.enc build/ESC2_XBOT_SL02_v0.2_Driver.bin
+          cp build/ESC2_XBOT_SL02_v0.2_Driver_FIRM.bin.enc build/FIRM.bin.enc
+          cp build/XBOT_SENSORLESS_PASSIVE_IAP_v0.2.bin build/XBOT_SENSORLESS_PASSIVE_IAP_v0.2_RAW_APP.bin
+          sha256sum build/*.bin build/*.enc > build/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: XBOT-SENSORLESS-PASSIVE-IAP-v0.2-UNVALIDATED
+          retention-days: 30
+          path: |
+            xbot/v0.2/build/ESC2_XBOT_SL02_v0.2_Driver.bin
+            xbot/v0.2/build/FIRM.bin.enc
+            xbot/v0.2/build/XBOT_SENSORLESS_PASSIVE_IAP_v0.2_RAW_APP.bin
+            xbot/v0.2/build/XBOT_SENSORLESS_PASSIVE_IAP_v0.2.elf
+            xbot/v0.2/build/XBOT_SENSORLESS_PASSIVE_IAP_v0.2.map
+            xbot/v0.2/build/SHA256SUMS.txt
+            xbot/v0.2/README.md
+            xbot/v0.2/DRV126_IAP_REFERENCE.md
+            xbot/v0.2/tools/xbot_probe.py
