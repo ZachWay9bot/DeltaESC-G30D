@@ -1,0 +1,5 @@
+#include "ninebot_tea.h"
+static uint32_t rd32(const uint8_t*p){return (uint32_t)p[0]|((uint32_t)p[1]<<8)|((uint32_t)p[2]<<16)|((uint32_t)p[3]<<24);}
+static void wr32(uint8_t*p,uint32_t v){p[0]=(uint8_t)v;p[1]=(uint8_t)(v>>8);p[2]=(uint8_t)(v>>16);p[3]=(uint8_t)(v>>24);}
+void ninebot_tea_init(ninebot_tea_t*s){static const uint8_t k[16]={0xFE,0x80,0x1C,0xB2,0xD1,0xEF,0x41,0xA6,0xA4,0x17,0x31,0xF5,0xA0,0x68,0x24,0xF0};for(unsigned i=0;i<16;i++)s->key[i]=k[i];for(unsigned i=0;i<8;i++)s->iv[i]=0;s->offset=0;}
+void ninebot_tea_decrypt_block(ninebot_tea_t*s,const uint8_t in[8],uint8_t out[8]){uint32_t y=rd32(in),z=rd32(in+4),k0=rd32(s->key),k1=rd32(s->key+4),k2=rd32(s->key+8),k3=rd32(s->key+12),sum=0xC6EF3720u;for(unsigned i=0;i<32;i++){z-=((y<<4)+k2)^(y+sum)^((y>>5)+k3);y-=((z<<4)+k0)^(z+sum)^((z>>5)+k1);sum-=0x9E3779B9u;}uint8_t t[8];wr32(t,y);wr32(t+4,z);for(unsigned i=0;i<8;i++){out[i]=t[i]^s->iv[i];s->iv[i]=in[i];}s->offset+=8u;if((s->offset&1023u)==0u)for(unsigned i=0;i<16;i++)s->key[i]=(uint8_t)(s->key[i]+i);}
