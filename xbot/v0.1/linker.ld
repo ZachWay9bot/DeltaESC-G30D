@@ -1,6 +1,6 @@
 ENTRY(Reset_Handler)
 MEMORY {
-  FLASH (rx)  : ORIGIN = 0x08001000, LENGTH = 60K
+  FLASH (rx)  : ORIGIN = 0x08001000, LENGTH = 0xD800
   RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 20K
 }
 _estack = ORIGIN(RAM) + LENGTH(RAM);
@@ -14,4 +14,4 @@ SECTIONS {
  .bss (NOLOAD) : { . = ALIGN(4); _sbss = .; *(.bss*) *(COMMON) . = ALIGN(4); _ebss = .; } > RAM
  /DISCARD/ : { *(.comment*) *(.ARM.attributes*) *(.note*) }
 }
-ASSERT((_sidata + SIZEOF(.data)) <= 0x08010000, "Xbot application exceeds STM32F103C8 64-KiB flash")
+ASSERT((_sidata + SIZEOF(.data)) <= 0x0800E800, "Xbot app overlaps DRV126-compatible staging slot at 0x0800E800")
