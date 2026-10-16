@@ -100,7 +100,7 @@ static void safe_gpio_init(void){
 
 static void adc_init(void){RCC_APB2ENR|=(1u<<9)|(1u<<2)|(1u<<3);ADC_CR1=0;ADC_SMPR1=0;ADC_SMPR2=0;const unsigned ch[]={1,3,4,5,6,7,9};for(unsigned i=0;i<7;i++)ADC_SMPR2|=4u<<(ch[i]*3u);ADC_CR2=ADC_CR2_ADON;for(volatile unsigned i=0;i<3000;i++)nop();ADC_CR2|=ADC_CR2_RSTCAL;while(ADC_CR2&ADC_CR2_RSTCAL){}ADC_CR2|=ADC_CR2_CAL;while(ADC_CR2&ADC_CR2_CAL){}ADC_CR2=ADC_CR2_ADON|ADC_CR2_EXTSEL_SWSTART|ADC_CR2_EXTTRIG;}
 static uint16_t adc_read(unsigned ch){ADC_SQR1=0;ADC_SQR2=0;ADC_SQR3=ch&31u;ADC_SR&=~ADC_SR_EOC;ADC_CR2|=ADC_CR2_SWSTART;uint32_t st=DWT_CYCCNT;while(!(ADC_SR&ADC_SR_EOC)){if((uint32_t)(DWT_CYCCNT-st)>80000u){g_fault=0xADC00001u;return 0xffffu;}}return (uint16_t)ADC_DR;}
-static void sample_all(void){adc_vbat=adc_read(1);adc_ia=adc_read(3);adc_ib=adc_read(4);adc_ic=adc_read(5);adc_bemf_a=adc_read(6);adc_bemf_b=adc_read(7);adc_bemf_c=adc_read(9);if(!g_fault)bemf_detector_update(&bemf,adc_bemf_a,adc_bemf_b,adc_bemf_c,DWT_CYCCNT);}
+static void sample_all(void){adc_vbat=adc_read(1);adc_ia=adc_read(3);adc_ib=adc_read(4);adc_ic=adc_read(5);adc_bemf_a=adc_read(6);adc_bemf_b=adc_read(7);adc_bemf_c=adc_read(9);if(!g_fault){uint32_t now=DWT_CYCCNT;bemf_detector_update(&bemf,adc_bemf_a,adc_bemf_b,adc_bemf_c,now);bemf_detector_expire(&bemf,now,SYSCLK_HZ/4u);}}
 static void wr16(uint8_t*p,uint16_t v){p[0]=(uint8_t)v;p[1]=(uint8_t)(v>>8);}static void wr32(uint8_t*p,uint32_t v){p[0]=(uint8_t)v;p[1]=(uint8_t)(v>>8);p[2]=(uint8_t)(v>>16);p[3]=(uint8_t)(v>>24);}
 
 static uint16_t map_word(uint8_t idx){
