@@ -89,7 +89,8 @@ static void xbot_safe_gpio_init(void){
 }
 
 static void uart1_init(void){
- RCC_APB2ENR|=(1u<<14)|(1u<<3);
+ RCC_APB2ENR|=(1u<<0)|(1u<<14)|(1u<<3);
+ AFIO_MAPR|=AFIO_MAPR_USART1_REMAP;
  gpio_cfg_nibble(GPIOB_BASE,6,0xBu);
  gpio_cfg_nibble(GPIOB_BASE,7,0x4u);
  USART_BRR=556u;
