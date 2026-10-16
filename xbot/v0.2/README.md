@@ -22,7 +22,7 @@ PB1 is BEMF_C / ADC9. It is never treated as gate enable.
 
 ## Hard motor-output safety
 
-- TIM1 is reset and its clock remains disabled.
+- TIM1 is reset and APB2 TIM1EN is explicitly cleared; its clock remains disabled.
 - MOE is never enabled.
 - all six bridge-command pins remain GPIO input/pulldown.
 - no commutation, FOC, open-loop ramp or torque command exists in this image.
@@ -93,6 +93,12 @@ Use:
 - a known DRV126 SHU FIRM.bin.enc was decrypted and re-encrypted byte-for-byte identically in the local audit.
 - host BEMF forward/reverse/noise tests pass.
 - source audit rejects any write to TIM1 CCER/BDTR, any use of 0x0801FC00, and verifies PB1 remains analog plus PB6/PB7 USART1 remap.
+
+## Current local build identity
+
+- raw app: 3844 bytes, SHA-256 `ef1e49ac351216d11d46d758b987301e3c0cc22e2b577bc47d522d8c80397a13`
+- encrypted IAP image: 3848 bytes, SHA-256 `2b9ea92a62321cdbd261b7e2bba08a4a9866176e7a2ff64c2ddd3710c8bace7e`
+- raw vector: SP `0x20005000`, reset `0x080010ED`
 
 ## Remaining hardware assumption
 
