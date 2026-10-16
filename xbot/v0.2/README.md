@@ -1,8 +1,8 @@
-# Xbot Sensorless Passive Probe + UART IAP v0.2
+# Xbot Sensorless Passive Probe + UART IAP v0.2.1
 
-**Status: hardware-unvalidated first-Xbot candidate. Motor output is deliberately impossible in this build.**
+**Status: v0.2 ran successfully on Xbot hardware. v0.2.1 fixes the first discovered custom-to-custom IAP bug. Motor output remains deliberately impossible.**
 
-v0.2 exists for two jobs only:
+v0.2.1 exists for two jobs only:
 1. passively prove the Xbot BEMF/current ADC path with a Hall-less motor, and
 2. keep a stock-style Ninebot UART update path alive after the first custom flash.
 
@@ -53,23 +53,23 @@ Target/source IDs and commands follow the Kickscooter/Ninebot path:
 - 0x0A RESET
 - 0x0B ACK
 
-Incoming firmware is the stock NinebotTEA/CBC encrypted stream. v0.2 decrypts into staging, validates the application vector and embedded 32-bit checksum, verifies every programmed halfword, and only then writes pending=1 at 0x0801F800. Reset leaves the actual staging->0x08001000 copy to the preserved stock bootloader.
+Incoming firmware is the stock NinebotTEA/CBC encrypted stream. v0.2.1 decrypts into staging, validates the application vector and embedded 32-bit checksum, verifies every programmed halfword, and only then writes pending=1 at 0x0801F800. Reset leaves the actual staging->0x08001000 copy to the preserved stock bootloader.
 
 On BEGIN, pending is cleared before staging erase. A power loss during download therefore leaves the currently active app selected.
 
 ## Files to use
 
-`XBOT_SENSORLESS_PASSIVE_IAP_v0.2.bin` is the raw application and is **not** the file to select in stock Ninebot IAP.
+`XBOT_SENSORLESS_PASSIVE_IAP_v0.2.1.bin` is the raw application and is **not** the file to select in stock Ninebot IAP.
 
-`ESC2_XBOT_SL02_v0.2_Driver.bin` contains the encrypted Ninebot update stream and is the direct-serial IAP file. The `.bin` suffix and `ESC2_..._Driver` naming are intentional for the classic Ninebot IAP file filter.
+`ESC2_XBOT_SL021_v0.2.1_Driver.bin` contains the encrypted Ninebot update stream and is the direct-serial IAP file. The `.bin` suffix and `ESC2_..._Driver` naming are intentional for the classic Ninebot IAP file filter.
 
 `FIRM.bin.enc` contains identical encrypted bytes for SHU-style packaging/reference.
 
 ## Identification after boot
 
 The small stock-style command map reports:
-- serial: `XBOTSL02V00200`
-- DRV version word: 0x0200 -> UI display V2.0.0
+- serial: `XBOTSL02V00201`
+- DRV version word: 0x0201 -> UI display V2.0.1
 
 This version is only an identifier for the custom Xbot bring-up firmware. It is not a claim that this is a stock Ninebot DRV release.
 
@@ -103,3 +103,7 @@ Use:
 ## Remaining hardware assumption
 
 The Xbot stock DRV 4.2.0 is already proven to accept serial IAP through IoT UART. The supplied observation that SHU stages an image and later copies it to 0x08001000 matches the DRV126 architecture. The exact Xbot bootloader use of 0x0800E800/0x0801F800 is not independently dumped because SWD is inaccessible under epoxy. That is the only remaining recovery-layout assumption before the first custom flash.
+
+## v0.2.1 IAP fix
+
+Hardware chunk sweep on v0.2 proved 8-byte WRITE succeeds while every WRITE of 16 bytes or more returns result 7. Root cause: `iap_write()` re-ran `vector_valid()` for every 8-byte TEA sub-block while `s.written` was still zero inside the first packet. Thus block #2 was incorrectly interpreted as a Cortex-M3 vector. v0.2.1 changes the guard to `(s.written + off) == 0`, so only the first decrypted 8-byte block is vector-validated. This directly explains the measured 8-byte/16-byte boundary and restores ordinary 128-byte Ninebot IAP writes.
