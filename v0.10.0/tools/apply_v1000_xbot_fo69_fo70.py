@@ -126,11 +126,17 @@ static uint8_t rolling_flux_instant_ok(const sensorless_control_t *s) {
 '''
 s=one(s,anchor,helper+anchor,'rolling observer helpers')
 
-s=one(s,'    s->openloop_step = OPENLOOP_STEP_START; s->openloop_phase = 0; s->control_phase = 0;\n',
-'''    s->openloop_step = OPENLOOP_STEP_START; s->openloop_phase = 0; s->control_phase = 0;
+old_init='''void sensorless_control_init(sensorless_control_t *s) {
+    s->drive_request = 0; s->state = SENSORLESS_STOP; s->fault = 0; s->state_ticks = 0;
+    s->openloop_step = OPENLOOP_STEP_START; s->openloop_phase = 0; s->control_phase = 0;
+'''
+new_init='''void sensorless_control_init(sensorless_control_t *s) {
+    s->drive_request = 0; s->state = SENSORLESS_STOP; s->fault = 0; s->state_ticks = 0;
+    s->openloop_step = OPENLOOP_STEP_START; s->openloop_phase = 0; s->control_phase = 0;
     s->rolling_step=0;s->rolling_good_ticks=0u;s->rolling_iq_ticks=0u;
     s->rolling_clamp_start=0u;s->rolling_phase_error_sum=0u;s->rolling_start=0u;
-''','rolling init')
+'''
+s=one(s,old_init,new_init,'rolling init')
 
 anchor='void sensorless_control_set_drive(sensorless_control_t *s, uint8_t enable) {'
 rolling_start=r'''uint8_t sensorless_control_start_rolling(sensorless_control_t *s,
