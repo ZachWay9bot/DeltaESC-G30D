@@ -19,6 +19,7 @@ only with `POWER_STAGE_ARM_ALLOWED=0`.
   BEMF span and >= 3.0 km/h default threshold,
 - a regular-ADC sequencer that averages three samples per BEMF channel and owns
   ADC1 only while the bridge is disarmed,
+- continuous PM-flux phase seed from the passive three-phase BEMF vector (`e -> psi` uses +90° for the proven negative electrical forward direction), not merely the raw 60° rank number,
 - read-only register `0xFC` (`RK10`) exposing rolling evidence.
 
 Default 243 mm wheel circumference, 15 pole pairs, 40-count BEMF span and the
@@ -34,7 +35,8 @@ Default 243 mm wheel circumference, 15 pole pairs, 40-count BEMF span and the
 - no forced ALIGN/OPEN fallback for rolling start,
 - zero-Iq observer verification before torque,
 - modest post-lock Iq ramp with a temporary 12-count cap,
-- neutral -> kick -> throttle interlock and fail-closed abort behavior.
+- neutral -> kick -> throttle interlock and fail-closed abort behavior,
+- the existing authenticated E5 motion request is rewired to the roll-qualified path only; there is no standstill ALIGN/OPEN fallback in v0.10.0.
 
 The FO69 phase-step limits were defined for 1 kHz observer phase updates. DeltaESC
 runs the observer at 4 kHz, therefore the equivalent per-update limits are divided
@@ -67,7 +69,7 @@ The following are hardware-specific and must not be transplanted by numerology:
 
 - `g30_rolling_bemf.[ch]` – FO70 rolling BEMF/sector/speed qualification.
 - `g30_passive_bemf_adc.[ch]` – gate-off-only ADC1 regular conversion scheduler.
-- `g30_rolling_start.[ch]` – standalone policy model for neutral/kick/observer/ramp.
+- `g30_rolling_start.[ch]` – host-only reference policy model for neutral/kick/observer/ramp; it is not linked into the target because the same policy is integrated directly into `sensorless_control`.
 - `sensorless_control` overlay – `ROLL_VERIFY` entry, observer seeding, FO69
   takeover checks and bounded Iq ramp.
 - `motor_pipeline` overlay – neutral latch and `motor_pipeline_start_rolling()`.
