@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include "g30_rolling_bemf.h"
 #define T(x) do{if(!(x)){fprintf(stderr,"FAIL %s:%d %s\n",__FILE__,__LINE__,#x);return 1;}}while(0)
+static uint16_t adiff(uint16_t a,uint16_t b){int16_t d=(int16_t)(a-b);return (uint16_t)(d<0?-(int32_t)d:(int32_t)d);}
 static void abc_for_sector(uint8_t s,uint16_t *a,uint16_t *b,uint16_t *c){
     static const uint16_t v[6][3]={{3000,2000,1000},{2000,3000,1000},{1000,3000,2000},{1000,2000,3000},{2000,1000,3000},{3000,1000,2000}};
     *a=v[s][0];*b=v[s][1];*c=v[s][2];
