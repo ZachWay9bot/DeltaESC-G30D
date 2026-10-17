@@ -17,7 +17,7 @@ typedef struct {
     uint32_t max_sample_age_cycles;
     uint32_t min_edge_cycles;
     uint32_t max_edge_cycles;
-    int16_t phase_offset_u16;
+    int16_t phase_offset_u16; /* optional G30 wiring/calibration correction after BEMF->flux +90deg */
 } g30_rolling_bemf_config_t;
 
 typedef struct {
@@ -26,7 +26,7 @@ typedef struct {
     uint16_t speed_kmh10;
     uint16_t forward_edges,reverse_edges,bad_jumps;
     uint32_t last_edge_cycles,last_sample_cycles,avg_edge_cycles;
-    uint16_t phase_u16;
+    uint16_t phase_u16; /* estimated PM rotor-flux phase, not raw BEMF rank angle */
     int16_t electrical_step_u16;
     uint8_t last_sector;
     uint8_t direction_forward;
