@@ -7,6 +7,33 @@ static uint8_t sector_from_abc(uint16_t a,uint16_t b,uint16_t c){
     return 3u;
 }
 
+/* Same small fixed-point CORDIC family used by the XBOT FO69 observer.
+ * Input scale is arbitrary; only phase is required. */
+static uint16_t atan2_u16(int32_t y,int32_t x){
+    static const uint16_t at[15]={8192u,4836u,2555u,1297u,651u,326u,163u,81u,41u,20u,10u,5u,3u,1u,1u};
+    if(!x&&!y)return 0u;
+    int32_t xi=x,yi=y,a=0;
+    if(xi<0){xi=-xi;yi=-yi;a=32768;}
+    for(unsigned i=0;i<15u;i++){
+        if(!yi)break;
+        const int32_t xo=xi;
+        if(yi>0){xi=xi+(yi>>i);yi=yi-(xo>>i);a+=at[i];}
+        else{xi=xi-(yi>>i);yi=yi+(xo>>i);a-=at[i];}
+    }
+    return (uint16_t)a;
+}
+
+static uint16_t forward_flux_phase(uint16_t a,uint16_t b,uint16_t c,int16_t offset){
+    /* Remove common mode, Clarke the passive phase BEMF, then convert BEMF
+     * angle to PM-flux angle. XBOT FO69 proved physical-forward electrical
+     * rotation is negative. For omega<0, psi = +J*e/|omega|, i.e. +90 deg.
+     * This avoids treating a raw rank boundary as the rotor d-axis. */
+    const int32_t common=((int32_t)a+(int32_t)b+(int32_t)c)/3;
+    const int32_t e_alpha=(int32_t)a-common;
+    const int32_t e_beta=(int32_t)(((int64_t)((int32_t)b-(int32_t)c)*18919)>>15);
+    return (uint16_t)(atan2_u16(e_beta,e_alpha)+16384u+(uint16_t)offset);
+}
+
 void g30_rolling_bemf_default_config(g30_rolling_bemf_config_t *c){
     if(!c)return;
     c->sysclk_hz=64000000u;
@@ -81,7 +108,7 @@ void g30_rolling_bemf_sample(g30_rolling_bemf_t *m,uint16_t a,uint16_t b,uint16_
     if(m->samples<65535u)m->samples++;
     if(m->span<m->cfg.min_bemf_span){lose_lock(m);m->last_sector=G30_ROLL_NO_SECTOR;m->last_edge_cycles=0u;return;}
     const uint8_t s=sector_from_abc(a,b,c);
-    m->phase_u16=(uint16_t)((uint32_t)s*G30_ROLL_PHASE60_U16+(uint16_t)m->cfg.phase_offset_u16);
+    m->phase_u16=forward_flux_phase(a,b,c,m->cfg.phase_offset_u16);
     if(m->last_sector==G30_ROLL_NO_SECTOR){m->last_sector=s;m->last_edge_cycles=now;return;}
     if(m->last_edge_cycles && (uint32_t)(now-m->last_edge_cycles)>m->cfg.max_edge_age_cycles){lose_lock(m);m->last_sector=s;m->last_edge_cycles=now;return;}
     if(s==m->last_sector)return;
