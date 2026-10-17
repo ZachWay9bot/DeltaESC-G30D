@@ -33,7 +33,7 @@ def copy_new(name):
     if dst.exists(): raise RuntimeError(f'v0.10.0 source already exists: {name}')
     shutil.copyfile(src,dst)
 
-for f in ['g30_rolling_bemf.c','g30_rolling_bemf.h','g30_rolling_start.c','g30_rolling_start.h',
+for f in ['g30_rolling_bemf.c','g30_rolling_bemf.h',
           'g30_passive_bemf_adc.c','g30_passive_bemf_adc.h']:
     copy_new(f)
 
@@ -315,7 +315,6 @@ s=main.read_text()
 s=one(s,'#include "g30_adc_proof.h"',
 '''#include "g30_adc_proof.h"
 #include "g30_rolling_bemf.h"
-#include "g30_rolling_start.h"
 #include "g30_passive_bemf_adc.h"''','main rolling includes')
 s=one(s,'#define FW_BUILD 0x0920u','#define FW_BUILD 0x1000u','v1000 build identity')
 needle='#define COMM_INPUT_IDLE_MAX 3u\n'
@@ -327,8 +326,6 @@ s=one(s,'static motor_pipeline_t g_motor_pipeline;\n',
 '''static motor_pipeline_t g_motor_pipeline;
 static g30_rolling_bemf_t g_rolling_bemf;
 static g30_passive_bemf_adc_t g_passive_bemf_adc;
-static g30_rolling_start_t g_rolling_start;
-static g30_rolling_start_config_t g_rolling_start_cfg;
 ''','rolling globals')
 s=one(s,
 '''    gpio_cfg_nibble(GPIOA_BASE,5,0x0u);
@@ -366,8 +363,6 @@ static void passive_bemf_init(void){
     const g30_passive_bemf_adc_io_t io={passive_bemf_regular_start,
         passive_bemf_regular_poll,passive_bemf_regular_abort};
     g30_passive_bemf_adc_init(&g_passive_bemf_adc,io,0);
-    g30_rolling_start_default_config(&g_rolling_start_cfg);
-    g30_rolling_start_init(&g_rolling_start);
 }
 static void passive_bemf_poll(void){
 #if PASSIVE_BEMF_PROBE_ALLOWED
@@ -383,6 +378,26 @@ static void passive_bemf_poll(void){
 
 '''
 s=one(s,anchor,probe+anchor,'passive probe target binding')
+s=one(s,
+'''        const uint8_t armed=motor_pipeline_start(&g_motor_pipeline,
+            (const uint16_t *)g_adc_offset,COMM_GATE_STOCK_PROFILE_READY &&
+            COMM_CURRENT_SCALE_HW_VALID,COMM_ADC_TIMING_HW_VALID,
+            g_dash_throttle,g_dash_brake,
+            (uint8_t)(g_dash_seen && (uint32_t)(g_ms-g_dash_last_ms)<=COMM_DASH_STALE_MS),g_ms);''',
+'''        const uint8_t dash_ok=(uint8_t)(g_dash_seen &&
+            (uint32_t)(g_ms-g_dash_last_ms)<=COMM_DASH_STALE_MS);
+        const uint32_t roll_now=DWT_CYCCNT;
+        const uint8_t roll_ok=g30_rolling_bemf_ready(&g_rolling_bemf,roll_now);
+        /* FO71-style rolling entry: no standstill ALIGN/OPEN fallback.
+         * Release ADC1 regular ownership before the injected-current pipeline
+         * can arm the bridge. */
+        g30_passive_bemf_adc_cancel(&g_passive_bemf_adc);
+        const uint8_t armed=roll_ok?motor_pipeline_start_rolling(&g_motor_pipeline,
+            (const uint16_t *)g_adc_offset,COMM_GATE_STOCK_PROFILE_READY &&
+            COMM_CURRENT_SCALE_HW_VALID,COMM_ADC_TIMING_HW_VALID,
+            g_dash_throttle,g_dash_brake,dash_ok,g_ms,
+            g_rolling_bemf.phase_u16,g_rolling_bemf.electrical_step_u16):0u;''',
+'rolling E5 entry')
 anchor='    case 0xDAu: case 0xDBu: case 0xDCu: case 0xDDu: case 0xDEu: case 0xDFu:'
 page=r'''    case 0xFCu: { /* read-only FO70-derived rolling BEMF evidence */
         uint32_t now=DWT_CYCCNT;
@@ -411,7 +426,8 @@ s=one(s,
 s=one(s,'        adc_vbus_poll();\n','        adc_vbus_poll();\n        passive_bemf_poll();\n','passive probe poll')
 for req in ['#define COMM_CURRENT_SCALE_HW_VALID 0u','#define COMM_ADC_TIMING_HW_VALID 0u',
             'g_gate_kill_latched=1u;','TIM_BDTR(TIM1_BASE)&=(uint32_t)~D_GUARD_MOE;',
-            'case 0xFAu: case 0xFBu:','case 0xFCu:','PB1 is BEMF_C']:
+            'case 0xFAu: case 0xFBu:','case 0xFCu:','PB1 is BEMF_C',
+            'motor_pipeline_start_rolling(&g_motor_pipeline']:
     if req not in s: raise RuntimeError('v0.10.0 inherited/ported contract missing: '+req)
 main.write_text(s)
 
@@ -420,9 +436,9 @@ m=make.read_text()
 mm=re.search(r'^(SRC\s*=.*)$',m,re.M)
 if not mm: raise RuntimeError('v0.10.0 Makefile SRC line missing')
 src_line=mm.group(1)
-for f in ['src/g30_rolling_bemf.c','src/g30_rolling_start.c','src/g30_passive_bemf_adc.c']:
+for f in ['src/g30_rolling_bemf.c','src/g30_passive_bemf_adc.c']:
     if f in src_line: raise RuntimeError('v0.10.0 Makefile already contains '+f)
-src_line += ' src/g30_rolling_bemf.c src/g30_rolling_start.c src/g30_passive_bemf_adc.c'
+src_line += ' src/g30_rolling_bemf.c src/g30_passive_bemf_adc.c'
 m=m[:mm.start(1)]+src_line+m[mm.end(1):]
 if 'xbot-rolling-locked:' in m: raise RuntimeError('v0.10.0 target exists')
 m += r'''
