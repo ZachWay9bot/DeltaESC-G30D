@@ -6,6 +6,7 @@ main=(root/'src/main.c').read_text(); make=(root/'Makefile').read_text()
 sc=(root/'src/sensorless_control.c').read_text(); sh=(root/'src/sensorless_control.h').read_text()
 mpc=(root/'src/motor_pipeline.c').read_text(); mph=(root/'src/motor_pipeline.h').read_text()
 flux=(root/'src/vesc_ebics_flux.c').read_text()
+rb=(root/'src/g30_rolling_bemf.c').read_text()
 checks={
  'build-id':'#define FW_BUILD 0x1000u' in main,
  'hardware-current-still-unqualified':'#define COMM_CURRENT_SCALE_HW_VALID 0u' in main,
@@ -20,7 +21,11 @@ checks={
  'zero-iq-verify':'s->state==SENSORLESS_ROLL_VERIFY)iq_ref=0' in sc,
  'bounded-iq-ramp':'ROLL_MAX_IQ_COUNTS' in sc and 'ROLL_IQ_RAMP_TICKS' in sc,
  'neutral-interlock':'neutral_seen' in mph and 'motor_pipeline_start_rolling' in mpc,
- 'new-sources-linked':all(x in make for x in ['src/g30_rolling_bemf.c','src/g30_rolling_start.c','src/g30_passive_bemf_adc.c']),
+ 'rolling-e5-wired':'motor_pipeline_start_rolling(&g_motor_pipeline' in main and 'g30_rolling_bemf_ready(&g_rolling_bemf' in main,
+ 'legacy-standstill-e5-removed':'motor_pipeline_start(&g_motor_pipeline' not in main,
+ 'bemf-to-pm-flux-phase':'atan2_u16' in rb and '+16384u' in rb and 'psi = +J*e/|omega|' in rb,
+ 'new-target-sources-linked':all(x in make for x in ['src/g30_rolling_bemf.c','src/g30_passive_bemf_adc.c']),
+ 'policy-model-host-only':'src/g30_rolling_start.c' not in make,
  'no-xbot-bin-target':'XBOT_ROLL_LOCKED_BIN' not in make and 'xbot-rolling-locked:' in make,
  'physical-arm-zero':'-DPOWER_STAGE_ARM_ALLOWED=0' in make,
 }
