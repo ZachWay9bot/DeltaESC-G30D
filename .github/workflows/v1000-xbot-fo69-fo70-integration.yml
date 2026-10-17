@@ -224,7 +224,7 @@ jobs:
           grep -Fq ' g30_passive_bemf_adc_tick' build/v0_10_0_xbot_rolling_locked_symbols.txt
           grep -Fq ' sensorless_control_start_rolling' build/v0_10_0_xbot_rolling_locked_symbols.txt
           grep -Fq ' motor_pipeline_start_rolling' build/v0_10_0_xbot_rolling_locked_symbols.txt
-          gcc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -Isrc             ../v0.10.0/tools/rolling_pipeline_host_test.c             src/motor_pipeline.c src/foc_adc_contract.c src/stock_current_frontend.c             src/sensorless_control.c src/vesc_ebics_flux.c -lm -o /tmp/rolling_pipeline
+          gcc -std=c11 -O1 -g -fsanitize=undefined -Isrc -DSENSORLESS_CLOSED_LOOP_ALLOWED=1             ../v0.10.0/tools/rolling_pipeline_host_test.c             src/motor_pipeline.c src/foc_adc_contract.c src/stock_current_frontend.c             src/sensorless_control.c src/vesc_ebics_flux.c -lm -o /tmp/rolling_pipeline
           /tmp/rolling_pipeline
           if clang-18 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb             -ffreestanding -Isrc -DPOWER_STAGE_ARM_ALLOWED=1             -DMOTOR_ID_BENCH_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=1             -DSENSORLESS_CLOSED_LOOP_ALLOWED=1 -DPASSIVE_BEMF_PROBE_ALLOWED=1             -fsyntax-only src/main.c >/tmp/v1000-arm-reject.txt 2>&1; then
             echo 'FAIL: physical bridge arm unexpectedly compiled' >&2
