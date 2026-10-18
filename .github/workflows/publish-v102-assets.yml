@@ -1,0 +1,327 @@
+name: Publish DeltaESC v0.10.2 public assets
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v102-assets.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch validated v0.10.2 build artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf _artifact _source _shu downloads assets
+          mkdir -p _artifact _source _shu downloads assets
+          gh run download 39159514233 \
+            --repo "${{ github.repository }}" \
+            --name DeltaESC-G30D-v0.10.2-ACTIVE-TELEMETRY-RC \
+            --dir _artifact
+          test -s _artifact/source/build/DeltaESC_G30D_v0_10_2_active_telemetry_rc.bin
+          test -s _artifact/DeltaESC_G30D_v0_10_2_ACTIVE_TELEMETRY_COMPLETE_SOURCE.tar.xz
+          cp _artifact/source/build/DeltaESC_G30D_v0_10_2_active_telemetry_rc.bin \
+             downloads/DeltaESC_G30D_v0_10_2_active_telemetry_rc.bin
+
+      - name: Create current complete source ZIP
+        run: |
+          set -euo pipefail
+          tar -xJf _artifact/DeltaESC_G30D_v0_10_2_ACTIVE_TELEMETRY_COMPLETE_SOURCE.tar.xz -C _source
+          (cd _source && zip -qr ../downloads/DeltaESC_G30D_v0_10_2_COMPLETE_SOURCE.zip .)
+          test -s downloads/DeltaESC_G30D_v0_10_2_COMPLETE_SOURCE.zip
+
+      - name: Build SHU V3 package from validated BIN
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,struct,zipfile
+          from pathlib import Path
+
+          KEY0=bytes.fromhex('FE801CB2D1EF41A6A41731F5A06824F0')
+          DELTA=0x9E3779B9
+          MASK=0xffffffff
+
+          def mutate(k):
+              return bytes((b+i)&0xff for i,b in enumerate(k))
+          def tea_enc(block,key):
+              y,z=struct.unpack('<II',block)
+              k=struct.unpack('<IIII',key)
+              s=0
+              for _ in range(32):
+                  s=(s+DELTA)&MASK
+                  y=(y+((((z<<4)&MASK)+k[0])^((z+s)&MASK)^((z>>5)+k[1])))&MASK
+                  z=(z+((((y<<4)&MASK)+k[2])^((y+s)&MASK)^((y>>5)+k[3])))&MASK
+              return struct.pack('<II',y,z)
+          def crypt(data):
+              assert len(data)%8==0
+              key=KEY0
+              iv=b'\0'*8
+              out=bytearray()
+              off=0
+              for i in range(0,len(data),8):
+                  b=data[i:i+8]
+                  x=bytes(a^b for a,b in zip(b,iv))
+                  c=tea_enc(x,key)
+                  out+=c
+                  iv=c
+                  off+=8
+                  if off%1024==0:
+                      key=mutate(key)
+              return bytes(out)
+          def checksum(body):
+              s=sum(struct.unpack('<%dI'%(len(body)//4),body))&MASK
+              r=((s<<16)|(s>>16))&MASK
+              return (~r)&MASK
+          raw=Path('downloads/DeltaESC_G30D_v0_10_2_active_telemetry_rc.bin').read_bytes()
+          if len(raw)!=32236:
+              raise SystemExit(f'unexpected BIN size {len(raw)}')
+          body=bytearray(raw)
+          while len(body)%8!=4:
+              body.append(0xff)
+          plain=bytes(body)+struct.pack('<I',checksum(body))
+          enc=crypt(plain)
+          Path('_shu/FIRM.bin.enc').write_bytes(enc)
+          info={
+            "schemaVersion":1,
+            "firmware":{
+              "displayName":"DeltaESC G30D v0.10.2 Active Telemetry RC",
+              "model":"max",
+              "enforceModel":True,
+              "type":"DRV",
+              "compatible":["max_DRV_STM32F103CxT6"],
+              "encryption":"encrypted",
+              "md5":{"enc":hashlib.md5(enc).hexdigest()}
+            }
+          }
+          Path('_shu/info.json').write_text(json.dumps(info,indent=4)+"\n")
+          Path('_shu/params.txt').write_text(
+            "DeltaESC G30D v0.10.2 ACTIVE TELEMETRY RC\n"
+            "Application base: 0x08001000; stock 4 KiB bootloader preserved\n"
+            "Image size: 32236 bytes\n"
+            "FW_BUILD: 0x1020\n"
+            "Rolling start only: >=3.0 km/h, no ALIGN/OPEN fallback\n"
+            "Motor profile: R=583 mOhm, L=640 uH, flux=12.1 mWb, 15 pole pairs\n"
+            "Telemetry: 0xFC RK10 rolling, 0xFD RC12 observer, 0xFE PI12 current/PWM\n"
+            "Recovery: ST-Link available.\n"
+          )
+          with zipfile.ZipFile('downloads/DeltaESC_G30D_v0_10_2_ACTIVE_TELEMETRY_SHU_V3.zip','w',zipfile.ZIP_DEFLATED) as z:
+              for n in ('FIRM.bin.enc','info.json','params.txt'):
+                  z.write('_shu/'+n,n)
+          print('BIN',len(raw),'ENC',len(enc),'MD5',hashlib.md5(enc).hexdigest())
+          PY
+          test -s downloads/DeltaESC_G30D_v0_10_2_ACTIVE_TELEMETRY_SHU_V3.zip
+
+      - name: Create measurement charts
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet matplotlib
+          python3 - <<'PY'
+          import matplotlib
+          matplotlib.use('Agg')
+          import matplotlib.pyplot as plt
+
+          # FO60: two complete real-hardware 100 ms flux-angle takeover runs.
+          labels=['FO60 19:17:47','FO60 19:18:03']
+          current=[67,59]
+          phase=[6.15,16.44]
+          fig,ax=plt.subplots(figsize=(9,5))
+          x=list(range(len(labels)))
+          ax.bar(x,current,width=0.45,label='max takeover current (ADC counts)')
+          ax.set_ylabel('ADC current counts')
+          ax.set_xticks(x,labels)
+          ax2=ax.twinx()
+          ax2.plot(x,phase,marker='o',label='mean settle phase error (deg)')
+          ax2.set_ylabel('electrical degrees')
+          ax.set_title('FO60 real hardware: two complete 100 ms observer takeovers')
+          h1,l1=ax.get_legend_handles_labels()
+          h2,l2=ax2.get_legend_handles_labels()
+          ax.legend(h1+h2,l1+l2,loc='upper center')
+          fig.tight_layout()
+          fig.savefig('assets/fo60_takeover_quality.png',dpi=170)
+          plt.close(fig)
+
+          # FO69: five current-limited wheel-free 5 s runs.
+          fig,ax=plt.subplots(figsize=(8,5))
+          ax.bar(['Full 5 s success','Safe CLAMP abort'],[4,1])
+          ax.set_ylabel('hardware runs')
+          ax.set_title('FO69 real hardware: five current-limited 5 s runs')
+          fig.tight_layout()
+          fig.savefig('assets/fo69_5s_results.png',dpi=170)
+          plt.close(fig)
+
+          # Proven active interval progression from FO60 to FO69.
+          fig,ax=plt.subplots(figsize=(8,5))
+          ax.bar(['FO60 proven takeover','FO69 proven sustained FOC'],[0.1,5.0])
+          ax.set_ylabel('completed active observer-control interval (s)')
+          ax.set_title('Sensorless hardware progression: 0.1 s -> 5.0 s')
+          fig.tight_layout()
+          fig.savefig('assets/sensorless_hardware_progress.png',dpi=170)
+          plt.close(fig)
+          PY
+
+      - name: Write measurement evidence and checksums
+        run: |
+          set -euo pipefail
+          cat > MEASUREMENTS.md <<'EOF'
+          # Hardware measurement evidence
+
+          These measurements are **XBOT donor-hardware evidence used to qualify the sensorless concepts later ported into DeltaESC**. They are not a claim that DeltaESC v0.10.2 itself has already completed the same powered test sequence on the G30D stock ESC.
+
+          ## FO60 v0.6.0
+
+          Three real takeover runs were recorded with the proven BEMF startup, 100 ms continuous no-coast settle and at most 100 ms of flux-angle dq control at Iq_ref=12.
+
+          - **19:17:47: SUCCESS**, observer C, k=-0.6875, 400/400 ticks = 100 ms, max takeover current 67 counts, max phase step 4.31 electrical degrees, mean settle error 6.15 degrees, 0 clamps.
+          - **19:18:03: SUCCESS**, observer C, k=-0.6875, 400/400 ticks = 100 ms, max takeover current 59 counts, max phase step 3.56 electrical degrees, mean settle error 16.44 degrees, 0 clamps.
+          - **19:18:10: safely rejected before takeover**, NO_CONFIDENT_OBSERVER, active 0 ticks.
+
+          The third run is important evidence too: the confidence gate rejected a bad acquisition before the flux observer was allowed to control PWM.
+
+          ## FO69 v0.6.9
+
+          FO69 extended the already-qualified active interval to 5 seconds.
+
+          - five confirmed current-limited, wheel-free 5.0 s runs;
+          - **4 full successful 20,000/20,000 tick runs**;
+          - **1 safe CLAMP abort at 10,475 ticks**;
+          - active max current across the runs: **24..33 ADC counts**;
+          - no persistent lockout observed.
+
+          ## FO70 v0.7.0
+
+          FO70 was deliberately **passive measurement only** and supplied the rolling-BEMF basis for the later kick-start path: forward sector qualification, direction, speed and freshness while the bridge remained disarmed.
+
+          ![FO60 takeover quality](assets/fo60_takeover_quality.png)
+
+          ![FO69 five-second results](assets/fo69_5s_results.png)
+
+          ![Sensorless hardware progression](assets/sensorless_hardware_progress.png)
+          EOF
+
+          sha256sum \
+            downloads/DeltaESC_G30D_v0_10_2_ACTIVE_TELEMETRY_SHU_V3.zip \
+            downloads/DeltaESC_G30D_v0_10_2_active_telemetry_rc.bin \
+            downloads/DeltaESC_G30D_v0_10_2_COMPLETE_SOURCE.zip \
+            > downloads/SHA256SUMS.txt
+
+      - name: Replace landing page with public release view
+        run: |
+          cat > README.md <<'EOF'
+          # DeltaESC G30D
+
+          ## **Current public version: v0.10.2 ACTIVE TELEMETRY RC**
+
+          **FW_BUILD:** `0x1020`  
+          **Target:** original Ninebot G30D Gen1 3-cap STM32F103 ESC  
+          **Status:** active experimental bench RC, not a road release
+
+          ### Downloads
+
+          | File | Purpose |
+          |---|---|
+          | **[SHU V3 ZIP](downloads/DeltaESC_G30D_v0_10_2_ACTIVE_TELEMETRY_SHU_V3.zip)** | ScooterHacking Utility package |
+          | **[IAP / App BIN](downloads/DeltaESC_G30D_v0_10_2_active_telemetry_rc.bin)** | raw application image, base `0x08001000` |
+          | **[Complete Source ZIP](downloads/DeltaESC_G30D_v0_10_2_COMPLETE_SOURCE.zip)** | complete reconstructed v0.10.2 source |
+          | **[SHA256SUMS](downloads/SHA256SUMS.txt)** | download checksums |
+
+          ### Sensorless path
+
+          ```text
+          DISARMED
+            -> neutral confirmed
+            -> forward roll >= 3 km/h
+            -> passive BEMF qualification
+            -> PM-flux phase seed
+            -> ROLL_VERIFY at Iq = 0
+            -> observer confidence checks
+            -> bounded Iq ramp
+            -> CLOSED sensorless FOC
+          ```
+
+          There is **no ALIGN / OPEN_LOOP fallback** in this release.
+
+          ### Current profile
+
+          - R phase: **0.583 ohm**
+          - Ld: **0.640 mH**
+          - PM flux linkage: **12.1 mWb**
+          - pole pairs: **15**
+          - forward BEMF rank step: **5**
+          - rolling-start threshold: **3.0 km/h**
+          - Flux -> FOC frame offset: **+117.15 electrical degrees**
+          - first-RC torque cap: **12 current ADC counts**
+          - hard over-current trip: **96 reconstructed raw counts**
+
+          ### Telemetry
+
+          - **0xFC / RK10:** passive rolling/BEMF evidence
+          - **0xFD / RC12:** live or latched observer/FOC handover state
+          - **0xFE / PI12:** current/PWM/ADC and stop/fault context
+
+          ## Hardware measurement evidence behind the sensorless port
+
+          The following plots are from the **XBOT donor hardware validation** that qualified the observer/takeover concepts later integrated into DeltaESC. They are intentionally labeled as donor evidence rather than pretending the current G30D build has already completed those same powered runs.
+
+          ### FO60: real observer takeover
+
+          Two runs completed the full guarded **400/400 control ticks = 100 ms** under flux-angle dq control. A third bad acquisition was rejected before takeover.
+
+          ![FO60 takeover quality](assets/fo60_takeover_quality.png)
+
+          ### FO69: sustained real FOC
+
+          Five current-limited wheel-free 5-second runs: **4 complete successes**, **1 safe CLAMP abort**. Active max current was **24..33 ADC counts**.
+
+          ![FO69 five-second results](assets/fo69_5s_results.png)
+
+          ### Progression
+
+          The proven active observer-control interval progressed from **100 ms in FO60** to **5.0 s in FO69**.
+
+          ![Sensorless hardware progression](assets/sensorless_hardware_progress.png)
+
+          Full measurement notes: **[MEASUREMENTS.md](MEASUREMENTS.md)**
+
+          ## Flash / build identity
+
+          - application base: `0x08001000`
+          - v0.10.2 BIN size: **32,236 bytes**
+          - validated build CI: **GitHub Actions run 39159514233**
+          - BIN SHA-256: `2b6e26b656a25bdab2b2e98eca447452b66628208cecf956e0df01134cf9eb75`
+
+          > [!WARNING]
+          > This build can energize the power stage. The current public version is a **bench release candidate**, not a road-qualified firmware. The first powered G30D tests belong on the established current-limited, wheel-free setup with ST-Link recovery available.
+
+          ## Public repository layout
+
+          The default `main` branch is intentionally kept as the current release landing page. Superseded development material is retained on archive/development branches for traceability but is not presented as current firmware.
+
+          ## License
+
+          GPL-3.0.
+          EOF
+
+      - name: Commit public assets
+        run: |
+          set -euo pipefail
+          git config user.name "DeltaESC Release Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add README.md MEASUREMENTS.md downloads assets
+          if git diff --cached --quiet; then
+            echo "No public asset changes."
+            exit 0
+          fi
+          git commit -m "Publish v0.10.2 SHU, IAP BIN, source and hardware charts"
+          git push origin HEAD:main
