@@ -1,18 +1,21 @@
 # DeltaESC G30D
 
-## Current public version
+## **Current public version: v0.10.2 ACTIVE TELEMETRY RC**
 
-# **DeltaESC G30D v0.10.2 ACTIVE TELEMETRY RC**
+**FW_BUILD:** `0x1020`  
+**Target:** original Ninebot G30D Gen1 3-cap STM32F103 ESC  
+**Status:** active experimental bench RC, not a road release
 
-**Firmware build:** `0x1020`
+### Downloads
 
-Experimental sensorless FOC firmware for the original Ninebot G30D Gen1 STM32F103 3-cap ESC.
+| File | Purpose |
+|---|---|
+| **[SHU V3 ZIP](downloads/DeltaESC_G30D_v0_10_2_ACTIVE_TELEMETRY_SHU_V3.zip)** | ScooterHacking Utility package |
+| **[IAP / App BIN](downloads/DeltaESC_G30D_v0_10_2_active_telemetry_rc.bin)** | raw application image, base `0x08001000` |
+| **[Complete Source ZIP](downloads/DeltaESC_G30D_v0_10_2_COMPLETE_SOURCE.zip)** | complete reconstructed v0.10.2 source |
+| **[SHA256SUMS](downloads/SHA256SUMS.txt)** | download checksums |
 
-> [!WARNING]
-> **Active bench release candidate, not a road release.**
-> This build can drive the power stage. First tests belong on a current-limited, wheel-free bench with ST-Link recovery available.
-
-### Current motor-control path
+### Sensorless path
 
 ```text
 DISARMED
@@ -30,52 +33,59 @@ There is **no ALIGN / OPEN_LOOP fallback** in this release.
 
 ### Current profile
 
-- Phase resistance: **0.583 ohm**
-- Phase inductance: **0.640 mH**
+- R phase: **0.583 ohm**
+- Ld: **0.640 mH**
 - PM flux linkage: **12.1 mWb**
-- Pole pairs: **15**
-- Forward BEMF rank step: **5**
-- Rolling-start threshold: **3.0 km/h**
+- pole pairs: **15**
+- forward BEMF rank step: **5**
+- rolling-start threshold: **3.0 km/h**
 - Flux -> FOC frame offset: **+117.15 electrical degrees**
-- First-RC torque cap: **12 current ADC counts**
-- Hard over-current trip: **96 reconstructed raw counts**
+- first-RC torque cap: **12 current ADC counts**
+- hard over-current trip: **96 reconstructed raw counts**
 
-### v0.10.2 telemetry
+### Telemetry
 
-Two read-only pages preserve useful evidence even after a stop:
+- **0xFC / RK10:** passive rolling/BEMF evidence
+- **0xFD / RC12:** live or latched observer/FOC handover state
+- **0xFE / PI12:** current/PWM/ADC and stop/fault context
 
-- **0xFD / RC12**: FOC state/fault, observer/control phase, phase error, observer step, Id/Iq, rolling verify/ramp counters and observer clamp delta.
-- **0xFE / PI12**: phase currents, PWM CCRs, ADC sectors, VBUS raw and safety/fault/gate-kill state.
+## Hardware measurement evidence behind the sensorless port
 
-The common stop path disables the bridge first, then snapshots the last FOC/observer state before resetting the software state machine.
+The following plots are from the **XBOT donor hardware validation** that qualified the observer/takeover concepts later integrated into DeltaESC. They are intentionally labeled as donor evidence rather than pretending the current G30D build has already completed those same powered runs.
 
-## Source and build
+### FO60: real observer takeover
 
-Current release source branch:
+Two runs completed the full guarded **400/400 control ticks = 100 ms** under flux-angle dq control. A third bad acquisition was rejected before takeover.
 
-**[`release/v0.10.2-active-telemetry-rc`](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/release/v0.10.2-active-telemetry-rc)**
+![FO60 takeover quality](assets/fo60_takeover_quality.png)
 
-Validated CI run:
+### FO69: sustained real FOC
 
-**[GitHub Actions run 39159514233](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/39159514233)**
+Five current-limited wheel-free 5-second runs: **4 complete successes**, **1 safe CLAMP abort**. Active max current was **24..33 ADC counts**.
 
-CI artifact:
+![FO69 five-second results](assets/fo69_5s_results.png)
 
-**[`DeltaESC-G30D-v0.10.2-ACTIVE-TELEMETRY-RC`](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/39159514233/artifacts/12148506283)**
+### Progression
 
-Firmware BIN SHA-256:
+The proven active observer-control interval progressed from **100 ms in FO60** to **5.0 s in FO69**.
 
-```text
-2b6e26b656a25bdab2b2e98eca447452b66628208cecf956e0df01134cf9eb75
-```
+![Sensorless hardware progression](assets/sensorless_hardware_progress.png)
 
-## Repository layout
+Full measurement notes: **[MEASUREMENTS.md](MEASUREMENTS.md)**
 
-The default `main` branch intentionally presents **only the current public release**.
+## Flash / build identity
 
-Superseded firmware, old bring-up experiments, historical Android builds, intermediate CI workflows and development notes are retained outside the default public landing branch for traceability, but are no longer presented as current firmware.
+- application base: `0x08001000`
+- v0.10.2 BIN size: **32,236 bytes**
+- validated build CI: **GitHub Actions run 39159514233**
+- BIN SHA-256: `2b6e26b656a25bdab2b2e98eca447452b66628208cecf956e0df01134cf9eb75`
 
-See [CURRENT_RELEASE.md](CURRENT_RELEASE.md) for release details and [FLASHING.md](FLASHING.md) for the bench flashing notes.
+> [!WARNING]
+> This build can energize the power stage. The current public version is a **bench release candidate**, not a road-qualified firmware. The first powered G30D tests belong on the established current-limited, wheel-free setup with ST-Link recovery available.
+
+## Public repository layout
+
+The default `main` branch is intentionally kept as the current release landing page. Superseded development material is retained on archive/development branches for traceability but is not presented as current firmware.
 
 ## License
 
