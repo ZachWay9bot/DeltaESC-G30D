@@ -1,87 +1,82 @@
-> **VESC → EBiCS → G30D port (2026-10-10):** [Fixed-point Ortega observer v0.9.6](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/dev/vesc-ebics-f103-observer-g30d) now compiles into the existing G30D ADC→FOC→SVPWM→TIM1 source and passes 19 host test groups (including synthetic observer handover/observer-loss). This is an algorithm port, **not the complete STM32F4 VESC firmware and not a motor-qualified release**. Installed SHFW untouched.
+# DeltaESC G30D
 
-> **Development update (2026-10-10):** [DeltaESC v0.9.3 Motor-ID R/L/Flux source branch](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/dev/v0.9.3-motor-id-rlflux-gateoff) adds Cortex-M3 forced-linked estimator, read-only 0xF7 status and 16 local regression groups (including simulated closed-loop motor plant). **Source-only, physical MOSFET outputs disabled; no real R/L/Flux motor-detect run, no 10S first-spin approval.** SHFW on the scooter remains unchanged.
+## Current public version
 
-# DeltaESC-G30D
+# **DeltaESC G30D v0.10.2 ACTIVE TELEMETRY RC**
 
-> [!CAUTION]
-> ## DEVELOPMENT ONLY — NO HARDWARE FLASH RELEASE
->
-> This is an experimental sensorless FOC firmware for the original Ninebot G30D Gen1 STM32F103 3-cap ESC.
-> **Do not flash a development SHU ZIP to the valuable stock controller yet.**
-> No end-to-end Bluetooth installation + confirmed Bluetooth rollback or torque-producing motor run has been proven on this exact controller. CI success is software verification, not hardware validation.
+**Firmware build:** `0x1020`
+
+Experimental sensorless FOC firmware for the original Ninebot G30D Gen1 STM32F103 3-cap ESC.
 
 > [!WARNING]
-> **2026-10-10 actual G30D power-button SWD correction:** GPIOA_IDR PA12 was HIGH (`0xD804`) both released and **while button pressed**; GPIOC_IDR PC14 was LOW (`0x0000`) both released and in button test. **Neither PA12 nor PC14 is now proven to be the direct button input**; any prior README/documentation claiming confirmed PC14 active-high or PA12 active-low is superseded by these user measurements. The stock G30 dashboard has a **dedicated green button wire that grounds to black**, separate from yellow UART, and may switch upstream power-latch electronics. PB1 is measured **analog input** and PA11 is measured **HIGH output** in idle. Both v0.9.0 (PA12) and v0.9.1 (PC14) GPIO assumptions remain unsuitable for physical flash or active motor release. [Source measurements and citations](https://github.com/ZachWay9bot/DeltaESC-G30D/blob/dev/v0.9.2-mt8006a-release-guard/v0.9.2/DRV126_SWD_BUTTON_FOLLOWUP_2026-10-10.md). **NO FLASH / NO MOTOR APPROVAL.**
->
+> **Active bench release candidate, not a road release.**
+> This build can drive the power stage. First tests belong on a current-limited, wheel-free bench with ST-Link recovery available.
 
-> **Latest real-hardware evidence:** The [v0.9.15 hardware-evidence audit](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/dev/v0.9.15-real-swd-hardware-evidence-audit/v0.9.15) reconciles 22 real SWD idle register reads, the already recorded pressed PA12/PC14 non-transitions and the G30D MT8006A/AMP_LIM schematic. PB12 is high as input at idle, TIM1.BKE=0, TIM1.AOE=1, LOCK=1; the v0.9.14 R/L/flux motor-detect firmware passes software CI but **has no real electrical motor-test authorization**. No further routine ST-Link idle/button read is required; analog/driver protection, current scaling and a current-limited test bench remain mandatory.
+### Current motor-control path
 
-## Canonical development references (2026-10-09)
+```text
+DISARMED
+  -> neutral confirmed
+  -> forward roll >= 3 km/h
+  -> passive BEMF qualification
+  -> PM-flux phase seed
+  -> ROLL_VERIFY at Iq = 0
+  -> observer confidence checks
+  -> bounded Iq ramp
+  -> CLOSED sensorless FOC
+```
 
-The default `main` branch is a **repository index**, not the latest firmware. Do not select firmware by looking at the default branch or by choosing the highest version number alone.
+There is **no ALIGN / OPEN_LOOP fallback** in this release.
 
-| Version / branch | State | Purpose |
-|---|---|---|
-| [DashBLE Config Android v0.3.1](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/dashble-config-v0.3.1-build0800-guarded-ci-green-2026-10-09) | **CI GREEN, APK, SOFTWARE-ONLY** | Separate Android app preserves proven v0.3.0 BLE/NinebotCrypto exactly, adds confirmed single F0–F2 R/L/flux RAM writes with ACK & D3–D5 readback, only when D0 DESC build **exactly 0x0800**; all stock/unknown firmware including observed 0x0907 is blocked. Newer transactional firmware 0x0801/0x0802 is NOT supported by this app yet. [CI](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37854260216). No motor commands or SHU. |
-| [DashBLE v0.3.0 — real G30 BLE checkpoint](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/dashble-motor-v0.3.0-real-g30-ble-verified-2026-10-08) | **HARDWARE BLE VERIFIED / MOTOR UNTESTED** | On the physical G30 dashboard: NinebotCrypto paired, 0 MIC or plaintext errors, ESC firmware register responded `0x0907`, ESC serial readable (value withheld). No DeltaESC signature; DA–DF not available and untested. Android v0.3.0 source/APK unchanged from CI-green build. ST-Link recovery only. |
-| [DashBLE Motor Android v0.3.0](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-android-v0.3.0-dashble-motor-readonly-ci-green-2026-10-08) | **CI green, signed DEBUG APK, READ-ONLY** | Standalone Android v0.3.0 motor diagnostics: original frozen v0.2.3 G30/NinebotCrypto transport SHA-identical, D0 build>=0702 gate, sequential DA–DF motor ADC offset/min/max/timing reads and JSON reports. Does NOT overwrite working v0.1.x app. [CI build](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37848637382). Hardware untested; no motor/write/SHU function. |
-| [DashBLE Transaction v0.3.2](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/dashble-transaction-v0.3.2-build0804-ci-green-2026-10-09) | **APK BUILT, CI GREEN, HARDWARE-PENDING** | Matches firmware 0x0804: five magic-gated F0-F4 staged values, E7 mask verification, F5 atomic RAM commit/abort, final E7 + D3–D5 readback; exact stock NinebotCrypto source unchanged, independently installable. All writes disabled on stock / unknown firmware. [CI](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37859759532). |
-| [DashBLE ADC v0.3.3 E8 diagnosis](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/dashble-adc-v0.3.3-e8-readonly-ci-green-2026-10-09) | **CI GREEN / APK BUILT / REAL ESC NOT TESTED** | Preserves on-scooter-verified NinebotCrypto and BLE byte-for-byte; adds E8 read-only ADC1/ADC2 sector/raw VBUS+age/cal status with one-shot/3-second polling and JSON export. E8 only on DESC build 0x0805, F0–F5 config still only on 0x0804. Installs side-by-side. [Android CI](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37863094725). Stock 0x0907 correctly locked. |
-| [DashBLE ADC Safety v0.3.4](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/dashble-adc-v0.3.4-e8-v086-readonly-ci-green-2026-10-09) | **CI GREEN / APK BUILT / ORIGINAL ESC NOT FLASHED** | Preserves the confirmed G30 BLE/NinebotCrypto sources byte-for-byte. Permits E8 read-only on exact DESC 0x0805 **or** 0x0806, labels v0.8.6 integrity warnings (bit 0x08, long/short sample interval bits 0x10/0x20), exports diagnostics and installs separately. All F0–F5 configuration writes remain locked to 0x0804 only; stock 0x0907 locked. E9 counters still not shown in app. [CI](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37864127907). |
-| [v0.9.0 first-spin STOP + fault-safety core](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.9.0-firstspin-fault-stop-gateoff-ci-green-2026-10-09) | **CI GREEN, SOURCE ONLY, GATES OFF** | **Real motor-core fault fixed:** state machine previously emitted a further PI/PWM command in the very control tick it detected observer timeout/loss; now immediately neutralizes before PWM computation. Immediate STOP resets all three CCR references (not physical coast); latched observer faults cannot be cleared by another drive command; no observer update when unpowered. New regression **intentionally fails on v0.8.12 and passes on v0.9.0**. Full STM32 Cortex-M3, host modes and encrypted Ninebot/IAP ARM emulation [PASS](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37996878172). Real gate polarity, BKIN overcurrent route and shunt timing remain unverified; do not flash/ride. |
-| [v0.8.12 offset-noise guard / F6](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.8.12-offset-noise-quality-gateoff-ci-green-2026-10-09) | **CI GREEN, SOURCE ONLY, GATES OFF** | Fixes v0.8.11's acceptance of 512-cycle offset calibration despite large sequential CH5 rank disagreement; now reject duplicates above 32 raw counts and per-channel calibration peak-to-peak above 64 raw counts (provisional diagnostic limits). Latched faults block E0 and force disarm; invalid offsets do not enter motor observer. New 16-byte READ-only F6 exposes channel min/max + duplicate max + calibration progress. Full Cortex-M3, UBSan, encrypted Ninebot/IAP ARM emulator, F6 read-ACK [PASS](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37877235113). No v0.8.12 motor/ESC hardware approval. |
-| [v0.8.11 Fixed dual-ADC two-rank diagnostic](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.8.11-fixed-two-rank-adc-gateoff-ci-green-2026-10-09) | **CI GREEN, SOURCE ONLY, GATES OFF** | Replaces per-sector injected JSQR writes in ADC ISR with **fixed two-rank ADC1 CH3→CH4 / ADC2 CH5→CH5** at boot, permits three passive raw measurements and 512-sample offsets without unvalidated channel switching. New read-only EF 16B triple raw/offset/duplicate/fault page. Rank 1 vs 2 are **not simultaneous**: NO active FOC torque qualification. Clang Cortex-M3 build + host UBSan + encrypted Ninebot/IAP ARM emulator + hard motor gate compile refusal [PASS](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37869736182). No v0.3.4 app access to D0 build 0x080B. Never flash original controller. |
-| [v0.8.10 STM32F103 injected-only dual ADC fix](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.8.10-injected-dualadc-jeoc-gateoff-ci-green-2026-10-09) | **CI GREEN, SOURCE-ONLY, GATES OFF** | Fixes real RM0008 DUALMOD error (was 0001 = combined regular+injected; now 0101 = injected-only simultaneous) so ADC1 regular PA1 VBUS is independent. Rejects missing ADC2 JEOC and incorrect ADC mode before passing currents to FOC; fault A007/A008; new read-only 16-byte EE. ARM Cortex-M3 and six-sector UBSan, encrypted Ninebot UART/IAP emulator [PASS](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37868572597). Hardware ADC2 timing/JSQR sector changes still unvalidated; do not flash. |
-| [v0.8.9 atomic ADC+TIM1 ED evidence](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.8.9-correlated-adc-tim1-gateoff-ci-green-2026-10-09) | **CI GREEN, SOURCE-ONLY, GATES OFF** | Adds 16-byte read-only ED: completed ADC1/ADC2 raw pair + actual channel numbers + sector + TIM1 CNT/CCR4 + sample sequence and fault flags, all captured from the same injected ADC interrupt. Avoids mis-correlating independently polled E8/EA/EB/EC pages. Cortex-M3, six-sector host UBSan, gate enable compile refusal, encrypted ARM Ninebot/IAP ED read-ACK [PASS](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37867136028). No compatible 0x0809 phone UI or hardware flash approval yet. |
-| [v0.8.8 TIM1+ADC interrupt evidence](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.8.8-tim1-adc-irq-evidence-gateoff-ci-green-2026-10-09) | **CI GREEN, SOURCE ONLY, GATES OFF** | Adds register snapshots TIM1_CNT/CCR4/ARR/CR1/CCER/BDTR and IRQ-entry DWT timestamp as 16-byte read-only EB, plus EC (sample sequence, interrupt interval, timer config flags, anomaly counts). Unexpected TIM1 motor-gate enables latch fault A006 and disarm. Cross-compiled STM32, UBSan timer guards, six-sector ADC/FOC, original BLE/IAP ARM emulator E8/E9/EA/EB/EC [PASS](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37866690932). **These are ISR timestamps, not calibrated analog sample times. Not flash-ready.** |
-| [v0.8.7 coherent ADC1/ADC2 pair evidence](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.8.7-coherent-adc-evidence-gateoff-ci-green-2026-10-09) | **CI GREEN, SOURCE ONLY, GATES OFF** | Fixes E8 stale-sector ADC2 JSQR mismatch by recording raw JDR1, both full JSQR and conversion flags before changing injected channels. New read-only EA (16 bytes): ADC1/ADC2 full JSQR, SR, JDR1 raw. All six sector host tests, Cortex-M3 safe compile, encrypted ARM BLE and IAP emulator [PASS](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37865982615). App v0.3.4 remains build0805/0806-only; no authorized v0.8.7 phone parameter writes. Not flash-ready. |
-| [v0.8.6 ADC integrity + atomic BLE diagnostics](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.8.6-adc-integrity-gateoff-ci-green-2026-10-09) | **CI GREEN / SOURCE ONLY / GATES OFF** | Corrects E8 ADC1/ADC2 sector/sample tearing with an IRQ-atomic snapshot; rejects bad 12-bit raw values and mismatched injected ADC sectors before offset/FOC; adds E9 read-only fault counters and prompt >5ms ADC stall latch. E8 binary layout stays compatible, but **DashBLE v0.3.4** is required to pass the exact 0x0806 build guard; v0.3.3 only permits 0x0805. Cortex-M3, all six-sector host tests, sensorless motor UBSan and encrypted ARM UART/IAP emulator [PASS](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37863776026). Not flash/ride-approved. |
-| [v0.8.5 live dual-ADC sensorless measurement](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.8.5-live-dual-adc-gateoff-ci-green-2026-10-09) | **CI GREEN, SOURCE ONLY, GATES OFF** | Real STM32 ADC1/ADC2 injected-simultaneous current acquisition driver, six-sector phase pair reconstruction, 512 samples/phase E0 offset calibration, separate nonblocking PA1 VBUS read, read-only E8 raw diagnostic. Existing F0–F5 RAM transaction, NinebotCrypto PA2 BLE and IAP error handling retained. ARM cross-build, UBsan, 130-block encrypted UART/IAP simulation, E8 readback all passed [CI](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37861865895). **Not flashed, powered or motor-tested**. |
-| [v0.8.4 Transactional + DRV126 + safety commissioning](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.8.4-transactional-guard-ci-green-2026-10-09) | **CI GREEN, SOURCE-ONLY, GATES OFF** | Merges three DRV126 current-sense/dual-ADC software stages with the protected 5-parameter F0-F5 RAM transaction and E1/D9 commissioning blockers. New 16-byte read-only E7 pending/active status. E5 stays blocked. [CI](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37859336347). NOT flashable/ride-validated. |
-| [DashBLE Config v0.3.1](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/dashble-config-v0.3.1-exact-0800-ci-green-2026-10-09) | **ANDROID CI GREEN, DEBUG APK** | Real-G30 crypto unmodified; guarded R/L/Flux editing ONLY on exact firmware 0x0800 with ACK/readback and manual confirmation. 0x0801–0x0804 intentionally locked; an app implementing F0-F5 staged commit is still required for v0.8.4. [CI](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37854117617). |
-| [v0.8.0 unified sensorless motor + DashBLE](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.8.0-sensorless-dashble-source-ci-green-2026-10-08) | **CI GREEN, SOURCE-ONLY, GATES OFF** | Integrates parametric R/L/flux back-EMF observer, low-current FOC, start/handover logic from v0.7 motor core onto BLE/IAP/PA12-safe v0.7.2; corrects signed negative back-EMF undefined behavior; F0/F1/F2 now applied to observer; D0 0x0800, DA-DF remain app-compatible. Cross-build, 3 UBSan motor modes, real ARM UART/IAP emulator [PASS](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37850534526). **No flash or ride authorization.** |
-| [v0.7.2 DashBLE read-only motor diagnostics](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.7.2-dashble-motor-readonly-ci-green-2026-10-08) | **CI green, SOURCE-ONLY, GATES OFF** | New 0xDA–0xDF read-only motor ADC/probe pages over existing Ninebot Dashboard BLE/PA2 crypto path; preserves app v0.1.x connection and D0–D9/F0–F5, rejects writes, no SWD required for debug. ST-Link **recovery only**. [ARM/host CI](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37846764438). Not flash/motor approved. |
-| [v0.7.1 Sensorless PI Q15 math](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.7.1-pi-q15-gate-off-ci-green-2026-10-08) | **CI green, SOURCE-ONLY, GATES OFF** | Fixes silent integer truncation of the I-term for small sensorless alignment current errors, verifies saturation & stop/zero-vector semantics with host UBSan; all original UART/ADC/IAP regressions pass. [CI](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37845510803). Not motor-validated, not for flashing. |
-| [v0.7.0 ST-Link motor probe](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.7.0-stlink-motor-probe-ci-green-2026-10-08) | **CI green, PASSIVE MOTOR ADC / NO FLASH AUTHORIZATION** | Captures 256-sample ADC means/min/max, current zero offsets, TIM1/ADC registers and timing to 92-byte SRAM `g_motor_probe` with gates compile-disabled. ARM UART/IAP simulation and hard-off negative compile test pass. [Actions](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37844232175) |
-| [v0.6.10 IAP ACK-retry + PA12](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.6.10-retry-pa12-source-ci-green-2026-10-08) | **CI green, SOURCE-ONLY, NOT FOR FLASH** | Combines v0.6.8 staged-IAP power-loss guard, v0.6.9 PA12/power/button and v0.6.8 UART ACK-loss retry fix; the complete Cortex-M3 USART2 firmware flow was emulated with duplicate encrypted IAP blocks. [CI success](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37843178824). Stock bootloader erase-error recovery hazard remains. |
-| [v0.6.9 PA12 + IAP source audit](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.6.9-pa12-iap-source-ci-green-2026-10-08) | **CI green, SOURCE-ONLY, NOT FOR FLASH** | Combines v0.6.8 staged-update guard with PA12 long-press, PA11 power-hold, stock 0x79 power-off and write ACK handling; retains v0.1.x app identity and G30 dashboard runtime. [CI run](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37836783098) | 
-| [v0.6.8 stock bootloader audit](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.6.8-iap-copy-audit-ci-green-2026-10-08) | **CI green, SOURCE-ONLY** | Verified critical DRV126 erase-error counterexample: bootloader may clear pending update after app pages are erased. No guaranteed Bluetooth-only recovery. |
-| [v0.6.7 v0.1.x app compatibility](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.6.7-v01-app-compat-ci-green-2026-10-08) | **CI green, hardware unvalidated, superseded for new testing** | Earlier **SYNC-SAFE** baseline; v0.6.8 audit identified an IAP hazard. Adds explicit 14-byte `0x10` ESC identity for the hardware-proven G30 Bench BLE v0.1.x app |
-| [v0.6.6 dashboard runtime](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.6.6-dashboard-runtime-ci-green-2026-10-08) | CI green, hardware unvalidated | Native G30 `0x64/0x65` dashboard traffic on PA2, read-only throttle/brake, fixed 50% battery status placeholder |
-| [v0.6.6 dashboard-drive RC](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/freeze/deltaesc-g30d-v0.6.6-dashboard-rc-ci-green-2026-10-08) | CI green, **NOT for first flash or road use** | Optional low-current torque-capable laboratory experiment; hardware current/phase measurements are still missing |
-| v0.6.5 | CI green, superseded by v0.6.7 | 128-byte staged-IAP, final-block padding and VTOR |
-| v0.4.2 | **RETRACTED — DO NOT FLASH** | Obsolete vector-invalidation handoff based on an unproven recovery assumption |
+### Current profile
 
-### Stable BLE tool
+- Phase resistance: **0.583 ohm**
+- Phase inductance: **0.640 mH**
+- PM flux linkage: **12.1 mWb**
+- Pole pairs: **15**
+- Forward BEMF rank step: **5**
+- Rolling-start threshold: **3.0 km/h**
+- Flux -> FOC frame offset: **+117.15 electrical degrees**
+- First-RC torque cap: **12 current ADC counts**
+- Hard over-current trip: **96 reconstructed raw counts**
 
-The G30 Bench BLE **v0.1.0 and v0.1.1** application family has been physically tested on stock G30D BLE dashboard `NBScooter2088` with MIC-verified legacy NinebotCrypto authentication and a working ESC read route:
-- `CMD 0x01 / reg 0x1A`: stock version word `0x0420`;
-- `CMD 0x01 / reg 0x10`: stock 14-byte controller serial;
-- `CMD 0x01 / reg 0xD0`: stock/unknown response **not** recognized as DeltaESC.
+### v0.10.2 telemetry
 
-The latest v0.6.7 firmware intentionally replies to `0x10` with 14-byte ASCII `DELTAESC-G30D0`, and to `0xD0` with `DESC`, protocol 0.2, build `0x0607`. This provides an application identity without changing the known-good Android BLE/GATT/NinebotCrypto stack.
+Two read-only pages preserve useful evidence even after a stop:
 
-The older v0.2ci/link-probe app connection regression must **not** be used as a reason to replace the proven v0.1.x transport again.
+- **0xFD / RC12**: FOC state/fault, observer/control phase, phase error, observer step, Id/Iq, rolling verify/ramp counters and observer clamp delta.
+- **0xFE / PI12**: phase currents, PWM CCRs, ADC sectors, VBUS raw and safety/fault/gate-kill state.
 
-## Safety and update policy
+The common stop path disables the bridge first, then snapshots the last FOC/observer state before resetting the software state machine.
 
-- **Bluetooth-first**: intended normal installation and return-to-stock path uses SHU/stock dashboard/Ninebot IAP. ST-Link is emergency recovery only, not the routine test procedure.
-- **SYNC-SAFE only for a first hardware communication test**: the power-stage arming and sensorless run are compiled out.
-- Stock 4 KiB bootloader remains `0x08000000..0x08000FFF`; app base `0x08001000`.
-- The v0.6.7 staged-IAP path uses the upper-flash staging area, an update control block, 128-byte packet handling, stock IAP ACK, external checksum and NinebotTEA checksum.
-- Its **actual** rollback operation through the preserved bootloader has **not** yet been physically validated on this specific ESC. Do not mistake implementation plus CI for proof of recovery.
-- First electrical tests are on **10S** only. Battery-divider mapping, BMS data, phase-current channel polarity/order, R/L/flux, observer handover, current-loop tuning and 14S operation remain unqualified.
-- Dashboard drive RC is a lab experiment, not a road firmware. Its nominal current cap is not a verified current limit until ADC/shunt calibration succeeds.
+## Source and build
 
-## Relevant successful CI runs
+Current release source branch:
 
-- [v0.6.7 v0.1.x app compatible, success](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37802381173)
-- [v0.6.6 stock dashboard runtime, success](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37801003694)
-- [v0.6.6 dashboard drive RC after patch repair, success](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/37803370548)
+**[`release/v0.10.2-active-telemetry-rc`](https://github.com/ZachWay9bot/DeltaESC-G30D/tree/release/v0.10.2-active-telemetry-rc)**
 
-**Next release gate**: remain on stock firmware with the valuable 3-cap ESC. The v0.6.8 reverse engineering found a real stock-bootloader erase-error path that clears pending IAP state while the active app is invalid. That can defeat Bluetooth/SHU recovery irrespective of an app-side patch. The v0.6.9 and v0.6.10 CI-green source-only integrations do not resolve that protected-bootloader failure path and must not be flashed. Independent recovery verification on noncritical hardware is required before reconsidering a physical test; ST-Link is emergency recovery, not the proposed normal update path.
+Validated CI run:
+
+**[GitHub Actions run 39159514233](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/39159514233)**
+
+CI artifact:
+
+**[`DeltaESC-G30D-v0.10.2-ACTIVE-TELEMETRY-RC`](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/39159514233/artifacts/12148506283)**
+
+Firmware BIN SHA-256:
+
+```text
+2b6e26b656a25bdab2b2e98eca447452b66628208cecf956e0df01134cf9eb75
+```
+
+## Repository layout
+
+The default `main` branch intentionally presents **only the current public release**.
+
+Superseded firmware, old bring-up experiments, historical Android builds, intermediate CI workflows and development notes are retained outside the default public landing branch for traceability, but are no longer presented as current firmware.
+
+See [CURRENT_RELEASE.md](CURRENT_RELEASE.md) for release details and [FLASHING.md](FLASHING.md) for the bench flashing notes.
 
 ## License
 
-GPL-3.0. Experimental source and CI artifacts are published for inspection; none imply approval for road use.
+GPL-3.0.
