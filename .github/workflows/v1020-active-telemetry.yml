@@ -1,0 +1,319 @@
+name: DeltaESC G30D v0.10.2 active RC telemetry
+on:
+  push:
+    branches: [dev/v0.10.2-active-telemetry]
+    paths: ['integration/**','motor-rc/**','v0.9.1*/**','v0.9.20/**','v0.10.0/**','v0.10.1/**','v0.10.2/**','.github/workflows/v1020-active-telemetry.yml']
+  pull_request:
+    branches: [dev/v0.9.20-sensorless-locked-integration]
+    paths: ['integration/**','motor-rc/**','v0.9.1*/**','v0.9.20/**','v0.10.0/**','v0.10.1/**','v0.10.2/**','.github/workflows/v1020-active-telemetry.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  cortex-m3-id-vector:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compiler packages
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y clang-18 llvm-18 gcc
+          sudo ln -sf "$(command -v llvm-objdump-18)" /usr/local/bin/llvm-objdump
+      - name: Reconstruct the versioned source chain
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p base source
+          gh run download 37996878172 --repo "${{ github.repository }}" --name DeltaESC-v0.9.0-FIRSTSPIN-STOP-SAFETY-GATEOFF-SOURCE-ONLY --dir base
+          echo 'b66dc23226b18d8936c4d526f3a78d69e6b8c927e40ecc4c2dc84277ceee89d4  base/DeltaESC_v090_FIRSTSPIN_STOP_SAFETY_GATEOFF_SOURCE_ONLY.tar.xz' | sha256sum -c -
+          tar -xJf base/DeltaESC_v090_FIRSTSPIN_STOP_SAFETY_GATEOFF_SOURCE_ONLY.tar.xz -C source
+          apply() {
+            python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]).read_bytes();sys.stdout.buffer.write(p if p.endswith(b"\n") else p+b"\n")' "$1" | patch -s --batch --forward -d source -p1
+          }
+          apply v0.9.1/v091_pinmap_safety.patch
+          cp v0.9.1/tools/pinmap_power_regression_test.py source/tools/
+          cp v0.9.1/tools/run_v091_tests.sh source/tools/
+          apply v0.9.2/v092_foc_adc_contract.patch
+          apply v0.9.3/v093_motor_id.patch
+          apply v0.9.4/v094_motor_pipeline.patch
+          apply v0.9.5/v095_drv126_gate.patch
+          apply v0.9.6/v096_vesc_ebics_port.patch
+          apply v0.9.7/v097_adc_current_only.patch
+          # v0.9.8 also changes a README absent from the original frozen v0.9.0 archive.
+          # Exclude README hunks only; replay every source and test change.
+          python3 - <<'PY' > /tmp/v098-source-only.patch
+          import pathlib,re,sys
+          s=pathlib.Path('v0.9.8/v098_ADC_DRV126_REFERENCE.patch').read_text()
+          for chunk in re.split(r'(?=^diff --git )',s,flags=re.M):
+              if re.search(r'^diff --git a/README_',chunk,re.M):
+                  continue
+              sys.stdout.write(chunk if chunk.endswith(chr(10)) else chunk+chr(10))
+          PY
+          apply /tmp/v098-source-only.patch
+          apply v0.9.9/v099_AUTO_MOTOR_DETECT.patch
+          apply v0.9.10/v100_motor_id_vector.patch
+          apply v0.9.11/v101_motor_id_adc_feedback.patch
+          apply v0.9.12/v102_LIVE_MOTOR_ID.patch
+          apply v0.9.13/v103_DRIVEN_FLUX.patch
+          apply v0.9.14/v114_VESC_METHOD_FROM_v113.patch
+      - name: Replay exact v0.9.14 VESC-adapted motor-detect profile
+        run: |
+          set -euo pipefail
+          cd source
+          make clean
+          ARM_CC=clang-18 ARM_OBJCOPY=llvm-objcopy-18 ARM_OBJDUMP=llvm-objdump-18 bash tools/run_v114_tests.sh
+          test "$(stat -c %s build/DeltaESC_G30D_v0_9_14_ble_syncsafe.bin)" -lt 53248
+          grep -Fq '#define FW_BUILD 0x0914u' src/main.c
+          grep -Fq '#define COMM_CURRENT_SCALE_HW_VALID 0u' src/main.c
+          grep -Fq '#define COMM_ADC_TIMING_HW_VALID 0u' src/main.c
+          grep -Fq 'const motor_id_auto_io_t id_io={motor_id_hw_vector_mv,motor_id_hw_gate_off,0};' src/main.c
+          grep -Fq 'motor_id_adc_feedback_capture(' src/main.c
+          grep -Fq 'TIM1_UP_IRQHandler' src/main.c
+          grep -Fq 'motor_id_auto_tick(&g_motor_id_auto,t0/' src/main.c
+          grep -Fq '#define ID_BENCH_MAX_ACTIVE_MS 2500u' src/main.c
+          grep -Fq '#define ID_BENCH_MAX_TOTAL_MS 3600u' src/main.c
+          grep -Fq 'AUTO_L_SAMPLES 24u' src/motor_id_auto.c
+          grep -Fq 'AUTO_FLUX_RAMP_US 950000u' src/motor_id_auto.c
+          grep -Fq 'out->applied_at_us=f->active_command_cycle/' src/motor_id_adc_feedback.c
+          test "$(stat -c %s build/DeltaESC_G30D_v0_9_14_motor_id_bench.bin)" -lt 53248
+          echo 'v0.9.14 VESC-method firmware: 26 host test groups, both ARM images and real motor-ID-only E7 build linked.'
+
+      - name: Regression - repeated coast vs terminal shutdown
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -Wall -Wextra -Werror -O2 -Iv0.9.16/src -Iv0.9.17/src motor-rc/tools/motor_rc_gate_host_test.c -o /tmp/gate_rc
+          /tmp/gate_rc
+      - name: Apply v116 and v117 safety layers and motor-RC E7-only repair
+        run: |
+          set -euo pipefail
+          python3 v0.9.16/tools/apply_v116.py source
+          python3 v0.9.17/tools/apply_v117.py source
+          python3 motor-rc/tools/apply_motor_rc.py source
+          grep -Fq 'static void motor_id_bench_coast(void)' source/src/main.c
+          grep -Fq 'motor_id_bench_coast();' source/src/main.c
+          grep -Fq 'g_gate_kill_latched=1u;' source/src/main.c
+          grep -Fq 'cmd==0xE6u' source/src/main.c
+          grep -Fq 'g_gate_kill_latched || g_id_bench_requested' source/src/main.c
+          grep -Fq '#define FW_BUILD 0x0914u' source/src/main.c
+          grep -Fq '#error "Motor RC permits E7-only Motor-ID' source/src/main.c
+      - name: Cortex M3 release-candidate SAFE and real E7-only Motor-ID images
+        run: |
+          set -euo pipefail
+          cd source
+          make clean
+          make safe id-bench CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+          test -s build/DeltaESC_G30D_v0_9_14_rc_ble_syncsafe.bin
+          test -s build/DeltaESC_G30D_v0_9_14_rc_motor_id_bench.bin
+          test "$(stat -c %s build/DeltaESC_G30D_v0_9_14_rc_motor_id_bench.bin)" -lt 53248
+          echo "Motor-Bench image size: $(stat -c %s build/DeltaESC_G30D_v0_9_14_rc_motor_id_bench.bin) bytes"
+          sha256sum build/DeltaESC_G30D_v0_9_14_rc_*.bin
+          if clang-18 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb \
+            -ffreestanding -Isrc -DPOWER_STAGE_ARM_ALLOWED=1 \
+            -DMOTOR_ID_BENCH_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 \
+            -fsyntax-only src/main.c >/tmp/drive-forbidden.txt 2>&1; then
+              echo 'ERROR: regular drive unexpectedly built' >&2
+              exit 1
+          fi
+          grep -Fq 'Motor RC permits E7-only' /tmp/drive-forbidden.txt
+          echo "PASS Motor RC: guarded E7 PWM path linked, E6 terminal stop, normal drive forbidden"
+      - name: ADC proof passive host regression from PR 5
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -Iv0.9.18/src v0.9.18/tools/g30_adc_proof_host_test.c -o /tmp/test_rc_adc
+          /tmp/test_rc_adc
+      - name: Integrate FA FB into RC with separate 0x0919 build identity
+        run: |
+          set -euo pipefail
+          python3 integration/tools/apply_v119.py source
+          python3 integration/tools/test_v119_contract.py source
+          grep -Fq '#define FW_BUILD 0x0919u' source/src/main.c
+          grep -Fq 'case 0xFAu: case 0xFBu:' source/src/main.c
+          grep -Fq '#error "Motor RC permits E7-only Motor-ID' source/src/main.c
+          grep -Fq 'TIM_BDTR(TIM1_BASE)&=(uint32_t)~D_GUARD_MOE;' source/src/main.c
+      - name: Compile Cortex-M3 safe and E7-only experimental variants
+        run: |
+          set -euo pipefail
+          cd source
+          make clean
+          make safe id-bench CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+          test -s build/DeltaESC_G30D_v0_9_19_ble_syncsafe.bin
+          test -s build/DeltaESC_G30D_v0_9_19_motor_id_bench.bin
+          test "$(stat -c %s build/DeltaESC_G30D_v0_9_19_motor_id_bench.bin)" -lt 53248
+          if clang-18 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb \
+            -ffreestanding -Isrc -DPOWER_STAGE_ARM_ALLOWED=1 \
+            -DMOTOR_ID_BENCH_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=0 \
+            -fsyntax-only src/main.c > /tmp/v119-reject-drive.txt 2>&1; then
+            echo "FAIL: production drive unexpectedly compiled" >&2
+            exit 1
+          fi
+          grep -Fq 'Motor RC permits E7-only' /tmp/v119-reject-drive.txt
+          sha256sum build/DeltaESC_G30D_v0_9_19_*.bin
+          echo 'PASS: v0.9.19 FA/FB + E7-only + E6 latched stop; no E5'
+      - name: Audit the generic 128 KiB DRV126 dump parser
+        run: |
+          set -euo pipefail
+          python3 v0.9.20/tools/test_audit_drv126_fulldump.py
+
+      - name: Apply v0.9.20 Hall-free sensorless compile lock
+        run: |
+          set -euo pipefail
+          python3 v0.9.20/tools/apply_v120_sensorless_locked.py source
+          python3 v0.9.20/tools/test_v120_contract.py source
+          grep -Fq '#define FW_BUILD 0x0920u' source/src/main.c
+          grep -Fq 'v0.9.20 SENSORLESS-LOCKED: physical gate arm forbidden' source/src/main.c
+          grep -Fq -- '-DSENSORLESS_RUN_ALLOWED=1' source/Makefile
+          grep -Fq -- '-DPOWER_STAGE_ARM_ALLOWED=0' source/Makefile
+
+      - name: Compile full sensorless Cortex-M3 path without a flash image
+        run: |
+          set -euo pipefail
+          cd source
+          make clean
+          make sensorless-locked CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+          test -s build/DeltaESC_G30D_v0_9_20_sensorless_locked.elf
+          test -s build/v0_9_20_sensorless_locked.map
+          test -s build/v0_9_20_sensorless_locked_sections.txt
+          test ! -e build/DeltaESC_G30D_v0_9_20_sensorless_locked.bin
+          llvm-nm-18 build/DeltaESC_G30D_v0_9_20_sensorless_locked.elf > build/v0_9_20_sensorless_locked_symbols.txt
+          grep -Fq ' sensorless_control_step' build/v0_9_20_sensorless_locked_symbols.txt
+          grep -Fq ' vesc_ebics_flux_step' build/v0_9_20_sensorless_locked_symbols.txt
+          grep -Fq ' motor_pipeline_on_adc' build/v0_9_20_sensorless_locked_symbols.txt
+          if clang-18 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb             -ffreestanding -Isrc -DPOWER_STAGE_ARM_ALLOWED=1             -DMOTOR_ID_BENCH_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=1             -DSENSORLESS_CLOSED_LOOP_ALLOWED=1             -fsyntax-only src/main.c >/tmp/v120-arm-reject.txt 2>&1; then
+            echo 'FAIL: physical bridge arm unexpectedly compiled' >&2
+            exit 1
+          fi
+          grep -Fq 'v0.9.20 SENSORLESS-LOCKED: physical gate arm forbidden' /tmp/v120-arm-reject.txt
+          echo 'PASS: observer + sensorless pipeline linked, physical gate arm remains compile-forbidden'
+
+      - name: FO69 FO70 pure host regressions
+        run: |
+          set -euo pipefail
+          TMP="$(mktemp -d)"
+          trap 'rm -rf "$TMP"' EXIT
+          gcc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -Iv0.10.0/src             v0.10.0/tools/g30_rolling_bemf_host_test.c v0.10.0/src/g30_rolling_bemf.c             -o "$TMP/rolling_bemf"
+          "$TMP/rolling_bemf"
+          gcc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -Iv0.10.0/src             v0.10.0/tools/g30_rolling_start_host_test.c v0.10.0/src/g30_rolling_start.c             -o "$TMP/rolling_start"
+          "$TMP/rolling_start"
+          gcc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -Iv0.10.0/src             v0.10.0/tools/g30_passive_bemf_adc_host_test.c v0.10.0/src/g30_passive_bemf_adc.c             -o "$TMP/passive_bemf_adc"
+          "$TMP/passive_bemf_adc"
+
+      - name: Apply v0.10.0 XBOT FO69 FO70 port
+        run: |
+          set -euo pipefail
+          python3 v0.10.0/tools/apply_v1000_xbot_fo69_fo70.py source
+          python3 v0.10.0/tools/test_v1000_contract.py source
+          grep -Fq '#define FW_BUILD 0x1000u' source/src/main.c
+          grep -Fq 'case 0xFCu:' source/src/main.c
+          grep -Fq 'SENSORLESS_ROLL_VERIFY' source/src/sensorless_control.h
+          grep -Fq 'motor_pipeline_start_rolling' source/src/motor_pipeline.c
+          grep -Fq 'clamp_events' source/src/vesc_ebics_flux.h
+
+      - name: Compile rolling locked Cortex-M3 path and pipeline regression
+        run: |
+          set -euo pipefail
+          cd source
+          make clean
+          make xbot-rolling-locked CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+          test -s build/DeltaESC_G30D_v0_10_0_xbot_rolling_locked.elf
+          test -s build/v0_10_0_xbot_rolling_locked.map
+          test -s build/v0_10_0_xbot_rolling_locked_sections.txt
+          test ! -e build/DeltaESC_G30D_v0_10_0_xbot_rolling_locked.bin
+          llvm-nm-18 build/DeltaESC_G30D_v0_10_0_xbot_rolling_locked.elf > build/v0_10_0_xbot_rolling_locked_symbols.txt
+          grep -Fq ' g30_rolling_bemf_sample' build/v0_10_0_xbot_rolling_locked_symbols.txt
+          grep -Fq ' g30_passive_bemf_adc_tick' build/v0_10_0_xbot_rolling_locked_symbols.txt
+          grep -Fq ' sensorless_control_start_rolling' build/v0_10_0_xbot_rolling_locked_symbols.txt
+          grep -Fq ' motor_pipeline_start_rolling' build/v0_10_0_xbot_rolling_locked_symbols.txt
+          gcc -std=c11 -O1 -g -fsanitize=undefined -Isrc -DSENSORLESS_CLOSED_LOOP_ALLOWED=1             ../v0.10.0/tools/rolling_pipeline_host_test.c             src/motor_pipeline.c src/foc_adc_contract.c src/stock_current_frontend.c             src/sensorless_control.c src/vesc_ebics_flux.c -lm -o /tmp/rolling_pipeline
+          /tmp/rolling_pipeline
+          if clang-18 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb             -ffreestanding -Isrc -DPOWER_STAGE_ARM_ALLOWED=1             -DMOTOR_ID_BENCH_ALLOWED=0 -DSENSORLESS_RUN_ALLOWED=1             -DSENSORLESS_CLOSED_LOOP_ALLOWED=1 -DPASSIVE_BEMF_PROBE_ALLOWED=1             -fsyntax-only src/main.c >/tmp/v1000-arm-reject.txt 2>&1; then
+            echo 'FAIL: physical bridge arm unexpectedly compiled' >&2
+            exit 1
+          fi
+          grep -Fq 'v0.9.20 SENSORLESS-LOCKED: physical gate arm forbidden' /tmp/v1000-arm-reject.txt
+          echo 'PASS: FO69/FO70 rolling path linked with physical bridge still compile-forbidden'
+
+      - name: Apply v0.10.1 rolling active RC
+        run: |
+          set -euo pipefail
+          python3 v0.10.1/tools/apply_v1010_rolling_active_rc.py source
+          python3 v0.10.1/tools/test_v1010_contract.py source
+          grep -Fq '#define FW_BUILD 0x1010u' source/src/main.c
+          grep -Fq '#define FO70_R_UOHM 583000u' source/src/main.c
+          grep -Fq '#define FO70_FRAME_OFFSET_U16 21327' source/src/main.c
+          grep -Fq 'motor_pipeline_start_rolling(&g_motor_pipeline' source/src/main.c
+          ! grep -Fq 'motor_pipeline_start(&g_motor_pipeline' source/src/main.c
+
+      - name: Host-test FO70 frame seed
+        run: |
+          set -euo pipefail
+          gcc -std=c11 -O1 -g -Isource/src -DSENSORLESS_CLOSED_LOOP_ALLOWED=1             v0.10.1/tools/rolling_frame_seed_host_test.c             source/src/sensorless_control.c source/src/vesc_ebics_flux.c             source/src/stock_current_frontend.c -lm -o /tmp/rolling_frame_seed
+          /tmp/rolling_frame_seed
+
+      - name: Build first flashable rolling active RC
+        run: |
+          set -euo pipefail
+          cd source
+          make clean
+          make rolling-active-rc CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+          test -s build/DeltaESC_G30D_v0_10_1_rolling_active_rc.bin
+          test -s build/DeltaESC_G30D_v0_10_1_rolling_active_rc.elf
+          test -s build/v0_10_1_rolling_active_rc.map
+          test -s build/v0_10_1_rolling_active_rc_sections.txt
+          test "$(stat -c %s build/DeltaESC_G30D_v0_10_1_rolling_active_rc.bin)" -lt 53248
+          llvm-nm-18 build/DeltaESC_G30D_v0_10_1_rolling_active_rc.elf > build/v0_10_1_rolling_active_rc_symbols.txt
+          grep -Fq ' sensorless_control_start_rolling' build/v0_10_1_rolling_active_rc_symbols.txt
+          grep -Fq ' motor_pipeline_start_rolling' build/v0_10_1_rolling_active_rc_symbols.txt
+          grep -Fq ' g30_rolling_bemf_sample' build/v0_10_1_rolling_active_rc_symbols.txt
+          grep -Fq ' power_stage_force_disarm' build/v0_10_1_rolling_active_rc_symbols.txt
+          sha256sum build/DeltaESC_G30D_v0_10_1_rolling_active_rc.bin | tee build/v0_10_1_rolling_active_rc.sha256
+          echo "Active RC size: $(stat -c %s build/DeltaESC_G30D_v0_10_1_rolling_active_rc.bin) bytes"
+
+      - name: Apply v0.10.2 active telemetry
+        run: |
+          set -euo pipefail
+          python3 v0.10.2/tools/apply_v1020_active_telemetry.py source
+          python3 v0.10.2/tools/test_v1020_contract.py source
+          grep -Fq '#define FW_BUILD 0x1020u' source/src/main.c
+          grep -Fq 'case 0xFDu:' source/src/main.c
+          grep -Fq 'case 0xFEu:' source/src/main.c
+
+      - name: Build flashable v0.10.2 active telemetry RC
+        run: |
+          set -euo pipefail
+          cd source
+          make clean
+          make rolling-active-rc CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+          test -s build/DeltaESC_G30D_v0_10_1_rolling_active_rc.bin
+          cp build/DeltaESC_G30D_v0_10_1_rolling_active_rc.bin build/DeltaESC_G30D_v0_10_2_active_telemetry_rc.bin
+          cp build/DeltaESC_G30D_v0_10_1_rolling_active_rc.elf build/DeltaESC_G30D_v0_10_2_active_telemetry_rc.elf
+          test "$(stat -c %s build/DeltaESC_G30D_v0_10_2_active_telemetry_rc.bin)" -lt 53248
+          llvm-nm-18 build/DeltaESC_G30D_v0_10_2_active_telemetry_rc.elf > build/v0_10_2_active_telemetry_symbols.txt
+          grep -Fq ' motor_pipeline_stop' build/v0_10_2_active_telemetry_symbols.txt
+          grep -Fq ' sensorless_control_start_rolling' build/v0_10_2_active_telemetry_symbols.txt
+          sha256sum build/DeltaESC_G30D_v0_10_2_active_telemetry_rc.bin | tee build/v0_10_2_active_telemetry_rc.sha256
+          echo "v0.10.2 size: $(stat -c %s build/DeltaESC_G30D_v0_10_2_active_telemetry_rc.bin) bytes"
+
+      - name: Package complete reconstructed source
+        run: |
+          set -euo pipefail
+          tar -cJf DeltaESC_G30D_v0_10_2_ACTIVE_TELEMETRY_COMPLETE_SOURCE.tar.xz -C source .
+          sha256sum DeltaESC_G30D_v0_10_2_ACTIVE_TELEMETRY_COMPLETE_SOURCE.tar.xz             > DeltaESC_G30D_v0_10_2_ACTIVE_TELEMETRY_COMPLETE_SOURCE.tar.xz.sha256
+
+      - name: Publish active telemetry RC + complete source
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-G30D-v0.10.2-ACTIVE-TELEMETRY-RC
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            source/build/DeltaESC_G30D_v0_10_2_active_telemetry_rc.bin
+            source/build/DeltaESC_G30D_v0_10_2_active_telemetry_rc.elf
+            source/build/v0_10_2_active_telemetry_symbols.txt
+            source/build/v0_10_2_active_telemetry_rc.sha256
+            DeltaESC_G30D_v0_10_2_ACTIVE_TELEMETRY_COMPLETE_SOURCE.tar.xz
+            DeltaESC_G30D_v0_10_2_ACTIVE_TELEMETRY_COMPLETE_SOURCE.tar.xz.sha256
+            v0.10.1/README.md
+            v0.10.2/README.md
+            v0.10.2/tools/apply_v1020_active_telemetry.py
+            v0.10.2/tools/test_v1020_contract.py
