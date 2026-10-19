@@ -1,5 +1,6 @@
 # DeltaESC G30D
 
+> **SAFETY HOLD (20 October 2026): No new flash approval.** v0.10.2 binaries below are historical experimental artifacts, NOT qualified for sealed UART-only controllers. The tested DeltaESC target is the original G30D with an actually accessible ST-Link. Full UART/IAP restore-to-stock and physical flash geometry remain unqualified. Do not use these assets on a potted XBOT. See [recovery qualification](UART_RECOVERY_RELEASE_HOLD.md).\n\n
 ## **Current public version: v0.10.2 ACTIVE TELEMETRY RC**
 
 **FW_BUILD:** `0x1020`  
