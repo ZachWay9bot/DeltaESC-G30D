@@ -1,0 +1,33 @@
+name: UART recovery safety audit (DeltaESC and EBiCS)
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject FO91-class runtime IAP self-lockouts
+        run: |
+          set -euo pipefail
+          python3 tools/test_release_uart_safety.py
+          python3 tools/release_uart_safety_gate.py \
+            --source-zip downloads/DeltaESC_G30D_v0_10_2_COMPLETE_SOURCE.zip
+      - name: Verify that unproven hardware is NEVER release-qualified
+        run: |
+          set -euo pipefail
+          if python3 tools/release_uart_safety_gate.py \
+              --source-zip downloads/DeltaESC_G30D_v0_10_2_COMPLETE_SOURCE.zip \
+              --release --model DeltaESC-G30D \
+              --image downloads/DeltaESC_G30D_v0_10_2_active_telemetry_rc.bin; then
+            echo "::error::Release unexpectedly authorized without physical recovery evidence"
+            exit 1
+          fi
+          echo "PASS: release remains blocked until real independent restore evidence exists"
