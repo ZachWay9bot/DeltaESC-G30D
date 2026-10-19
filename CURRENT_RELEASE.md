@@ -1,5 +1,6 @@
 # Current Release
 
+> **Safety hold:** v0.10.2 is preserved for reference, NOT a newly flash-approved release. Hardware UART restore is unqualified. Independent hardware recovery evidence is mandatory for every future image.\n\n
 ## DeltaESC G30D v0.10.2 ACTIVE TELEMETRY RC
 
 - Public version: **v0.10.2 ACTIVE TELEMETRY RC**
