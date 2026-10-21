@@ -1,10 +1,20 @@
 # DeltaESC v0.10.3 – Fahrlogik / Software-Abnahme (21.10.2026)
 
 ## Verbindlicher Geltungsbereich
-- Entwicklung: `dev/drive-reversible-20261021`, Quellcode-Commit **`06d9a01750b0f699c0073655f0425aee9233c5e9`**.
+- Entwicklung: `dev/drive-reversible-20261021`, Quellcode-Commit **`26629227ad7cc882fb3f68426153c83767ce5e3e`**.
 - Motorfreigabe innerhalb der vereinbarten Softwareentwicklung erteilt; KEIN Auftrag zum Flashen, Motoransteuern oder Aendern von IAP/Bootloader/Recovery.
 - Zielcontroller ohne ST-Link-Zugang; FO76 ist historische, real bestaetigte Flash-/Rueckflash-Referenz. DeltaESC v0.10.3 ist **nicht** FO76 und war nicht auf dem realen Zielcontroller installiert.
 - Alle IAP-/UART-/Linkerdateien sind unveraendert gegen die separate v0.10.2-DeltaESC-Quelle. Daraus folgt **keine** behauptete Bytegleichheit der gesamten Firmware oder ein real bestaetigter Rueckflash unter v0.10.3.
+
+## Fortschritt: Dashboard-Watchdog und atomare Brake-Coast-Uebergabe (21.10.2026)
+
+- `motor_pipeline_watchdog()` laesst auch waehrend Coast eine frueher gemerkte neutrale Gasstellung ablaufen, sobald frische 0x65-Eingaben ausbleiben. Die erlaubte Startsequenz nach Empfangsausfall bleibt: neuer Gas-null-Frame -> neuer Gasbefehl -> BEMF/3-km/h-Rollstart.
+- Bei bereits aktivem Motor bleibt ein Dashboard-Timeout **terminal**. Er darf nicht durch Status/Heartbeat oder nachtraegliche Gasbefehle unbemerkt rueckgaengig werden.
+- `main.c:handle_stock_dashboard()` uebernimmt Gas, Bremse, Null-Gas-Qualifikation und Coast-Stopp unter derselben kurzen Interruptsperre mit Wiederherstellung des vorherigen PRIMASK. Damit kann ein ADC-IRQ das neue Bremsbit nicht vor der zugehoerigen physischen Coast-Abschaltung sehen und einen normalen Bremsvorgang irrtuemlich zum PWM-Fault machen. Die physische Timing-Grenze ist dennoch nur am ESC messbar.
+- Neue Unit-Tests und kompilierte `main.c`-Integrationsfaelle decken Timeout genau an der Grenze, Neutral-Verfall bei Coast, Gas nach Ausfall, erneuten Neutral-Rollstart und terminales Timeout im angetriebenen Zustand ab.
+- **Exakt auf diesem Source-Commit bestanden:** [Drive/ARM CI 39629916521](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/39629916521), [Source-Audit 39629916571](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/39629916571), [UART/IAP-Sicherheitsaudit 39629916747](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/39629916747).
+- **Unveraendert:** `iap_update.c/h`, `iap_proto.c/h`, `iap_control.c/h`, `ninebot_link.c/h`, `stm32f103_min.h`, `linker.ld`; keine Loader-, Staging-, Recovery-, CRC- oder Versions-Sperre, keine Stromlimit-Anhebung. Vergleich weiterhin gegen die v0.10.2-DeltaESC-Referenz, kein FO76-BIN-Rueckflash-Beweis.
+- **Keine Hardware- oder Fahrfreigabe**: exakte G30-Motorwerte, physische Strom-/Buskalibrierung, Richtung/Phasenbezug und autonom erreichbarer IAP-Rescue bei App-Ausfall fehlen. Die 50-%-Akkuanzeige bleibt Platzhalter.
 
 ## Software-Ergebnis
 - Stock-Dashboard G30 `0x65` liefert Gas/Bremse, Brake hat Vorrang. Nur ein tatsaechlich akzeptierter ADC-Steuerframe erneuert den Kontroll-Zeitstempel; `0x64` Status-/Heartbeat-Anfragen nicht.
