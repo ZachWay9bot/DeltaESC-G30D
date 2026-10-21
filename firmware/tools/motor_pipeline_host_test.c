@@ -119,6 +119,31 @@ int main(void){
         ensure(!p.neutral_seen,"invalid control clears neutral eligibility");
         ensure(!hw.gate_on && !p.powered,"no gate action while testing input state");
     }
+    /* A neutral observed before dashboard silence must expire even while
+     * the power stage is already coasting. A later nonzero throttle cannot
+     * inherit that old start qualification. Boundary is strictly > timeout. */
+    {
+        fake_hw_t hw={0};motor_pipeline_t p;sensorless_control_t c;
+        ready(&p,&c,&hw);
+        motor_pipeline_input(&p,0,0,1,100u);
+        ensure(p.neutral_seen && !p.powered,"fresh neutral while coasting");
+        motor_pipeline_watchdog(&p,350u,250u);
+        ensure(p.neutral_seen,"neutral still valid at watchdog boundary");
+        motor_pipeline_watchdog(&p,351u,250u);
+        ensure(!p.neutral_seen && !p.powered && !hw.gate_on,
+               "stale neutral expires while coast");
+        motor_pipeline_input(&p,100,0,1,352u);
+        ensure(!p.neutral_seen,"fresh held gas does not restore expired neutral");
+        motor_pipeline_input(&p,0,0,1,353u);
+        ensure(p.neutral_seen,"fresh gas-zero restores qualification");
+        ensure(motor_pipeline_start_rolling(&p,offsets,1,1,100,0,1,354u,
+                                            1000u,-120),
+               "fresh neutral permits rolling start again");
+        motor_pipeline_watchdog(&p,605u,250u);
+        ensure(p.last_stop_reason==MOTOR_STOP_DASH && !p.powered &&
+               p.fault_latched==0 && !p.neutral_seen && !hw.gate_on,
+               "powered watchdog stops and expires neutral");
+    }
     puts("PASS: ADC->sector reconstruction->sensorless FOC/SVPWM->TIM1 callback->gate with 10 stop/fault cases");
     return 0;
 }
