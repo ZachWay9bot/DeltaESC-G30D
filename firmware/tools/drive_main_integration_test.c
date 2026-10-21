@@ -127,6 +127,9 @@ int main(void) {
     assert(g_dash_last_ms==last_control_ms);
     drive_runtime_poll();
     assert(!g_power_armed && !g_gate_kill_latched);
+    /* Refresh simulated ADC/VBUS timestamps too: this host fixture has
+     * no live ADC IRQ, unlike the real target hardware. */
+    g_adc_last_ms=g_ms;g_vbus_last_ms=g_ms;
     /* A fresh ADC report really does renew control freshness. */
     dash(0,0);fresh_roll();dash(180,0);drive_runtime_poll();
     assert(g_power_armed && !g_gate_kill_latched);
