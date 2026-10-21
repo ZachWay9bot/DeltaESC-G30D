@@ -135,6 +135,34 @@ int main(void) {
     assert(g_power_armed && !g_gate_kill_latched);
     puts("PASS actual main.c: status heartbeat cannot substitute fresh 0x65 input");
 
+    /* A coasting controller cannot retain a pre-timeout neutral and then
+     * accept fresh GAS without a fresh neutral command. */
+    setup();
+    dash(0,0);
+    assert(g_motor_pipeline.neutral_seen);
+    g_ms+=COMM_DASH_STALE_MS+1u;
+    motor_pipeline_watchdog(&g_motor_pipeline,g_ms,COMM_DASH_STALE_MS);
+    assert(!g_motor_pipeline.neutral_seen && !g_power_armed);
+    assert(!g_gate_kill_latched);
+    g_adc_last_ms=g_ms;g_vbus_last_ms=g_ms;
+    fresh_roll();dash(180,0);drive_runtime_poll();
+    assert(!g_power_armed && !g_gate_kill_latched);
+    dash(0,0);fresh_roll();dash(180,0);drive_runtime_poll();
+    assert(g_power_armed && gate_safety_check());
+    puts("PASS actual main.c: expired coast neutral needs fresh throttle-zero");
+
+    /* While armed, a stale input is an irreversible MOTOR_STOP_DASH fault,
+     * even when status packets keep arriving. No automatic resume. */
+    setup();
+    assert(motor_request_rolling());
+    g_ms+=COMM_DASH_STALE_MS+1u;
+    motor_pipeline_watchdog(&g_motor_pipeline,g_ms,COMM_DASH_STALE_MS);
+    assert(g_gate_kill_latched && !g_power_armed);
+    g_adc_last_ms=g_ms;g_vbus_last_ms=g_ms;
+    dash(0,0);fresh_roll();dash(180,0);drive_runtime_poll();
+    assert(!g_power_armed && g_gate_kill_latched);
+    puts("PASS actual main.c: powered dashboard timeout remains terminal");
+
     setup();iap_begin_pending();
     assert(!motor_request_rolling()); /* update ownership always wins */
     assert(!g_power_armed && stock_tim1_gate_ccer_is_off((uint16_t)TIM_CCER(TIM1_BASE)));
