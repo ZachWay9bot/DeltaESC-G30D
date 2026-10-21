@@ -1722,8 +1722,14 @@ static void app_write_config(const ninebot_frame_t *f) {
 static uint8_t handle_stock_dashboard(const ninebot_frame_t *f){
     uint8_t throttle=0u,brake=0u;
     if(dashboard_decode_adc(f,&throttle,&brake)){
-        /* Only a fresh 0x65 control report renews input freshness.
-         * A 0x64 status/heartbeat request must not keep stale gas alive. */
+        /* One atomic control handoff: an ADC IRQ must never observe the
+         * new brake bit before motor_pipeline_input has isolated the bridge.
+         * Otherwise its PWM callback would turn an ordinary coast into a
+         * latched PWM fault. The IRQ-safe coast handles TIM1 and ADC routing.
+         * Only a fresh 0x65 report renews control freshness; 0x64 does not. */
+        uint32_t prior_primask;
+        __asm volatile("mrs %0, primask" : "=r"(prior_primask) :: "memory");
+        irq_disable();
         g_dash_seen=1u;g_dash_last_ms=g_ms;
         g_dash_throttle=throttle;g_dash_brake=brake;
 #if DRIVE_RUNTIME_ALLOWED
@@ -1731,6 +1737,7 @@ static uint8_t handle_stock_dashboard(const ninebot_frame_t *f){
                          stock_current_nominal_ma_to_counts(ctrl.run_current_ma));
 #endif
         motor_pipeline_input(&g_motor_pipeline,throttle,brake,1u,g_ms);
+        if(!(prior_primask&1u))irq_enable();
         return 1u;
     }
     if(dashboard_is_status_request(f)){
