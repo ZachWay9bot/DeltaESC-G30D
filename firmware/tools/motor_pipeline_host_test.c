@@ -102,6 +102,23 @@ int main(void){
         ensure(!p.powered && !p.fault_latched,
                "second normal coast remains reversible");
     }
+    /* Repeat start-permission edge cases without invoking motor power. */
+    {
+        fake_hw_t hw={0};motor_pipeline_t p;sensorless_control_t c;
+        ready(&p,&c,&hw);
+        motor_pipeline_input(&p,0,0,1,20);
+        ensure(p.neutral_seen,"neutral observed when coasting");
+        motor_pipeline_input(&p,0,65,1,21);
+        ensure(!p.neutral_seen,"brake clears earlier neutral");
+        motor_pipeline_input(&p,100,65,1,22);
+        motor_pipeline_input(&p,100,0,1,23);
+        ensure(!p.neutral_seen,"gas held through brake release is not fresh neutral");
+        motor_pipeline_input(&p,0,0,1,24);
+        ensure(p.neutral_seen,"fresh neutral after brake clears rearm condition");
+        motor_pipeline_input(&p,100,0,0,25);
+        ensure(!p.neutral_seen,"invalid control clears neutral eligibility");
+        ensure(!hw.gate_on && !p.powered,"no gate action while testing input state");
+    }
     puts("PASS: ADC->sector reconstruction->sensorless FOC/SVPWM->TIM1 callback->gate with 10 stop/fault cases");
     return 0;
 }
