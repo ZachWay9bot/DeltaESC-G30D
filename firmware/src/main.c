@@ -1722,6 +1722,9 @@ static void app_write_config(const ninebot_frame_t *f) {
 static uint8_t handle_stock_dashboard(const ninebot_frame_t *f){
     uint8_t throttle=0u,brake=0u;
     if(dashboard_decode_adc(f,&throttle,&brake)){
+        /* Only a fresh 0x65 control report renews input freshness.
+         * A 0x64 status/heartbeat request must not keep stale gas alive. */
+        g_dash_seen=1u;g_dash_last_ms=g_ms;
         g_dash_throttle=throttle;g_dash_brake=brake;
 #if DRIVE_RUNTIME_ALLOWED
         ctrl.run_iq_counts=drive_throttle_counts(throttle,brake,COMM_INPUT_IDLE_MAX,
@@ -1751,7 +1754,7 @@ static uint8_t handle_stock_dashboard(const ninebot_frame_t *f){
 
 static void process_frame(const ninebot_frame_t *f){
     if(f->format==NINEBOT_FMT_5AA5&&f->src==G30_DASH_ADDR&&f->dst==G30_ESC_ADDR){
-        g_dash_seen=1u;g_dash_frames++;g_dash_last_ms=g_ms;
+        g_dash_frames++;
         if(handle_stock_dashboard(f))return;
     }
     if(f->dst==0x20u&&(f->cmd==NINEBOT_READ||f->cmd==NINEBOT_WRITE||f->cmd==NINEBOT_WRITE_NR)){
