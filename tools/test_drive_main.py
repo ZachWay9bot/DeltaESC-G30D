@@ -38,5 +38,9 @@ with tempfile.TemporaryDirectory(prefix='deltaesc-main-test-') as folder:
            '-DSENSORLESS_CLOSED_LOOP_ALLOWED=1', '-DMOTOR_ID_BENCH_ALLOWED=0',
            '-DPASSIVE_BEMF_PROBE_ALLOWED=1', '-DROLLING_SENSORLESS_RC_ALLOWED=1',
            '-DDRIVE_RUNTIME_ALLOWED=1', str(harness)]
-    subprocess.run(cmd + sources + ['-o', str(exe)], check=True)
-    subprocess.run([str(exe)], check=True)
+    variants = [[], ['-DG30_PROFILE_R_UOHM=280000u', '-DG30_PROFILE_L_NH=650000u',
+                    '-DG30_PROFILE_FLUX_UWB=16000u', '-DG30_PROFILE_POLE_PAIRS=6u',
+                    '-DG30_PROFILE_CIRCUMFERENCE_MM=800u', '-DG30_PROFILE_PHASE_OFFSET_U16=4321']]
+    for fixture in variants:
+        subprocess.run(cmd + fixture + sources + ['-o', str(exe)], check=True)
+        subprocess.run([str(exe)], check=True)

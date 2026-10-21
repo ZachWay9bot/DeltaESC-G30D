@@ -1,7 +1,8 @@
 CC ?= clang
 OBJCOPY ?= llvm-objcopy
 OBJDUMP ?= llvm-objdump
-CFLAGS_COMMON = -g3 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Oz -Wall -Wextra -Werror -Isrc
+PROFILE_CFLAGS ?=
+CFLAGS_COMMON = -g3 --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -ffreestanding -fno-builtin -fdata-sections -ffunction-sections -Oz -Wall -Wextra -Werror -Isrc $(PROFILE_CFLAGS)
 LDFLAGS_COMMON = --target=arm-none-eabi -mcpu=cortex-m3 -mthumb -nostdlib -Wl,-T,linker.ld,--gc-sections
 SRC = src/drive_runtime.c src/main.c src/sensorless_control.c src/vesc_ebics_flux.c src/ninebot_link.c src/iap_update.c src/iap_proto.c src/iap_control.c src/dashboard_runtime.c src/power_logic.c src/motor_probe.c src/ble_motor_probe.c src/commissioning_guard.c src/stock_current_frontend.c src/g30_adc_current_window.c src/g30_adc_current_offsets.c src/stock_dual_adc_plan.c src/stock_dual_adc_runtime.c src/stock_adc_quality.c src/stock_adc_snapshot.c src/stock_adc_timing.c src/stock_adc_correlated.c src/stock_adc_mode_guard.c src/g30_fixed_scan.c src/motor_config_txn.c src/foc_adc_contract.c src/foc_adc_motor_handoff.c src/motor_id.c src/motor_id_auto.c src/motor_id_vector_output.c src/motor_id_adc_feedback.c src/motor_id_flux_feedback.c src/motor_pipeline.c src/stock_tim1_gate.c src/aeabi_mem.c src/g30_rolling_bemf.c src/g30_passive_bemf_adc.c
 SAFE_ELF = build/DeltaESC_G30D_v0_10_3_ble_syncsafe.elf

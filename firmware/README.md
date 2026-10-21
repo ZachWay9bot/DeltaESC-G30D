@@ -27,6 +27,12 @@ candidate. Use the root test runner above.
 
 - The `drive-runtime` target starts without donor R/L/flux or donor wheel
   geometry. `sensorless_control_init()` leaves motor parameters invalid.
+- `src/g30_target_profile.h` holds the target's measured built-in profile;
+  its unknown fields are currently zero. Once actual G30 measurements are
+  supplied, a build with that complete profile can operate after power-on
+  without rewriting calibration/parameter flash or reconnecting a parameter
+  app. Its startup path is tested with explicitly host-only fixture values;
+  those fixtures are not inserted into the candidate ARM image.
 - Existing F0/F1/F2/F3/F4 stage R/L/flux/phase/current ceiling and F5 commits
   them together. They remain RAM-only. Committing phase updates both the
   powered observer and passive BEMF seed frame.

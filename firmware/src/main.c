@@ -33,6 +33,7 @@
 #include "motor_config_txn.h"
 #include "dashboard_runtime.h"
 #include "drive_runtime.h"
+#include "g30_target_profile.h"
 
 #ifndef DRIVE_RUNTIME_ALLOWED
 #define DRIVE_RUNTIME_ALLOWED 0
@@ -767,9 +768,13 @@ static void passive_bemf_init(void){
 #if DRIVE_RUNTIME_ALLOWED
     /* No donor motor geometry is silently treated as G30 calibration.
      * FF supplies measured pole pairs and circumference, in RAM. */
-    rc.wheel_circ_mm=0u;
-    rc.pole_pairs=0u;
-    rc.phase_offset_u16=0;
+    rc.wheel_circ_mm=G30_PROFILE_CIRCUMFERENCE_MM;
+    rc.pole_pairs=G30_PROFILE_POLE_PAIRS;
+    rc.phase_offset_u16=(int16_t)G30_PROFILE_PHASE_OFFSET_U16;
+    if(!G30_PROFILE_POLE_PAIRS || G30_PROFILE_POLE_PAIRS>64u ||
+       G30_PROFILE_CIRCUMFERENCE_MM<300u || G30_PROFILE_CIRCUMFERENCE_MM>1800u) {
+        rc.wheel_circ_mm=0u;rc.pole_pairs=0u;
+    }
 #else
     rc.wheel_circ_mm=763u;
     rc.pole_pairs=15u;
@@ -1634,6 +1639,31 @@ static uint8_t commit_motor_config(void) {
     irq_enable();
     return ok;
 }
+
+static void motor_profile_from_build(void) {
+#if DRIVE_RUNTIME_ALLOWED
+    /* Startup only, before peripheral IRQs. Use the existing range-checked
+     * transaction before touching ctrl, so partial/invalid tuples do not
+     * become a motor profile. No persistent flash or recovery state here. */
+    if(!G30_PROFILE_POLE_PAIRS || G30_PROFILE_POLE_PAIRS>64u ||
+       G30_PROFILE_CIRCUMFERENCE_MM<300u || G30_PROFILE_CIRCUMFERENCE_MM>1800u)
+        return;
+    motor_config_txn_t profile;
+    motor_config_txn_init(&profile,G30_PROFILE_CURRENT_MA);
+    if(!motor_config_stage_u32(&profile,0xf0u,G30_PROFILE_R_UOHM) ||
+       !motor_config_stage_u32(&profile,0xf1u,G30_PROFILE_L_NH) ||
+       !motor_config_stage_u32(&profile,0xf2u,G30_PROFILE_FLUX_UWB) ||
+       !motor_config_stage_i16(&profile,(int16_t)G30_PROFILE_PHASE_OFFSET_U16) ||
+       !motor_config_stage_u16(&profile,G30_PROFILE_CURRENT_MA) ||
+       !motor_config_commit(&profile))return;
+    const motor_config_values_t *v=&profile.active;
+    if(!sensorless_control_set_motor_params(&ctrl,v->r_uohm,v->l_nh,v->flux_uwb) ||
+       !sensorless_control_set_run_current_ma(&ctrl,v->test_current_ma))return;
+    sensorless_control_set_phase_offset(&ctrl,v->phase_offset);
+    g_motor_cfg=profile;
+    sync_active_config_from_txn();
+#endif
+}
 static void app_write_config(const ninebot_frame_t *f) {
     const uint8_t cmd=f->arg;
     /* NEVER stage while drive, ADC calibration, IAP or poweroff is active. */
@@ -1761,6 +1791,7 @@ int main(void){
                                          motor_hw_select_adc,motor_hw_pwm,motor_hw_coast};
     motor_pipeline_init(&g_motor_pipeline,&ctrl,motor_io,0,PWM_ARR,HARD_OC_COUNTS);
     motor_config_txn_init(&g_motor_cfg,g_cfg_test_current_ma);
+    motor_profile_from_build();
     /* The real TIM1 vector callback is connected, but cannot arm in a
      * sync-safe build. Current and voltage feedback remain a separate task. */
     motor_id_adc_feedback_init(&g_motor_id_feedback);

@@ -31,6 +31,11 @@ jobs:
           for symbol in iap_update_feed iap_update_poll iap_control_commit ninebot_link_irq; do
             grep -q " $symbol$" build/drive-symbols.txt
           done
+          # Compile the configured startup branch with TEST FIXTURE values
+          # into a separate, unexported file; never replace the real candidate.
+          make drive-runtime CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18 \
+            DRIVE_ELF=build/profile_fixture_only.elf DRIVE_BIN=build/profile_fixture_only.bin \
+            PROFILE_CFLAGS='-DG30_PROFILE_R_UOHM=280000u -DG30_PROFILE_L_NH=650000u -DG30_PROFILE_FLUX_UWB=16000u -DG30_PROFILE_POLE_PAIRS=6u -DG30_PROFILE_CIRCUMFERENCE_MM=800u -DG30_PROFILE_PHASE_OFFSET_U16=4321'
       - name: Save build identity in software report
         run: |
           python3 - <<'PY'

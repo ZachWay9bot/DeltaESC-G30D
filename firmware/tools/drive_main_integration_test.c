@@ -145,9 +145,21 @@ int main(void) {
     assert(g_rolling_bemf.cfg.pole_pairs==6 && g_rolling_bemf.cfg.wheel_circ_mm==800);
     cfg.payload[2]=0;app_write_config(&cfg);assert(g_last_action_status==ACT_BAD_RANGE);
     assert(g_rolling_bemf.cfg.pole_pairs==6);
-    passive_bemf_init(); /* Production target starts without donor geometry. */
+    sensorless_control_init(&ctrl);motor_config_txn_init(&g_motor_cfg,500);
+    motor_profile_from_build();passive_bemf_init();
+#if G30_PROFILE_R_UOHM
+    assert(ctrl.motor_params_valid && ctrl.motor_r_uohm==G30_PROFILE_R_UOHM);
+    assert(g_motor_cfg.active_valid && g_cfg_phase_offset==G30_PROFILE_PHASE_OFFSET_U16);
+    assert(g_rolling_bemf.cfg.pole_pairs==G30_PROFILE_POLE_PAIRS);
+    assert(g_rolling_bemf.cfg.wheel_circ_mm==G30_PROFILE_CIRCUMFERENCE_MM);
+    assert(g_rolling_bemf.cfg.phase_offset_u16==G30_PROFILE_PHASE_OFFSET_U16);
+    puts("PASS built-in startup profile with explicit HOST-ONLY fixture; not measured G30 data");
+#else
+    assert(!ctrl.motor_params_valid);
     assert(g_rolling_bemf.cfg.pole_pairs==0 && g_rolling_bemf.cfg.wheel_circ_mm==0);
-    puts("PASS actual config path: transactional R/L/flux, shared phase offset, validated RAM geometry and no donor startup geometry");
+    puts("PASS startup keeps unknown motor profile/geometry unset");
+#endif
+    puts("PASS actual config path: transactional R/L/flux, shared phase offset and validated RAM geometry");
     puts("No flash erase/program/reset or physical recovery was tested.");
     return 0;
 }

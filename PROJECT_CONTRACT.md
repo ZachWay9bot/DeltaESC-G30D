@@ -2,7 +2,7 @@
 
 Der gemeinsam freigegebene Entwicklungsvertrag gilt fuer dieses Firmwareprojekt:
 
-**[IntheLoopRemoteLab / PROJECT_CONTRACT.md](https://github.com/ZachWay9bot/IntheLoopRemoteLab/blob/main/PROJECT_CONTRACT.md), v1.0 vom 20.10.2026.**
+**[IntheLoopRemoteLab / PROJECT_CONTRACT.md](https://github.com/ZachWay9bot/IntheLoopRemoteLab/blob/main/PROJECT_CONTRACT.md), v1.1 vom 21.10.2026.**
 
 Die verbindliche versionsuebergreifende Schichtuebergabe liegt unter [IntheLoopRemoteLab / PROJECT_HANDOFF.md](https://github.com/ZachWay9bot/IntheLoopRemoteLab/blob/main/PROJECT_HANDOFF.md).
 

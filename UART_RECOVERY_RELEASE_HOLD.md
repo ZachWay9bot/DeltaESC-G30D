@@ -1,5 +1,7 @@
 # DeltaESC G30D + EBiCS: mandatory recovery release hold
 
+> **Current target clarification, 21 October 2026:** The owner confirms that ST-Link is unavailable on the DeltaESC target. Historical G30D ST-Link references below do not establish a current recovery option. Rollback without ST-Link has priority; motor development is explicitly authorized. The physical app-independent return path is still unverified.
+
 **No new firmware image, IAP Driver.bin or SHU ZIP is qualified for a sealed UART-only ESC.** All current published v0.10.2 downloads are retained as historical artifacts only.
 
 ## DeltaESC v0.10.2
