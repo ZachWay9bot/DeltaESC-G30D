@@ -1,5 +1,18 @@
 # DeltaESC handoff — 21 October 2026
 
+## AKTUELL – Motorfahrlogik mit Brake-Coast-Rearm; Softwaretests gruen (21.10., letzter Stand)
+
+Der letzte **codeaendernde** Quellstand ist `06d9a01750b0f699c0073655f0425aee9233c5e9` auf `dev/drive-reversible-20261021`. Dokumentationsaenderungen danach modifizieren keine Firmware. [Exakte Fahrsoftware-Abnahme](DRIVE_SOFTWARE_STATUS_20261021.md).
+
+- Bestehender Rollstart (3 km/h), proportionales Gas, Bremse auf Coast; zur Wiederaufnahme nach Bremse zuerst neuer gueltiger Gas-null-Frame, dann neuer Gasbefehl bei erneut gueltigem Rollstart. Kein unerwarteter Auto-Rearm mit gehaltenem Gas.
+- Zwei reale Sourcefehler korrigiert: (1) vor Bremsen oder ungueltiger Eingabe gemerkte Nullstellung darf nicht anschliessend unbemerkt den Motorstart freigeben, (2) 0x64-Dashboard-Status/Heartbeat darf nicht die Aktualitaet alter Gaswerte erneuern; das darf nur ein gueltiger 0x65-Gas-/Brems-Frame.
+- Main-Integration prueft Brake waehrend Motorbetrieb UND bereits im Coast, erneuten neutralen Input, anschliessenden Rollstart sowie Heartbeat ohne ADC. Native Controller-/Power-Grenzen unveraendert.
+- Software/ARM/Protokoll-Pruefung **PASS** fuer Quellcommit `06d9a017`: [Drive CI 39586098824](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/39586098824), [Source-Audit 39586098867](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/39586098867), [UART/IAP-Gate 39586098839](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/39586098839).
+- Keine Flash-, IAP-, Bootloader-, Linker- oder Recovery-Aenderungen. Kein Flash auf Hardware; keine private RemoteLab-Queue benutzt; kein Release-Hold aufgehoben.
+- **Fahrfreigabe weiterhin NEIN**: G30-Zielparameter und reale Messung fehlen; aktueller Batteriestand 50%-Platzhalter, Coast statt elektrischer Bremse; ein aus der App aufrufbarer IAP garantiert keinen Recovery-Einstieg bei toter App. FO76 real und v0.10.3 nur Host-CI strikt getrennt behandeln.
+- Aktuelles Ziel: Bevor Hardware folgt, echte G30-Daten und den bewaehrten Rueckflash ohne ST-Link belegen; nicht erneut bereits bestandene FO76-Wizard-/Flash-Tests als fehlend darstellen.
+
+
 ## Current instruction, superseding the earlier approval interpretation
 
 The owner explicitly authorized motor enable and all development necessary
