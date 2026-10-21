@@ -134,8 +134,14 @@ void motor_pipeline_input(motor_pipeline_t *p, uint8_t throttle,
 
 void motor_pipeline_watchdog(motor_pipeline_t *p, uint32_t now_ms,
                              uint32_t dash_timeout_ms) {
-    if (p && p->powered &&
-        (uint32_t)(now_ms-p->last_dashboard_ms)>dash_timeout_ms)
+    if (!p || (uint32_t)(now_ms-p->last_dashboard_ms)<=dash_timeout_ms)
+        return;
+    /* Dashboard freshness applies to a stored neutral qualification too.
+     * During coast, a stale neutral must not authorize a later nonzero gas
+     * frame without a new, fresh neutral command. The existing powered
+     * watchdog remains terminal; this does not alter IAP eligibility. */
+    p->neutral_seen=0u;
+    if (p->powered)
         motor_pipeline_stop(p,MOTOR_STOP_DASH);
 }
 
