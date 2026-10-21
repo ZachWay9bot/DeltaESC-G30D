@@ -1,6 +1,9 @@
 # DeltaESC G30D
 
-> **SAFETY HOLD (20 October 2026): No new flash approval.** v0.10.2 binaries below are historical experimental artifacts, NOT qualified for sealed UART-only controllers. The tested DeltaESC target is the original G30D with an actually accessible ST-Link. Full UART/IAP restore-to-stock and physical flash geometry remain unqualified. Do not use these assets on a potted XBOT. See [recovery qualification](UART_RECOVERY_RELEASE_HOLD.md).\n\n
+> **Current owner instruction (21 October 2026):** Motor development is authorized. Preserve the IAP return path; ST-Link is physically impossible on these controllers. The incoming controller is expected to have DRV 1.8.7; DRV126 is the planned basis and IAP is the flashing method for now. Earlier FO76 hardware flash/motor tests did succeed. See [reread original results and FO91 regression](https://github.com/ZachWay9bot/DeltaESC-G30D/blob/dev/drive-reversible-20261021/docs/HARDWARE_HISTORY_FO76_FO91_20261021.md). The new v0.10.3 candidate has software tests only.
+
+> **SAFETY HOLD (20 October 2026): No new flash approval.** v0.10.2 binaries below are historical experimental artifacts, NOT qualified for sealed UART-only controllers. Older references to accessible ST-Link describe earlier test setups. **ST-Link is physically unavailable on the current target.** Full UART/IAP restore-to-stock and physical flash geometry remain unqualified. Do not use these assets on a potted XBOT. See [recovery qualification](UART_RECOVERY_RELEASE_HOLD.md).
+
 ## **Current public version: v0.10.2 ACTIVE TELEMETRY RC**
 
 **FW_BUILD:** `0x1020`  
@@ -82,7 +85,7 @@ Full measurement notes: **[MEASUREMENTS.md](MEASUREMENTS.md)**
 - BIN SHA-256: `2b6e26b656a25bdab2b2e98eca447452b66628208cecf956e0df01134cf9eb75`
 
 > [!WARNING]
-> This build can energize the power stage. The current public version is a **bench release candidate**, not a road-qualified firmware. The first powered G30D tests belong on the established current-limited, wheel-free setup with ST-Link recovery available.
+> This build can energize the power stage. The current public version is a **bench release candidate**, not a road-qualified firmware. Further powered candidate tests use the established current-limited, wheel-free setup and the existing IAP return path; ST-Link is unavailable on the current target.
 
 ## Public repository layout
 
