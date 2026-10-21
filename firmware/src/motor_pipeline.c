@@ -117,7 +117,12 @@ void motor_pipeline_input(motor_pipeline_t *p, uint8_t throttle,
                           uint8_t brake, uint8_t dashboard_valid,
                           uint32_t now_ms) {
     if (!p) return;
-    if(!p->powered && dashboard_valid && !brake && throttle<=THROTTLE_IDLE_MAX)
+    /* A previously observed neutral must not survive an intervening brake
+     * or invalid command. Otherwise brake release with throttle already held
+     * may re-arm without a fresh neutral command. This is ordinary input
+     * qualification, not a terminal hardware fault or IAP restriction. */
+    if (!dashboard_valid || brake) p->neutral_seen=0u;
+    else if (!p->powered && throttle<=THROTTLE_IDLE_MAX)
         p->neutral_seen=1u;
     if (p->powered && (!dashboard_valid || brake || throttle<=THROTTLE_IDLE_MAX)) {
         motor_pipeline_stop(p,!dashboard_valid?MOTOR_STOP_DASH:
