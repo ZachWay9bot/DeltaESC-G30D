@@ -92,7 +92,45 @@ int main(void) {
     dash(255,80);
     assert(!g_power_armed && !g_gate_kill_latched && ctrl.run_iq_counts==0);
     drive_runtime_poll();assert(!g_power_armed);
-    puts("PASS actual main.c: E5 route, runtime gate, proportional gas, release/restart and brake priority");
+    /* Releasing brake while still holding the old gas request cannot
+     * restart. Fresh neutral -> rolling motion -> new gas must work. */
+    dash(255,0);fresh_roll();drive_runtime_poll();
+    assert(!g_power_armed && !g_motor_pipeline.neutral_seen);
+    dash(0,0);assert(g_motor_pipeline.neutral_seen);
+    fresh_roll();dash(180,0);drive_runtime_poll();
+    assert(g_power_armed && !g_gate_kill_latched && gate_safety_check());
+    dash(0,0);
+    assert(!g_power_armed && !g_gate_kill_latched);
+    puts("PASS actual main.c: proportional gas, brake-coast, neutral and real rolling rearm");
+
+    /* Braking while ALREADY coasting must invalidate any previous neutral.
+     * Otherwise an old neutral can authorize gas at brake release. */
+    setup();
+    dash(0,0);assert(g_motor_pipeline.neutral_seen);
+    dash(0,60);assert(!g_motor_pipeline.neutral_seen);
+    dash(255,60);dash(255,0);fresh_roll();drive_runtime_poll();
+    assert(!g_power_armed && !g_gate_kill_latched);
+    dash(0,0);fresh_roll();dash(180,0);drive_runtime_poll();
+    assert(g_power_armed && !g_gate_kill_latched);
+    puts("PASS actual main.c: braking during coast requires fresh neutral");
+
+    /* A 0x64 status heartbeat must not refresh 0x65 throttle freshness. */
+    setup();
+    const uint32_t last_control_ms=g_dash_last_ms;
+    g_ms+=COMM_DASH_STALE_MS+1u;
+    USART_SR_REG(USART2_BASE)=USART_SR_TXE|USART_SR_TC;
+    ninebot_frame_t heartbeat={0};
+    heartbeat.format=NINEBOT_FMT_5AA5;
+    heartbeat.src=G30_DASH_ADDR;heartbeat.dst=G30_ESC_ADDR;
+    heartbeat.cmd=G30_DASH_CMD_STATUS;
+    process_frame(&heartbeat);
+    assert(g_dash_last_ms==last_control_ms);
+    drive_runtime_poll();
+    assert(!g_power_armed && !g_gate_kill_latched);
+    /* A fresh ADC report really does renew control freshness. */
+    dash(0,0);fresh_roll();dash(180,0);drive_runtime_poll();
+    assert(g_power_armed && !g_gate_kill_latched);
+    puts("PASS actual main.c: status heartbeat cannot substitute fresh 0x65 input");
 
     setup();iap_begin_pending();
     assert(!motor_request_rolling()); /* update ownership always wins */
