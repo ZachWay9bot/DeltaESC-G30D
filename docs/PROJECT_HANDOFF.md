@@ -40,6 +40,33 @@ assumptions forward as available recovery. See the dated clarification in
   audit. No hardware test, flash, update/restore cycle or image release has
   taken place in this development work.
 
+## Verified source/build result
+
+- Exact software-tested source commit:
+  `cc7df57d10da9d16c1e8387cd8622bf327e364bd`.
+- [CI run 39573629137](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/39573629137):
+  **PASS**, 35 C/component/integration groups, unchanged IAP/transport/linker
+  byte checks, existing anti-lockout audit, three normal ARM configurations
+  and a fourth separate configured-profile fixture build.
+- Drive candidate: 32,748 bytes; SHA256
+  `707c17285e65bfb94074414a97f11f71dd57e401930e2aaa28532b3aadddd950`.
+  It remains unqualified for flashing/driving. Fixture binaries are not
+  offered as target images and no test values are inserted into this BIN.
+- `src/g30_target_profile.h` provides a measured built-in profile for eventual
+  standalone startup without new persistent flash/config writes. Unknown
+  target fields are zero. Native and ARM tests cover an explicit fixture
+  separately; those numbers are not G30 measurements. RAM F0-F5/FF is still
+  available, and the original F6 ADC page is unchanged.
+- The original DRV126 full dump was actually reread and hash-matched. A
+  limited boot-routine inspection verifies the staging-copy/app-handoff
+  role but supplies no independent UART rescue proof. See
+  [bootstrap audit](DRV126_BOOTSTRAP_AUDIT_20261021.md). The private dump is
+  not published. Its identity is not proof of the current target's loader.
+- Current central contract is v1.1. The motor authorization and unavailable
+  ST-Link correction are persisted on main in both project documentation
+  and the shared handoff; older contradictory instructions are historical.
+- Subsequent documentation changes do not change the above tested source.
+
 ## Still required, by priority
 
 1. Identify the target's currently installed image and the existing actually
