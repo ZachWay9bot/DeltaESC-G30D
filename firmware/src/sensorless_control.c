@@ -212,16 +212,19 @@ static void observer_update(sensorless_control_t *s, int32_t i_alpha_counts,
                                   speed_flux_ok);
 }
 
+#if SENSORLESS_CLOSED_LOOP_ALLOWED
 static uint32_t rolling_flux_magnitude_uwb(const sensorless_control_t *s) {
     uint32_t a=abs32u(s->vesc_flux.flux_alpha_nwb);
     uint32_t b=abs32u(s->vesc_flux.flux_beta_nwb);
     uint32_t mx=a>b?a:b,mn=a>b?b:a;
     return (mx+(mn>>1))/1000u;
 }
+#endif
 static uint8_t rolling_phase_step_ok(int16_t step) {
     uint16_t a=(uint16_t)(step<0?-(int32_t)step:(int32_t)step);
     return (uint8_t)(a<=ROLL_STEP_ABS_MAX_U16 && step<=(int16_t)ROLL_STEP_POS_MAX_U16);
 }
+#if SENSORLESS_CLOSED_LOOP_ALLOWED
 static uint8_t rolling_flux_instant_ok(const sensorless_control_t *s) {
     if(!s->motor_params_valid || !s->vesc_flux.valid || !s->motor_flux_uwb)return 0u;
     uint32_t mag=rolling_flux_magnitude_uwb(s);
@@ -229,6 +232,7 @@ static uint8_t rolling_flux_instant_ok(const sensorless_control_t *s) {
     if(!rolling_phase_step_ok(s->observer_step))return 0u;
     return 1u;
 }
+#endif
 
 static void vector_to_pwm(sensorless_control_t *s, int32_t v_alpha, int32_t v_beta, uint16_t pwm_arr) {
     s->v_alpha_prev = v_alpha; s->v_beta_prev = v_beta;
