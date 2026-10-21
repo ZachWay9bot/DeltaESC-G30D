@@ -1,0 +1,38 @@
+name: DeltaESC v0.10.2 source and drive-path audit
+
+on:
+  push:
+    branches: ['audit/drive-readiness-*']
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/audit_drive_source.py'
+      - 'tools/audit_upstream/**'
+      - 'docs/DRIVE_READINESS_20261021.md'
+      - '.github/workflows/drive-source-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  original-source:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install historical compiler family
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y clang-18 llvm-18 gcc make
+      - name: Compile original C tests, reproduce integration blockers, rebuild ARM image
+        run: |
+          python3 tools/audit_drive_source.py \
+            --source-zip downloads/DeltaESC_G30D_v0_10_2_COMPLETE_SOURCE.zip \
+            --output audit-results/drive-source-audit.json \
+            --build-arm
+      - name: Retain software evidence only
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-v0102-source-audit
+          path: audit-results/drive-source-audit.json
+          if-no-files-found: error
