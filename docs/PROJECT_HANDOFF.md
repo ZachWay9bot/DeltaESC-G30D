@@ -1,5 +1,15 @@
 # DeltaESC handoff — 21 October 2026
 
+## NEUSTER STAND – Watchdog-Neutral-Verfall und atomare Bremsverarbeitung (21.10.2026)
+
+- Letzter **Motorquellcode-Commit**: `26629227ad7cc882fb3f68426153c83767ce5e3e` auf `dev/drive-reversible-20261021`; Nachtrag nur Dokumentation. [Genauer Bericht](DRIVE_SOFTWARE_STATUS_20261021.md).
+- `0x65` muss einen frischen Gas-null-Frame nach Bremse **und** nach Dashboard-Timeout liefern. Stale Neutral waehrend Coast wird nicht mehr fuer automatischen Wiederanlauf wiederverwendet. Bei laufendem Motor bleibt fehlendes Dashboard terminal.
+- Gas-/Bremseingang und Motor-Coast/Stopp unter derselben restaurierbaren IRQ-Sperre, damit ein ADC-IRQ den Bremszustand nicht vor dem Coast-Gate-Off sehen kann. Keine Stromgrenzen angehoben.
+- Native Motorpipeline- und echte `main.c`-Integrationstests plus sichere/ID-only/Drive-ARM-Builds: **PASS**, [CI 39629916521](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/39629916521). [Quell-Audit 39629916571](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/39629916571): **PASS**. [UART/IAP-Audit 39629916747](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/39629916747): **PASS**. Das sind Host-/ARM-Tests, **kein** elektrisch getriebener G30-Motor.
+- G30-Original-Motorprofil weiterhin NICHT gemessen. Der passive Vorwaerts-Rohsektor `5` entstammt FO69/FO70-Donor und darf nicht ohne echte G30-Drehrichtungs-/Phasenvalidierung als belegt gelten. Ziel-R/L/Flux, Polpaare/Radumfang und echte Strom-/Spannungskalibrierung fehlen.
+- Kein Flash, kein Motorjob, kein Eingriff in das private RemoteLab-Queue-Repo. IAP, `ninebot_link`, Linker und Recovery bleiben byteidentisch zur v0.10.2-Basis. Die **physische Rueckflashbarkeit auf dem neuen vergossenen Controller ist damit nicht bewiesen**. FO76 als historisch bestaetigter Flashweg nie durch eine nur softwaregepruefte v0.10.3-BIN ersetzen.
+- **Release-/Fahrfreigabe weiterhin HOLD**. Vor realem Test und Release erst exakten Zielcontroller/Stock-IAP-Tatsachenstand bestaetigen und G30-Parameter messen. ST-Link ist und bleibt KEINE Option.
+
 ## AKTUELL – Motorfahrlogik mit Brake-Coast-Rearm; Softwaretests gruen (21.10., letzter Stand)
 
 Der letzte **codeaendernde** Quellstand ist `06d9a01750b0f699c0073655f0425aee9233c5e9` auf `dev/drive-reversible-20261021`. Dokumentationsaenderungen danach modifizieren keine Firmware. [Exakte Fahrsoftware-Abnahme](DRIVE_SOFTWARE_STATUS_20261021.md).
