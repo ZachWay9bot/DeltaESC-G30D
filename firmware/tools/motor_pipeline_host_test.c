@@ -80,8 +80,9 @@ int main(void){
         ready(&p,&c,&hw);
         p.io.coast=coast;
         p.neutral_seen=1u;
-        ensure(motor_pipeline_start(&p,offsets,1,1,80,0,1,10),
-               "brake regression initial start");
+        ensure(motor_pipeline_start_rolling(&p,offsets,1,1,80,0,1,10,
+                                            1000u,-120),
+               "brake regression initial rolling start");
         motor_pipeline_input(&p,80,1,1,11);
         ensure(!p.powered && !hw.gate_on &&
                p.last_stop_reason==MOTOR_STOP_BRAKE && !p.fault_latched,
