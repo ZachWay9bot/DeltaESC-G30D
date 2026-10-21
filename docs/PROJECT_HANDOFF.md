@@ -9,6 +9,26 @@ There is **no ST-Link option on this target**. Do not carry older SWD/ST-Link
 assumptions forward as available recovery. See the dated clarification in
 `../PROJECT_CONTRACT.md`; the private XBOT queue is untouched.
 
+## Korrektur: bestaetigte Hardwarehistorie und aktueller Lieferplan
+
+ST-Link ist physisch ausgeschlossen. Bis auf Weiteres: IAP; erwarteter
+Lieferstand DRV 1.8.7, geplante Basis DRV126. Der Controller ist noch nicht
+eingetroffen. Keine erneute Frage nach ST-Link oder Motorfreigabe.
+
+Die historischen Original-Logs wurden erneut gelesen: FO76-Flash,
+FO76-Motor/Wizard und anschliessender IAP-Weiterflash aus FO76 sind real
+bestaetigt. FO91/0.9.1 wurde danach installiert; die Rueckkehr zu FO80
+scheiterte mit IAP-Status 7. Die damalige CRC-/128-KiB-IAP-Bedingung ist
+als Regression dokumentiert. "Kein Hardwaretest" unten bezieht sich
+ausschliesslich auf die neue v0.10.3-Arbeit.
+
+**Wichtige Artefaktzuordnung:** Die real geflashte FO76-Datei hatte
+21.712 Bytes / SHA256 `35ceae5c635c66f667380fc8dd0777463aed5dde98014328d123be5965812554`;
+das spaeter reproduzierte FO76-Source-Paket liefert 21.728 Bytes /
+`a8b7ca7d45fdfa32cbcbfdfbe98e2e655a266ecc57aea62f8149ecf3cbe74bcb`.
+Gleiche Firmwarekennung beweist daher keine Bytegleichheit.
+[Originalbelege und Regression](HARDWARE_HISTORY_FO76_FO91_20261021.md).
+
 ## Source and work completed
 
 - Reference: main `eb30fbfd61fba4768be399a3aedf98dc2c2039f0`, v0.10.2
