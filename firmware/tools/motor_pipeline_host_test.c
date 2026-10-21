@@ -14,6 +14,7 @@ typedef struct {
 static void ensure(unsigned v,const char *what){if(!v){fprintf(stderr,"FAILED %s\n",what);exit(1);}}
 static uint8_t arm(void *ctx){fake_hw_t *h=ctx;if(h->reject_arm)return 0;h->gate_on=1;return 1;}
 static void off(void *ctx){fake_hw_t *h=ctx;h->gate_on=0;h->gate_off++;}
+static void coast(void *ctx){fake_hw_t *h=ctx;h->gate_on=0;h->gate_off++;}
 static uint8_t route(void *ctx,uint32_t a,uint32_t b){fake_hw_t *h=ctx;if(h->reject_adc)return 0;h->adc1_jsqr=a;h->adc2_jsqr=b;h->adc_routes++;return 1;}
 static uint8_t pwm(void *ctx,uint16_t a,uint16_t b,uint16_t c){fake_hw_t *h=ctx;if(h->reject_pwm)return 0;ensure(a<=1999&&b<=1999&&c<=1999,"PWM duty bounds");h->c1=a;h->c2=b;h->c3=c;h->pwm_writes++;return 1;}
 static foc_adc_sample_t sample(motor_pipeline_t *p, fake_hw_t *h){
@@ -70,6 +71,35 @@ int main(void){
             ensure(!motor_pipeline_start(&p,offsets,1,1,80,0,1,1),"fault remains latched");
             ensure(!hw.gate_on,"latched fault never re-arms");
         }
+    }
+    /* Regression: normal brake is coast, never a terminal fault. After
+     * releasing brake and returning throttle to neutral, rolling start is
+     * permitted again. A held throttle must not cause surprise re-arm. */
+    {
+        fake_hw_t hw={0};motor_pipeline_t p;sensorless_control_t c;
+        ready(&p,&c,&hw);
+        p.io.coast=coast;
+        p.neutral_seen=1u;
+        ensure(motor_pipeline_start(&p,offsets,1,1,80,0,1,10),
+               "brake regression initial start");
+        motor_pipeline_input(&p,80,1,1,11);
+        ensure(!p.powered && !hw.gate_on &&
+               p.last_stop_reason==MOTOR_STOP_BRAKE && !p.fault_latched,
+               "brake isolates bridge without latching fault");
+        ensure(!p.neutral_seen,
+               "held throttle does not auto rearm after brake");
+        motor_pipeline_input(&p,80,0,1,12);
+        ensure(!p.neutral_seen,"brake release with held throttle stays disarmed");
+        motor_pipeline_input(&p,0,0,1,13);
+        ensure(p.neutral_seen,"neutral after brake requalifies start");
+        ensure(motor_pipeline_start_rolling(&p,offsets,1,1,80,0,1,14,
+                                            1000u,-120),
+               "rolling rearm after brake release and fresh throttle");
+        ensure(p.powered && hw.gate_on && !p.neutral_seen,
+               "second motor start actually rearmed");
+        motor_pipeline_input(&p,0,0,1,15);
+        ensure(!p.powered && !p.fault_latched,
+               "second normal coast remains reversible");
     }
     puts("PASS: ADC->sector reconstruction->sensorless FOC/SVPWM->TIM1 callback->gate with 10 stop/fault cases");
     return 0;
