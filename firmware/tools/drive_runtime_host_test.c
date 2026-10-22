@@ -39,6 +39,15 @@ int main(void) {
     assert(drive_speed_kmh10(-400,0,763)==0);
     assert(drive_speed_kmh10(-400,15,0)==0);
     assert(drive_speed_kmh10(-32768,1,1800)==0);
-    puts("PASS: original qualifiers retained, 128 owner cases, proportional throttle/brake priority and speed units");
+    /* Software-closure boundary coverage. Physical calibration remains separate. */
+    assert(drive_speed_kmh10(0,15,763)==0);
+    assert(drive_speed_kmh10(-1024,15,763)>0);
+    assert(drive_speed_kmh10(1024,15,763)==drive_speed_kmh10(-1024,15,763));
+    assert(drive_speed_kmh10(1025,15,763)==0);
+    assert(drive_speed_kmh10(400,15,1800)>0);
+    assert(drive_speed_kmh10(400,15,1801)==0);
+    assert(drive_throttle_counts(255,0,3,12)==12);
+    assert(drive_throttle_counts(255,1,3,12)==0);
+    puts("PASS: software closure: qualifiers, owner truth table, throttle/brake and speed domain edges");
     return 0;
 }
