@@ -34,5 +34,24 @@ int main(void) {
     assert(p[0]==1u && p[1]==67u && p[4]==24u && p[5]==1u);
     dashboard_drive_status_payload(p,65535u,255u,0u);
     assert(p[1]==100u && p[4]==255u && p[5]==0u);
+    t=0xA5u;b=0x5Au;
+    f.format=NINEBOT_FMT_5AA5;f.src=G30_DASH_ADDR;f.dst=G30_ESC_ADDR;
+    f.cmd=G30_DASH_CMD_ADC;f.payload_len=2u;
+    assert(!dashboard_decode_adc(&f,&t,&b) && t==0xA5u && b==0x5Au);
+    f.payload_len=3u;f.src=(uint8_t)(G30_DASH_ADDR+1u);
+    assert(!dashboard_decode_adc(&f,&t,&b));
+    f.src=G30_DASH_ADDR;f.dst=(uint8_t)(G30_ESC_ADDR+1u);
+    assert(!dashboard_decode_adc(&f,&t,&b));
+    f.dst=G30_ESC_ADDR;f.format=NINEBOT_FMT_55AA;
+    assert(!dashboard_decode_adc(&f,&t,&b));
+    assert(!dashboard_decode_adc(0,&t,&b));
+    assert(!dashboard_decode_adc(&f,0,&b));
+    assert(!dashboard_decode_adc(&f,&t,0));
+    dashboard_drive_status_payload(p,0u,0u,0u);
+    assert(p[1]==0u && p[4]==0u);
+    dashboard_drive_status_payload(p,4u,100u,0u);
+    assert(p[1]==100u && p[4]==0u);
+    dashboard_drive_status_payload(p,5u,101u,0u);
+    assert(p[1]==100u && p[4]==1u);
     return 0;
 }

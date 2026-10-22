@@ -144,6 +144,17 @@ int main(void){
                p.fault_latched==0 && !p.neutral_seen && !hw.gate_on,
                "powered watchdog stops and expires neutral");
     }
-    puts("PASS: ADC->sector reconstruction->sensorless FOC/SVPWM->TIM1 callback->gate with 10 stop/fault cases");
+    /* uint32_t millisecond wraparound must preserve watchdog semantics. */
+    {
+        fake_hw_t hw={0};motor_pipeline_t p;sensorless_control_t c;
+        ready(&p,&c,&hw);
+        motor_pipeline_input(&p,0,0,1,0xFFFFFFF0u);
+        ensure(p.neutral_seen,"neutral before millisecond wrap");
+        motor_pipeline_watchdog(&p,0x00000020u,250u);
+        ensure(p.neutral_seen,"watchdog wrap keeps fresh neutral");
+        motor_pipeline_watchdog(&p,0x00000120u,250u);
+        ensure(!p.neutral_seen,"watchdog wrap expires stale neutral");
+    }
+    puts("PASS: ADC->sector reconstruction->sensorless FOC/SVPWM->TIM1 callback->gate plus watchdog wraparound");
     return 0;
 }
