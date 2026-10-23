@@ -67,7 +67,6 @@ int main(void){
         for(unsigned circ=300;circ<=1800;circ+=50){
             for(int step=-1024;step<=1024;step+=32){
                 const uint16_t speed=drive_speed_kmh10((int16_t)step,(uint8_t)pp,(uint16_t)circ);
-                assert(speed<=65535u);
                 assert(speed==drive_speed_kmh10((int16_t)(step<0?-step:step),(uint8_t)pp,(uint16_t)circ));
             }
         }
