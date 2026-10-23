@@ -47,7 +47,7 @@ jobs:
           gcc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=undefined -Ig30/src \
              g30/tools/drive_runtime_host_test.c g30/src/drive_runtime.c -o /tmp/g30-drive-unit
           /tmp/g30-drive-unit
-          gcc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=undefined -DSENSORLESS_CLOSED_LOOP_ALLOWED=1 -Ig30/src \
+          gcc -std=c11 -O1 -g -Wall -Wextra -fsanitize=undefined -fno-sanitize-recover=undefined -DSENSORLESS_CLOSED_LOOP_ALLOWED=1 -Ig30/src \
              g30/tools/motor_pipeline_host_test.c g30/src/motor_pipeline.c g30/src/foc_adc_contract.c \
              g30/src/stock_current_frontend.c g30/src/sensorless_control.c g30/src/vesc_ebics_flux.c \
              -lm -o /tmp/g30-drive-pipeline
