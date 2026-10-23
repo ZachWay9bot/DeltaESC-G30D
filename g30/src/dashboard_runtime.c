@@ -30,3 +30,12 @@ void dashboard_safe_status_payload(uint8_t out[G30_DASH_STATUS_BYTES]) {
     out[4] = 0u;    /* speed km/h */
     out[5] = 0u;    /* dashboard-visible fault */
 }
+
+void dashboard_drive_status_payload(uint8_t out[G30_DASH_STATUS_BYTES],
+    uint16_t speed,uint8_t battery,uint8_t fault) {
+    if(!out)return;
+    uint32_t whole_kmh=((uint32_t)speed+5u)/10u;
+    out[0]=0x01u;out[1]=battery>100u?100u:battery;
+    out[2]=0u;out[3]=0u;
+    out[4]=(uint8_t)(whole_kmh>255u?255u:whole_kmh);out[5]=fault;
+}
