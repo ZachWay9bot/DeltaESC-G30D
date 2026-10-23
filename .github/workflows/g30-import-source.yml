@@ -1,0 +1,38 @@
+name: Import verified G30 v0.10.2 source (one-shot)
+on:
+  push:
+    branches: [dev/g30-fahrbetrieb-clean-20261023]
+    paths: [.github/workflows/g30-import-source.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  import-source:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Verify and expand unchanged original source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = 'dev/g30-fahrbetrieb-clean-20261023'
+          git fetch --depth=1 origin main
+          git show FETCH_HEAD:downloads/DeltaESC_G30D_v0_10_2_COMPLETE_SOURCE.zip > /tmp/g30-original-v102.zip
+          echo '3a7a4533c743df97f555a199ef603ff52efb34af752301a43ffb0497a3285f6f  /tmp/g30-original-v102.zip' | sha256sum -c -
+          mkdir -p /tmp/g30-unzip
+          unzip -q /tmp/g30-original-v102.zip -d /tmp/g30-unzip
+          test -s /tmp/g30-unzip/Makefile
+          test -s /tmp/g30-unzip/src/main.c
+          grep -Fq '#define FW_BUILD 0x1020u' /tmp/g30-unzip/src/main.c
+          mkdir -p g30
+          cp /tmp/g30-unzip/Makefile /tmp/g30-unzip/linker.ld g30/
+          cp -R /tmp/g30-unzip/src /tmp/g30-unzip/tools g30/
+          printf '%s\n' 'Original unmodified DeltaESC v0.10.2 source; never edit IAP/bootloader without explicit owner approval.' > g30/BASELINE_SOURCE.txt
+          git add g30
+          git diff --cached --exit-code && exit 0 || true
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Import exact v0.10.2 G30 source for isolated drive work'
+          git push origin HEAD:dev/g30-fahrbetrieb-clean-20261023
