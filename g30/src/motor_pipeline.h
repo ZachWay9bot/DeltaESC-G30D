@@ -13,6 +13,8 @@ typedef struct {
     void (*gate_off)(void *ctx);
     uint8_t (*set_adc_pair)(void *ctx, uint32_t jsqr1, uint32_t jsqr2);
     uint8_t (*set_pwm)(void *ctx, uint16_t c1, uint16_t c2, uint16_t c3);
+    /* Optional normal coast. Faults and lost input always use gate_off. */
+    void (*coast)(void *ctx);
 } motor_pipeline_io_t;
 
 enum {
