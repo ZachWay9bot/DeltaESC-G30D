@@ -32,6 +32,12 @@
 #include "g30_fixed_scan.h"
 #include "motor_config_txn.h"
 #include "dashboard_runtime.h"
+#include "drive_runtime.h"
+#include "g30_target_profile.h"
+
+#ifndef DRIVE_RUNTIME_ALLOWED
+#define DRIVE_RUNTIME_ALLOWED 0
+#endif
 
 #ifndef POWER_STAGE_ARM_ALLOWED
 #define POWER_STAGE_ARM_ALLOWED 0
@@ -74,10 +80,9 @@
 #define MAGIC_UNLOCK 0xC0DEu
 #define PROTO_MAJOR 0u
 #define PROTO_MINOR 2u
-/* Retain the existing frozen Android v0.3.6 pairing and build guard.
- * This is NOT the original v0.9.14 binary. The artifact filename and
- * sha256, not this compatibility ID, distinguish the experimental RC. */
-#define FW_BUILD 0x1020u
+/* Explicit identity for this source candidate; do not masquerade as a
+ * previously hardware-tested image or frozen Android pairing. */
+#define FW_BUILD 0x1030u
 /* v0.9.20 compiles the complete sensorless software path for Cortex-M3,
  * but the physical bridge remains compile-locked. E5 therefore cannot arm
  * the G30 power stage in this target. */
@@ -348,7 +353,7 @@ static void power_stage_force_disarm(void) {
  * The R/L sequence needs repeated re-arming after a 4ms coast interval.
  * TIM1 CH4 ADC trigger uses MOE on F103; keep it in the passive state.
  * Never invoke on a terminal fault to undo a hardware stop. */
-static void motor_id_bench_coast(void) {
+static void power_stage_normal_coast(void) {
     if (g_gate_kill_latched || g_safety_latched) {
         power_stage_force_disarm();
         return;
@@ -370,7 +375,6 @@ static void motor_id_bench_coast(void) {
     g_motor_id_vector.sector=0u;
     g_motor_pipeline.powered=0u;
     g_motor_pipeline.adc.pending=0u;
-    sensorless_control_stop(&ctrl);
     /* If CH4 did not stay active, this is a fault, NOT a pause. */
     if (!tim1_bdtr_guard_passive((uint16_t)TIM_BDTR(TIM1_BASE),
                                  (uint8_t)DEADTIME_DTG,
@@ -382,6 +386,17 @@ static void motor_id_bench_coast(void) {
         g_safety_latched=0xA02Eu;
         power_stage_force_disarm();
     }
+}
+
+static void motor_id_bench_coast(void) {
+    power_stage_normal_coast();
+    sensorless_control_stop(&ctrl);
+}
+
+static void motor_hw_coast(void *ignored) {
+    (void)ignored;
+    power_stage_normal_coast();
+    g30_rolling_bemf_reset(&g_rolling_bemf);
 }
 
 static void motor_hw_gate_off(void *ignored) {
@@ -583,7 +598,12 @@ static uint32_t gate_safety_check(void) {
             D_GUARD_OSSI | D_GUARD_OSSR | D_GUARD_MOE);
         if ((uint16_t)TIM_BDTR(TIM1_BASE)!=expected ||
             !stock_tim1_gate_ccer_is_armed((uint16_t)ccer) ||
-            !MOTOR_ID_BENCH_ALLOWED || !g_id_bench_requested) ok=0u;
+            !drive_armed_owner_valid(MOTOR_ID_BENCH_ALLOWED,g_id_bench_requested,
+                g_motor_id_vector_owner,
+                (uint8_t)(g_motor_id_auto.state>=ID_AUTO_R_SETTLE &&
+                          g_motor_id_auto.state<=ID_AUTO_FLUX_COAST),
+                POWER_STAGE_ARM_ALLOWED && SENSORLESS_RUN_ALLOWED,
+                g_motor_pipeline.powered,ctrl.drive_request)) ok=0u;
     } else if (!tim1_bdtr_guard_passive((uint16_t)TIM_BDTR(TIM1_BASE),
                                         (uint8_t)DEADTIME_DTG,
                                         (uint16_t)ccer)) ok=0u;
@@ -745,11 +765,23 @@ static void passive_bemf_regular_abort(void *ctx){
 static void passive_bemf_init(void){
     g30_rolling_bemf_config_t rc;g30_rolling_bemf_default_config(&rc);
 #if ROLLING_SENSORLESS_RC_ALLOWED
+#if DRIVE_RUNTIME_ALLOWED
+    /* No donor motor geometry is silently treated as G30 calibration.
+     * FF supplies measured pole pairs and circumference, in RAM. */
+    rc.wheel_circ_mm=G30_PROFILE_CIRCUMFERENCE_MM;
+    rc.pole_pairs=G30_PROFILE_POLE_PAIRS;
+    rc.phase_offset_u16=(int16_t)G30_PROFILE_PHASE_OFFSET_U16;
+    if(!G30_PROFILE_POLE_PAIRS || G30_PROFILE_POLE_PAIRS>64u ||
+       G30_PROFILE_CIRCUMFERENCE_MM<300u || G30_PROFILE_CIRCUMFERENCE_MM>1800u) {
+        rc.wheel_circ_mm=0u;rc.pole_pairs=0u;
+    }
+#else
     rc.wheel_circ_mm=763u;
     rc.pole_pairs=15u;
     rc.forward_raw_step=5u;
     rc.min_speed_kmh10=30u;
     rc.phase_offset_u16=(int16_t)FO70_FRAME_OFFSET_U16;
+#endif
 #endif
     g30_rolling_bemf_init(&g_rolling_bemf,&rc);
     const g30_passive_bemf_adc_io_t io={passive_bemf_regular_start,
@@ -1360,6 +1392,12 @@ static void app_read_response(const ninebot_frame_t *req){
         else g30_adc_proof_page_fb(p,&x,o,bdtr,vbus_raw,ilast,ipeak);
         n=18u;break;
     }
+    case 0xFFu: /* measured motor geometry, readback; existing F6 ADC page unchanged */
+        p[0]='P';p[1]='F';p[2]='1';p[3]='3';
+        p[4]=g_rolling_bemf.cfg.pole_pairs;p[5]=g_rolling_bemf.cfg.forward_raw_step;
+        put_u16(p+6,g_rolling_bemf.cfg.wheel_circ_mm);
+        put_i16(p+8,g_rolling_bemf.cfg.phase_offset_u16);
+        p[10]=ctrl.motor_params_valid;p[11]=DRIVE_RUNTIME_ALLOWED;n=12u;break;
     case 0xFCu: { /* read-only FO70-derived rolling BEMF evidence */
         uint32_t now=DWT_CYCCNT;
         uint32_t age_cycles=g_rolling_bemf.last_edge_cycles?
@@ -1446,6 +1484,47 @@ static void app_write_power(const ninebot_frame_t *f) {
     if(value!=0u)schedule_poweroff(POWER_OFF_ACK_DELAY_MS);
 }
 
+#if POWER_STAGE_ARM_ALLOWED
+static uint8_t motor_request_rolling(void) {
+#if POWER_STAGE_ARM_ALLOWED
+    uint32_t primask_before;
+    __asm volatile("mrs %0, primask" : "=r"(primask_before) :: "memory");
+    irq_disable();
+    uint8_t armed=0u;
+    /* One atomic decision for both explicit E5 and dashboard operation.
+     * IAP pending is checked here before any gate or ADC ownership change. */
+    if(!g_power_armed && !g_motor_pipeline.powered &&
+       !g_gate_kill_latched && !g_motor_id_vector_owner &&
+       !g_offset_cal_active && !g_dash_brake &&
+       g_dash_throttle>COMM_INPUT_IDLE_MAX && g_motor_pipeline.neutral_seen &&
+       !drive_start_blockers(commissioning_guard_mask(),ROLLING_SENSORLESS_RC_ALLOWED) &&
+       g30_rolling_bemf_ready(&g_rolling_bemf,DWT_CYCCNT)) {
+        g_motor_irq_sequence=0u;
+        g30_passive_bemf_adc_cancel(&g_passive_bemf_adc);
+        armed=motor_pipeline_start_rolling(&g_motor_pipeline,
+            (const uint16_t *)g_adc_offset,COMM_GATE_STOCK_PROFILE_READY &&
+            (COMM_CURRENT_SCALE_HW_VALID || ROLLING_SENSORLESS_RC_ALLOWED),
+            (COMM_ADC_TIMING_HW_VALID || ROLLING_SENSORLESS_RC_ALLOWED),
+            g_dash_throttle,g_dash_brake,
+            (uint8_t)(g_dash_seen && (uint32_t)(g_ms-g_dash_last_ms)<=COMM_DASH_STALE_MS),
+            g_ms,g_rolling_bemf.phase_u16,g_rolling_bemf.electrical_step_u16);
+    }
+    if(!(primask_before&1u))irq_enable();
+    return armed;
+#else
+    return 0u;
+#endif
+}
+#endif
+
+static void drive_runtime_poll(void) {
+#if DRIVE_RUNTIME_ALLOWED
+    if(!g_power_armed && !g_gate_kill_latched &&
+       g_dash_throttle>COMM_INPUT_IDLE_MAX && !g_dash_brake)
+        (void)motor_request_rolling();
+#endif
+}
+
 static void app_write_action(const ninebot_frame_t *f){
     uint8_t cmd=f->arg;
     if(cmd==0xE6u){if(g_id_bench_requested)motor_id_auto_abort(&g_motor_id_auto);
@@ -1516,36 +1595,16 @@ static void app_write_action(const ninebot_frame_t *f){
         return;
     }
     if(cmd==0xE5u){
-        if(g_motor_id_vector_owner){action_ack(f,cmd,ACT_BUSY);return;}
+        if(g_motor_id_vector_owner || g_power_armed || ctrl.drive_request){action_ack(f,cmd,ACT_BUSY);return;}
         if(f->payload_len<4u){action_ack(f,cmd,ACT_BAD_RANGE);return;}uint16_t ma=get_u16(f->payload+2);
         if(!sensorless_control_set_run_current_ma(&ctrl,ma)){action_ack(f,cmd,ACT_BAD_RANGE);return;}
         g_cfg_test_current_ma=ma;
 #if POWER_STAGE_ARM_ALLOWED
-        if(g_offset_cal_active){action_ack(f,cmd,ACT_BUSY);return;}
-        /* E1 commissioning is idle-only. E5 is an explicit motion request,
-           therefore the throttle-not-idle bit is the sole exception. */
-        if((commissioning_guard_mask() & ~COMM_GUARD_THROTTLE_NOT_IDLE)!=0u){
-            action_ack(f,cmd,ACT_UNSAFE);return;
-        }
-        /* E5 is the only authenticated motor-start request. Interrupts
-           remain masked across initial ADC rank programming and gate arm. */
-        irq_disable();
-        g_motor_irq_sequence=0u;
-        const uint8_t dash_ok=(uint8_t)(g_dash_seen &&
-            (uint32_t)(g_ms-g_dash_last_ms)<=COMM_DASH_STALE_MS);
-        const uint32_t roll_now=DWT_CYCCNT;
-        const uint8_t roll_ok=g30_rolling_bemf_ready(&g_rolling_bemf,roll_now);
-        /* FO71-style rolling entry: no standstill ALIGN/OPEN fallback.
-         * Release ADC1 regular ownership before the injected-current pipeline
-         * can arm the bridge. */
-        g30_passive_bemf_adc_cancel(&g_passive_bemf_adc);
-        const uint8_t armed=roll_ok?motor_pipeline_start_rolling(&g_motor_pipeline,
-            (const uint16_t *)g_adc_offset,COMM_GATE_STOCK_PROFILE_READY &&
-            (COMM_CURRENT_SCALE_HW_VALID || ROLLING_SENSORLESS_RC_ALLOWED),
-            (COMM_ADC_TIMING_HW_VALID || ROLLING_SENSORLESS_RC_ALLOWED),
-            g_dash_throttle,g_dash_brake,dash_ok,g_ms,
-            g_rolling_bemf.phase_u16,g_rolling_bemf.electrical_step_u16):0u;
-        irq_enable();
+#if DRIVE_RUNTIME_ALLOWED
+        ctrl.run_iq_counts=drive_throttle_counts(g_dash_throttle,g_dash_brake,
+            COMM_INPUT_IDLE_MAX,stock_current_nominal_ma_to_counts(ctrl.run_current_ma));
+#endif
+        const uint8_t armed=motor_request_rolling();
         action_ack(f,cmd,armed?ACT_OK:ACT_UNSAFE);return;
 #else
         action_ack(f,cmd,ACT_UNSUPPORTED);return;
@@ -1571,11 +1630,39 @@ static uint8_t commit_motor_config(void) {
                          sensorless_control_set_run_current_ma(&ctrl,v.test_current_ma));
     if(ok) {
         sensorless_control_set_phase_offset(&ctrl,v.phase_offset);
+        /* Passive seed and powered observer use the same committed frame. */
+        g_rolling_bemf.cfg.phase_offset_u16=v.phase_offset;
+        g30_rolling_bemf_reset(&g_rolling_bemf);
         ok=motor_config_commit(&g_motor_cfg);
         if(ok){sync_active_config_from_txn();g_cfg_dirty=1u;}
     }
     irq_enable();
     return ok;
+}
+
+static void motor_profile_from_build(void) {
+#if DRIVE_RUNTIME_ALLOWED
+    /* Startup only, before peripheral IRQs. Use the existing range-checked
+     * transaction before touching ctrl, so partial/invalid tuples do not
+     * become a motor profile. No persistent flash or recovery state here. */
+    if(!G30_PROFILE_POLE_PAIRS || G30_PROFILE_POLE_PAIRS>64u ||
+       G30_PROFILE_CIRCUMFERENCE_MM<300u || G30_PROFILE_CIRCUMFERENCE_MM>1800u)
+        return;
+    motor_config_txn_t profile;
+    motor_config_txn_init(&profile,G30_PROFILE_CURRENT_MA);
+    if(!motor_config_stage_u32(&profile,0xf0u,G30_PROFILE_R_UOHM) ||
+       !motor_config_stage_u32(&profile,0xf1u,G30_PROFILE_L_NH) ||
+       !motor_config_stage_u32(&profile,0xf2u,G30_PROFILE_FLUX_UWB) ||
+       !motor_config_stage_i16(&profile,(int16_t)G30_PROFILE_PHASE_OFFSET_U16) ||
+       !motor_config_stage_u16(&profile,G30_PROFILE_CURRENT_MA) ||
+       !motor_config_commit(&profile))return;
+    const motor_config_values_t *v=&profile.active;
+    if(!sensorless_control_set_motor_params(&ctrl,v->r_uohm,v->l_nh,v->flux_uwb) ||
+       !sensorless_control_set_run_current_ma(&ctrl,v->test_current_ma))return;
+    sensorless_control_set_phase_offset(&ctrl,v->phase_offset);
+    g_motor_cfg=profile;
+    sync_active_config_from_txn();
+#endif
 }
 static void app_write_config(const ninebot_frame_t *f) {
     const uint8_t cmd=f->arg;
@@ -1583,7 +1670,26 @@ static void app_write_config(const ninebot_frame_t *f) {
     if(g_power_armed || ctrl.drive_request || ctrl.state!=SENSORLESS_STOP ||
        g_offset_cal_active || g_poweroff_requested || iap_update_active() ||
        iap_update_pending()) {action_ack(f,cmd,ACT_UNSAFE);return;}
+#if DRIVE_RUNTIME_ALLOWED
+    if(g_dash_throttle>COMM_INPUT_IDLE_MAX || g_dash_brake) {
+        action_ack(f,cmd,ACT_UNSAFE);return;
+    }
+#endif
     if(!has_magic(f)){action_ack(f,cmd,ACT_BAD_MAGIC);return;}
+    if(cmd==0xFFu) {
+        /* Measured wheel geometry, RAM only; never writes calibration over
+         * staging, control metadata, the application or the stock loader. */
+        if(f->payload_len!=5u || !f->payload[2] || f->payload[2]>64u ||
+           get_u16(f->payload+3)<300u || get_u16(f->payload+3)>1800u) {
+            action_ack(f,cmd,ACT_BAD_RANGE);return;
+        }
+        irq_disable();
+        g_rolling_bemf.cfg.pole_pairs=f->payload[2];
+        g_rolling_bemf.cfg.wheel_circ_mm=get_u16(f->payload+3);
+        g30_rolling_bemf_reset(&g_rolling_bemf);
+        irq_enable();
+        action_ack(f,cmd,ACT_RAM_ONLY);return;
+    }
     if(cmd>=0xF0u&&cmd<=0xF2u) {
         if(f->payload_len!=6u || !motor_config_stage_u32(&g_motor_cfg,cmd,get_u32(f->payload+2))) {
             action_ack(f,cmd,ACT_BAD_RANGE);return;
@@ -1616,13 +1722,37 @@ static void app_write_config(const ninebot_frame_t *f) {
 static uint8_t handle_stock_dashboard(const ninebot_frame_t *f){
     uint8_t throttle=0u,brake=0u;
     if(dashboard_decode_adc(f,&throttle,&brake)){
+        /* One atomic control handoff: an ADC IRQ must never observe the
+         * new brake bit before motor_pipeline_input has isolated the bridge.
+         * Otherwise its PWM callback would turn an ordinary coast into a
+         * latched PWM fault. The IRQ-safe coast handles TIM1 and ADC routing.
+         * Only a fresh 0x65 report renews control freshness; 0x64 does not. */
+        uint32_t prior_primask;
+        __asm volatile("mrs %0, primask" : "=r"(prior_primask) :: "memory");
+        irq_disable();
+        g_dash_seen=1u;g_dash_last_ms=g_ms;
         g_dash_throttle=throttle;g_dash_brake=brake;
+#if DRIVE_RUNTIME_ALLOWED
+        ctrl.run_iq_counts=drive_throttle_counts(throttle,brake,COMM_INPUT_IDLE_MAX,
+                         stock_current_nominal_ma_to_counts(ctrl.run_current_ma));
+#endif
         motor_pipeline_input(&g_motor_pipeline,throttle,brake,1u,g_ms);
+        if(!(prior_primask&1u))irq_enable();
         return 1u;
     }
     if(dashboard_is_status_request(f)){
         uint8_t p[G30_DASH_STATUS_BYTES];
+#if DRIVE_RUNTIME_ALLOWED
+        const uint16_t speed=g_power_armed && ctrl.observer_valid ?
+            drive_speed_kmh10(ctrl.observer_step,g_rolling_bemf.cfg.pole_pairs,
+                             g_rolling_bemf.cfg.wheel_circ_mm) :
+            g30_rolling_bemf_speed_kmh10(&g_rolling_bemf,DWT_CYCCNT);
+        /* Battery remains the explicit historical placeholder until BMS
+         * telemetry is integrated. Do not invent pack SOC from raw VBUS. */
+        dashboard_drive_status_payload(p,speed,50u,(uint8_t)(current_fault_code()!=0u));
+#else
         dashboard_safe_status_payload(p);
+#endif
         ninebot_send_app_response(f,G30_DASH_CMD_STATUS,0x00u,p,G30_DASH_STATUS_BYTES);
         return 1u;
     }
@@ -1631,14 +1761,14 @@ static uint8_t handle_stock_dashboard(const ninebot_frame_t *f){
 
 static void process_frame(const ninebot_frame_t *f){
     if(f->format==NINEBOT_FMT_5AA5&&f->src==G30_DASH_ADDR&&f->dst==G30_ESC_ADDR){
-        g_dash_seen=1u;g_dash_frames++;g_dash_last_ms=g_ms;
+        g_dash_frames++;
         if(handle_stock_dashboard(f))return;
     }
     if(f->dst==0x20u&&(f->cmd==NINEBOT_READ||f->cmd==NINEBOT_WRITE||f->cmd==NINEBOT_WRITE_NR)){
         if(f->cmd==NINEBOT_READ)app_read_response(f);
         else if(f->arg==0x79u)app_write_power(f);
         else if((f->arg>=0xE0u&&f->arg<=0xE6u)||f->arg==0xE7u)app_write_action(f);
-        else if(f->arg>=0xF0u&&f->arg<=0xF5u)app_write_config(f);
+        else if((f->arg>=0xF0u&&f->arg<=0xF5u)||f->arg==0xFFu)app_write_config(f);
         else action_ack(f,f->arg,ACT_UNSUPPORTED);
         return;
     }
@@ -1646,7 +1776,7 @@ static void process_frame(const ninebot_frame_t *f){
 
 static void reset_stats(void){g_sample_interval_min=0xFFFFFFFFu;g_sample_interval_max=0u;g_max_isr_cycles=0u;g_max_control_cycles=0u;g_peak_abs_current=0u;g_control_hard_overruns=0u;}
 static void report(void){
-    uart_puts("v0.6.7 BLE arm=");uart_u32(g_power_armed);uart_puts(" state=");uart_puts(sensorless_state_name(ctrl.state));uart_puts(" obs=");uart_u32(ctrl.observer_valid);
+    uart_puts("DeltaESC v0.10.3 arm=");uart_u32(g_power_armed);uart_puts(" state=");uart_puts(sensorless_state_name(ctrl.state));uart_puts(" obs=");uart_u32(ctrl.observer_valid);
     uart_puts(" ctrl=");uart_u32(g_last_control_cycles);uart_putc('/');uart_u32(g_max_control_cycles);uart_puts(" I=");uart_u32(g_last_abs_current);uart_putc('/');uart_u32(g_peak_abs_current);
     uart_puts(" dash=");uart_u32(g_dash_frames);uart_puts(" fmt=");uart_u32(ninebot_link_last_format());uart_puts(" thr/brk=");uart_u32(g_dash_throttle);uart_putc('/');uart_u32(g_dash_brake);uart_puts(" rxov=");uart_u32(ninebot_link_rx_overflows());
     uart_puts(" action=");uart_u32(g_last_action_status);uart_puts(" fault=");uart_u32(current_fault_code());uart_puts("\r\n");
@@ -1655,12 +1785,12 @@ static void report(void){
 static void handle_debug_command(int ch){
     if(ch=='d'||ch=='D'){power_stage_force_disarm();uart_puts("DISARMED\r\n");}
     else if(ch=='c'||ch=='C'){reset_stats();uart_puts("stats cleared\r\n");}
-    else if(ch=='?'||ch=='h'||ch=='H'){uart_puts("commands: ? status, D disarm, C clear stats; active control via authenticated BLE E5 only\r\n");report();}
+    else if(ch=='?'||ch=='h'||ch=='H'){uart_puts("commands: ? status, D disarm, C clear stats; drive target uses stock dashboard input\r\n");report();}
 }
 
 int main(void){
     irq_disable();power_hold_init();clock_64mhz_hsi();dwt_init();gate_pins_to_safe_inputs();uart1_debug_init();sensorless_control_init(&ctrl);
-#if ROLLING_SENSORLESS_RC_ALLOWED
+#if ROLLING_SENSORLESS_RC_ALLOWED && !DRIVE_RUNTIME_ALLOWED
     if(!sensorless_control_set_motor_params(&ctrl,FO70_R_UOHM,FO70_L_NH,FO70_FLUX_UWB) ||
        !sensorless_control_set_run_current_ma(&ctrl,FO70_RUN_CURRENT_MA)) {
         g_safety_latched=0xA020u;
@@ -1668,9 +1798,10 @@ int main(void){
     sensorless_control_set_phase_offset(&ctrl,(int16_t)FO70_FRAME_OFFSET_U16);
 #endif
     const motor_pipeline_io_t motor_io={motor_hw_arm,motor_hw_gate_off,
-                                         motor_hw_select_adc,motor_hw_pwm};
+                                         motor_hw_select_adc,motor_hw_pwm,motor_hw_coast};
     motor_pipeline_init(&g_motor_pipeline,&ctrl,motor_io,0,PWM_ARR,HARD_OC_COUNTS);
     motor_config_txn_init(&g_motor_cfg,g_cfg_test_current_ma);
+    motor_profile_from_build();
     /* The real TIM1 vector callback is connected, but cannot arm in a
      * sync-safe build. Current and voltage feedback remain a separate task. */
     motor_id_adc_feedback_init(&g_motor_id_feedback);
@@ -1684,8 +1815,10 @@ int main(void){
     motor_id_auto_bind_config(&g_motor_id_auto,&g_motor_cfg);
     motor_probe_init();power_button_init(&g_power_button_state,POWER_BUTTON_LONG_MS);
     adc1_injected_init();tim1_pwm_and_adc_trigger_init();passive_bemf_init();ninebot_link_init();iap_update_init();systick_init();irq_enable();
-    uart_puts("DeltaESC G30D v0.9.12 MOTOR-ID BLE BENCH firmware.\r\n");
-#if MOTOR_ID_BENCH_ALLOWED
+    uart_puts("DeltaESC G30D v0.10.3 source candidate.\r\n");
+#if DRIVE_RUNTIME_ALLOWED
+    uart_puts("BUILD: low-current rolling drive; measured F0-F5/FF RAM profile required.\r\n");
+#elif MOTOR_ID_BENCH_ALLOWED
     uart_puts("BUILD: live Motor-ID BLE E7 only; normal drive disabled.\r\n");
 #elif SENSORLESS_RUN_ALLOWED
     uart_puts("BUILD: SENSORLESS BENCH; BLE E5 may arm/start only after safety preconditions.\r\n");
@@ -1695,7 +1828,7 @@ int main(void){
     uart_puts("BUILD: BLE SYNC-SAFE; bridge arming and motor run compiled out.\r\n");
 #endif
     uart_puts("PA2 USART2 115200 half-duplex; native G30 0x64/0x65 runtime + D0-D9/E0-E6/F0-F5; staged IAP enabled.\r\n");
-    uart_puts("BLE E0 offset calibration, E7 Motor-ID test, E6 STOP, F7/F8/F9 status. Normal E5 drive blocked.\r\n");
+    uart_puts("BLE E0 offsets, E6 terminal STOP, F7/F8/F9 status; IAP commands unchanged.\r\n");
     uint32_t next=1000u;
     for(;;){
         int ch=uart_getc_nonblock();if(ch>=0)handle_debug_command(ch);
@@ -1712,6 +1845,7 @@ int main(void){
         iap_update_poll();
         if(iap_owned||iap_update_active()) ninebot_link_discard_rx();
         else { ninebot_frame_t f;while(ninebot_link_get_frame(&f))process_frame(&f); }
+        drive_runtime_poll();
         if((int32_t)(g_ms-next)>=0){next+=1000u;report();if((uint32_t)(g_ms-g_adc_last_ms)>ADC_STALE_MS){g_safety_latched=0xA002u;power_stage_force_disarm();}if(g_max_control_cycles>CONTROL_WARN_CYCLES)uart_puts("WARN: 4kHz control reserve below 25%\r\n");}
         if(g_id_bench_requested &&
            (g_motor_id_auto.state==ID_AUTO_COMPLETE || g_motor_id_auto.state==ID_AUTO_FAULT)){
