@@ -48,7 +48,7 @@ $s.DtrEnable=$false; $s.RtsEnable=$false
 $opened=$false
 try{
     $s.Open();$opened=$true
-    Add-Content -Path $log -Value "# UTC=$(Get-Date -AsUTC -Format o) MODE=$Mode PORT=$Port BAUD=115200" -Encoding UTF8
+    Add-Content -Path $log -Value "# UTC=$( [DateTime]::UtcNow.ToString("o") ) MODE=$Mode PORT=$Port BAUD=115200" -Encoding UTF8
     $start=[DateTime]::UtcNow
     $end=$start.AddSeconds($Seconds)
     [byte[]]$buffer=New-Object byte[] 4096
