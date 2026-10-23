@@ -1,0 +1,256 @@
+{
+  "source_archive_sha256": "3a7a4533c743df97f555a199ef603ff52efb34af752301a43ffb0497a3285f6f",
+  "reference_image_sha256": "2b6e26b656a25bdab2b2e98eca447452b66628208cecf956e0df01134cf9eb75",
+  "host_compiler": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0",
+  "tests": [
+    {
+      "name": "first_spin_safety_host_test.c",
+      "status": "PASS",
+      "output": "PASS synchronous stop, unpowered observer hold and immediate neutral\n"
+    },
+    {
+      "name": "foc_adc_contract_host_test.c",
+      "status": "PASS",
+      "output": "PASS FOC ADC: 6 sector pairs, event ownership, wrap, 14 fail-closed cases, stale/duplicate frames\n"
+    },
+    {
+      "name": "foc_adc_motor_handoff_host_test.c",
+      "status": "PASS",
+      "output": "PASS FOC handoff: hardware-kill callback on sample/qualification/fault, no callback => no torque\n"
+    },
+    {
+      "name": "motor_id_host_test.c",
+      "status": "PASS",
+      "output": "PASS motor ID: R/L/flux synthetic units, 3-stage flow, guarded commit, abort, faults\n"
+    },
+    {
+      "name": "motor_core_host_test.c",
+      "status": "PASS",
+      "output": ""
+    },
+    {
+      "name": "power_logic_host_test.c",
+      "status": "PASS",
+      "output": ""
+    },
+    {
+      "name": "iap_ack_host_test.c",
+      "status": "PASS",
+      "output": "stock DRV126 IAP ACK vector: PASS\n"
+    },
+    {
+      "name": "iap_transport_host_test.c",
+      "status": "PASS",
+      "output": "stock 128-byte IAP transport + checksum vector: PASS\n"
+    },
+    {
+      "name": "stock_adc_timing_host_test.c",
+      "status": "PASS",
+      "output": "PASS: ADC/TIM1 timing evidence EB/EC, wraparound, six gate/config checks, saturated counters\n"
+    },
+    {
+      "name": "stock_adc_quality_host_test.c",
+      "status": "PASS",
+      "output": "PASS ADC quality: six sectors, register mapping, invalid 12-bit samples, timing counters, saturation\n"
+    },
+    {
+      "name": "stock_adc_snapshot_host_test.c",
+      "status": "PASS",
+      "output": "PASS 6 sectors: ADC raw+JEOC+FULL JSQR are one IRQ snapshot, unaffected by upcoming sector\n"
+    },
+    {
+      "name": "stock_dual_adc_runtime_host_test.c",
+      "status": "PASS",
+      "output": "PASS v0.8.5: six sectors, simultaneous pairs, 512/ch calibration, abort, zero-sum reconstruction\n"
+    },
+    {
+      "name": "test_g30_fixed_scan.c",
+      "status": "PASS",
+      "output": "PASS: STM32F103 static two-rank dual ADC, three distinct raw channels, 512 sample offsets and fail-closed EF\n"
+    },
+    {
+      "name": "test_stock_adc_mode_guard.c",
+      "status": "PASS",
+      "output": "PASS STM32F103 ADC DUALMOD 0101, independent regular VBUS, ADC2 JEOC guard, EE little-endian and saturation\n"
+    },
+    {
+      "name": "test_ble_motor_probe.c",
+      "status": "PASS",
+      "output": "PASS BLE DA-DF snapshot serialization, consistency and read-only page set\n"
+    },
+    {
+      "name": "motor_pipeline_host_test.c",
+      "status": "PASS",
+      "output": "PASS: ADC->sector reconstruction->sensorless FOC/SVPWM->TIM1 callback->gate with 10 stop/fault cases\n"
+    },
+    {
+      "name": "stock_tim1_gate_host_test.c",
+      "status": "PASS",
+      "output": "PASS: DRV126 0x1555 gate mapping, 65,536 transition cases, OFF preserves CH4\n"
+    },
+    {
+      "name": "vesc_ebics_flux_host_test.c",
+      "status": "PASS",
+      "output": "PASS VESC Ortega / EBiCS fixed-point observer: synthetic flux phase, reset, invalid config\nflux observer angle within 20 degrees: 599/599\n"
+    },
+    {
+      "name": "g30_adc_current_window_host_test.c",
+      "status": "PASS",
+      "output": "PASS G30D ADC timing + window + 6 sectors + nominal-current sign symmetry\n"
+    },
+    {
+      "name": "g30_adc_current_offsets_host_test.c",
+      "status": "PASS",
+      "output": "PASS ADC1/ADC2 separate CH4+CH5 offsets; zero-current all sectors; invalid fail closed\n"
+    },
+    {
+      "name": "drv126_adc_golden_host_test.c",
+      "status": "PASS",
+      "output": "PASS DRV126 exact ADC scaling/sign/sectors: 348486 golden vectors (6 sectors)\n"
+    },
+    {
+      "name": "motor_id_auto_host_test.c",
+      "status": "PASS",
+      "output": "PASS motor ID auto: R plateau, L pulses, driven flux, guarded adoption, brake/timeout/ADC rejection, no fake speed\n"
+    },
+    {
+      "name": "motor_id_vector_output_host_test.c",
+      "status": "PASS",
+      "output": "PASS: ID vector hardware callbacks: ADC sector BEFORE arm BEFORE CCR, full 256-angle rotation, gate-off on fault, fresh rearm\n"
+    },
+    {
+      "name": "motor_id_adc_feedback_host_test.c",
+      "status": "PASS",
+      "output": "PASS: v0.9.11 ADC feedback: update shadow promotion, 6 validation classes, four angles, offsets, epoch, sample time, gate-off\n"
+    },
+    {
+      "name": "motor_id_flux_feedback_host_test.c",
+      "status": "PASS",
+      "output": "PASS Motor-ID measured BEMF/speed, CORDIC, stall and stale-sample veto (0 rotating windows, 9911 mrad/s, 167 mV)\n"
+    },
+    {
+      "name": "dashboard_runtime_host_test.c",
+      "status": "PASS",
+      "output": ""
+    },
+    {
+      "name": "motor_config_txn_test.c",
+      "status": "PASS",
+      "output": ""
+    },
+    {
+      "name": "iap_control_powercut_test.c",
+      "status": "PASS",
+      "output": "IAP staged update power-loss control tests: PASS (6 cut points)\n"
+    },
+    {
+      "name": "test_stock_adc_correlated.c",
+      "status": "PASS",
+      "output": "PASS: ED combines six exact ADC sector pairs and TIM1 from same ISR; rejects stale next-sector JSQR; fault flags\n"
+    },
+    {
+      "name": "g30_rolling_bemf_host_test.c",
+      "status": "PASS",
+      "output": "PASS G30 rolling BEMF: FO70 sector order, BEMF->PM-flux phase, forward direction, speed gate, stale/reverse fail-closed\n"
+    },
+    {
+      "name": "g30_passive_bemf_adc_host_test.c",
+      "status": "PASS",
+      "output": "PASS passive BEMF ADC: PA6/PA7/PB1 channel schedule, 3x average, gate-off ownership, timeout/cancel semantics\n"
+    },
+    {
+      "name": "rolling_pipeline_host_test.c",
+      "status": "PASS",
+      "output": "PASS rolling pipeline: neutral gate, BEMF seed, no ALIGN/OPEN, hardware-first brake stop\n"
+    },
+    {
+      "name": "rolling_frame_seed_host_test.c",
+      "status": "PASS",
+      "output": "PASS rolling frame seed: FOC phase keeps +117.15deg frame offset while observer flux seed remains physical alpha/beta\n"
+    }
+  ],
+  "hardware_tested": false,
+  "drive_ready": false,
+  "production_source_modified": false,
+  "integration_findings": "REPRODUCED D1: E5 blocked by current/timing qualification bits\nREPRODUCED D2: armed rolling RC rejected by E7-only runtime predicate\nSOURCE TRACE D3: normal throttle/brake stop reaches terminal kill latch\n",
+  "arm_build": {
+    "status": "NOT_RUN"
+  },
+  "source_file_sha256": {
+    "src/stock_adc_correlated.h": "b447652c5e401a7453f1f6d090e7ac8a3849ef1c2810e99630504ae135c89b75",
+    "src/stock_current_frontend.h": "9d1fdf907d40d7e84cadb1fc971e78e2d7d647caa42dd3d462d6b547a567baa5",
+    "src/stock_adc_timing.c": "e3fe7f49fab925231014a75c0c16d8b25f7059b1b3f36e088a596ca1121642bf",
+    "src/stock_dual_adc_runtime.c": "02275f56fcebe10c2680185a2fa7423ff8c4c3837820f604e43aff5b45905796",
+    "src/iap_control.h": "dda1fda0218fb88d57337af8c1e859ccad9dd883b03e3d25abc7a779a7a30c88",
+    "src/motor_pipeline.c": "ee845f725c0f3830581c4b961cfe82fb5ad14948cd8cdabc211f0f015aa8925d",
+    "src/dashboard_runtime.c": "19ab508d0bd643a452ab718fa72e5c444e2050171a405909da3e580589a0f358",
+    "src/g30_adc_proof.h": "39a84a828716865fe3801c52bdc4948aa143efe7ae8bb7ce26c7b6ac45097c53",
+    "src/g30_adc_current_window.h": "23785938dab6e367adbb74071021768c8ff27b08429cf6b0a04d2198bfb6e097",
+    "src/motor_id_auto.h": "cd1b062ebf67011e7141e4f2f8af25f011dea8ec5331e63c92e4cd5f478f3818",
+    "src/sin_q15.inc": "e828b0283a1001000cd73560bf7c4ba6ac602df4ba9e9d8585ccaa5e029c7d80",
+    "src/foc_adc_motor_handoff.h": "769c523ad22ae6ee3708bc06aa7faecc0771a183c620f688e4c8edef7614b313",
+    "src/stock_dual_adc_plan.c": "f50ba6d861b85d62b296c8c06bb53d07d7824e24ff6a8bf534cb5cbdc5c71ca2",
+    "src/iap_update.c": "d92b3883c0063c6bafd4bb8ca508bb061ae94b71abdccfef4a1c1ba0d021f8b0",
+    "src/stock_adc_quality.h": "8e78b28bd9ccaddec21d5f47a88f6deb3edba453820d58ad620b991699d3d801",
+    "src/g30_adc_current_window.c": "be1e6dea2d05fbc8f524163338417f014a15a71a4dc72b8ec525a7e493d26250",
+    "src/stock_dual_adc_plan.h": "2e5d32c1099b499caf073e6ff6efdb80b887b8163f642d56fd0b504dfdb0610b",
+    "src/sensorless_control.h": "7cd2e0e45403185b0f9c07056b1f35f28a3c9d24c9d58062bc4af673f0d4fac6",
+    "src/main.c": "4899c500b376a1e707341f01696191fe1c5078d51aad387f8a91e2f6979715df",
+    "src/motor_config_txn.c": "ed47732f06ba307f34867c5adf372753f55cd3cad6e06c96c4fa1894936a6c42",
+    "src/ble_motor_probe.c": "acd1fb0baf361d0ac89b1855a5aaf009923f43e376e36af7a0e395f011c90ccb",
+    "src/stock_tim1_gate.c": "21ecc13f3381328b5566ffe9e57793f6848ce42c336217ecb4981945e82526e6",
+    "src/iap_control.c": "26fb9b673dd60af85e5f4a6446a57f7be84bd3ca5cd8a964ba3621a68be68f03",
+    "src/g30_rolling_bemf.h": "12024c56a4462fb1e424ddb93bcaef37a613711d6ce222a4adbc0616398e931f",
+    "src/foc_adc_contract.c": "18b0b5aee2fd88285d62e024392ac972ce67d00618b30dc6d8c351d510776cb6",
+    "src/commissioning_guard.c": "1977dfe05896b659fbe086cfcb67f5659f1602b43c6409711f1521d968dbbb2d",
+    "src/motor_id_adc_feedback.c": "741c3b62a2c75a717f9516f27eb84ff438c7cd2bdf6d4bbba8530e2fc810a09e",
+    "src/g30_passive_bemf_adc.h": "85f1f68ec523d83bc1885e5cb85d9f0b1ce0ed21d3c76898efeac527e4fe59d4",
+    "src/motor_config_txn.h": "f047d0f3804e93b38afc4cf51a1b2f773471203c533c74d1155c597c62e64e5a",
+    "src/motor_id_flux_feedback.c": "66bbff631d60a8c5569f385c0f6388d6e608d64b0f53588ed756bbc0d55ffea3",
+    "src/vesc_ebics_flux.c": "790e6280246865fe24185f0037f54671bdc82f8eb984d0dcfd0af2cfacea2acd",
+    "src/stock_adc_quality.c": "d27e05f2245350984eaca727a9dbe9025f55be0b5c542a94128cd9ad5f6067f5",
+    "src/stm32f103_min.h": "10b33724defa3981008fb3baecda6be29ee65483bcf53c120e97df2109c400bb",
+    "src/stock_adc_snapshot.c": "eec2120ed0696928d9e31d30921694c7d0d573903f2f5e24d472d8cccc6fe809",
+    "src/iap_update.h": "5653c514baa4689dd07ac1a532c7973d987a774c6217a47c63d0828cff3a6d40",
+    "src/ble_motor_probe.h": "81c3314b38cb86e8e325db55c9b8c64ad48b3790e4a0de881ddd410ddba54529",
+    "src/motor_probe.h": "8fcd78799cdfc407af27aae1642509c7b33e917a443187267fd1c89cfb14b80e",
+    "src/motor_id.c": "ccdb3d5af36c272be0938ec903892528f178f2bce2ef50a43d561a8ab1011c55",
+    "src/motor_pipeline.h": "125d2b7f91ee1d29e01cd2b8cd5f5b1f958e8b258652819a0245911572fa74e8",
+    "src/motor_id_flux_feedback.h": "4241a5a56b21de4d32fa4aee1dc61fe82c14842a860131e1946ac981bd223ab9",
+    "src/motor_probe.c": "1caf152aded5cb6516aa9efefd06d28a91d799d6b59b2a269c02e39944abaf3f",
+    "src/motor_id_auto.c": "3f02af5abb13d0e0f6e20b075fe63c3b829cd80a344503aa7f21bed5429e342e",
+    "src/stock_tim1_gate.h": "da81db2e6c6547bb5815c97a1b082045949c98950dcaf4e58f597bd5d1b0b57c",
+    "src/sensorless_control.c": "6d1db8edd1ce89d7939f8d4a822ac18bea3a88116d520643e74d724faeafb6b7",
+    "src/stock_dual_adc_runtime.h": "7b8a1f4ae01dcd2906d93c15a2d521320a9747a9d0a4c3063f28e2f37c4df68c",
+    "src/iap_proto.h": "ee8efe3cd0776fc564f0c5a11986e505a4d0379cda0276068be0e385d0106166",
+    "src/g30_fixed_scan.c": "8ed6af0d719ea23111b7c2ee52dd500351ecd998ccad0fe8a5e62b7b4a04b893",
+    "src/dashboard_runtime.h": "bf751f38295d4618732f92d1fce894c52bfaea2498966f10550224c05728fb29",
+    "src/stock_adc_mode_guard.c": "4bdf0f8f4224d7048b9a7daab55af1c40f71adef6514e8a27fbe8a12bf228cd2",
+    "src/tim1_bdtr_guard.h": "435a43fbb4429eb1e5cf91243f8160679bfaa41560de36d3dd81e221cb5a55e1",
+    "src/commissioning_guard.h": "82b57d624db073456e8df69e3375d93e0c906d22f8e6d8051d538e5cda08a432",
+    "src/aeabi_mem.c": "ec57bb48865848b794964c912b79c74faba9c0486f2ef849d2fe7bec5d551bee",
+    "src/power_logic.c": "affac0ec7158fe4557941e844d13c8c6d6e66e7dc6166b551c1cc883aa7846c3",
+    "src/power_logic.h": "7659f65a1dd27ef704d170ca37e0113d569a219198c95fc3e31e1624b18f97a0",
+    "src/ninebot_link.h": "f19d2821855bf8327db4b29e6cef0450e3a7cb5a4f87bf2d8899a67ca23c13c7",
+    "src/stock_adc_mode_guard.h": "cab7a18b906e276ea9e27dc6f6bc6068c5f5f60848ac0e51fddb7ef1bfcf206b",
+    "src/motor_id_vector_output.c": "b0a9e1fd0d9725da847bfe312b15f1a3b98e55dd4639f3bbb30ebcb065385d22",
+    "src/g30_rolling_bemf.c": "f3f0881bd76eefe2e2fcea606e3e425365d23b663de30fdc06f66e4090fc0753",
+    "src/motor_id.h": "305d726e6a8a9ad196ccaeccd1a589f1d430e3b7346e3cd2544cffed3fb21589",
+    "src/ninebot_link.c": "fcb2e7ee8605ec3c4d81bfa2884efb6e46f3c39a46e2d414ceca76aef0eda090",
+    "src/stock_adc_snapshot.h": "a674023c09f20c8a6b014fd99becac43e66e63038a04e530517b4b4bbcfee774",
+    "src/g30_passive_bemf_adc.c": "55cba991524464c23f694f0f9382a8dcced0554eabf06aee110a475fe6f0597e",
+    "src/motor_id_adc_feedback.h": "e8ee6f81e3f4c52501700fa8575d89c6b5218d6f7fa530da77df7dcbd2684dc4",
+    "src/vesc_ebics_flux.h": "a244eba0b8e2b4c5e05092de701ec5c1e540312f407e80d18a28a10fce81c425",
+    "src/motor_id_vector_output.h": "b20ea2bad0c089b1e5f2b3eeabc11f97304058a678f68e11de4835e21bfe1d57",
+    "src/stock_adc_timing.h": "2180666f1a00497d072783e431f4bc6f61a44b97cded25e80ad8332b49a4b4d0",
+    "src/foc_adc_motor_handoff.c": "9b5eb4744bed133543f7a72c0b6644c48e83fa061dd4654f47f7222c8cb6c7e8",
+    "src/g30_adc_current_offsets.c": "b786cd10951b821fb4d87c6a4f2801040b20b15be562636b34e4c94d7f57699f",
+    "src/stock_adc_correlated.c": "50b545f3c85342dabb2b93b3f7cf4d1861415bb1c13024b632a0946b8879eb37",
+    "src/g30_fixed_scan.h": "8e512fede8b4ca08075de377359ba12aef23a8dcade5569ca111b41ad679c440",
+    "src/g30_adc_current_offsets.h": "e7793f5e4846df3d13bff8b0bfd4ea0bc77d8f892d2df5c3e8100fa3f3d86b4d",
+    "src/iap_proto.c": "2d0e62bd65fc8accd482de7dc938f38ea625cb3a08bda28db6a57dfdac1778b4",
+    "src/foc_adc_contract.h": "03617f0c95806d02ca445ba0816e9a29ea3a78d68b7e56375f21f5f119c24dbf",
+    "src/tim1_emergency_stop.h": "d6ea40c217524f85194c6ca6c94696efb3c89cf319a7a8c178d901f2291bd02b",
+    "src/stock_current_frontend.c": "4674260b67744f0ebebe952d41d9afd5ca23a1cdb3fa4c34b9d9d22db00e9601"
+  }
+}

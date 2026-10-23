@@ -1,0 +1,56 @@
+name: DeltaESC reversible drive source candidate
+on:
+  push:
+    branches: [dev/drive-reversible-20261021]
+  pull_request:
+    branches: [main]
+    paths: ['firmware/**', 'tools/test_drive_*.py', '.github/workflows/drive-runtime.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-and-arm:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compiler packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y clang-18 llvm-18 gcc make
+      - name: Original source regressions and actual main/IAP integration
+        run: python3 tools/test_drive_firmware.py
+      - name: Existing anti-lockout audit against candidate source
+        run: python3 tools/release_uart_safety_gate.py --tree firmware
+      - name: Build safe, ID-only and authorized drive source variants
+        working-directory: firmware
+        run: |
+          make safe id-bench drive-runtime CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+          test "$(stat -c %s build/DeltaESC_G30D_v0_10_3_drive_candidate.bin)" -le 51200
+          sha256sum build/DeltaESC_G30D_v0_10_3_drive_candidate.bin
+          llvm-nm-18 build/DeltaESC_G30D_v0_10_3_drive_candidate.elf > build/drive-symbols.txt
+          for symbol in iap_update_feed iap_update_poll iap_control_commit ninebot_link_irq USART3_IRQHandler g30_bms_link_poll; do
+            grep -q " $symbol$" build/drive-symbols.txt
+          done
+          # Compile the configured startup branch with TEST FIXTURE values
+          # into a separate, unexported file; never replace the real candidate.
+          make drive-runtime CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18 \
+            DRIVE_ELF=build/profile_fixture_only.elf DRIVE_BIN=build/profile_fixture_only.bin \
+            PROFILE_CFLAGS='-DG30_PROFILE_R_UOHM=280000u -DG30_PROFILE_L_NH=650000u -DG30_PROFILE_FLUX_UWB=16000u -DG30_PROFILE_POLE_PAIRS=6u -DG30_PROFILE_CIRCUMFERENCE_MM=800u -DG30_PROFILE_PHASE_OFFSET_U16=4321'
+      - name: Save build identity in software report
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json
+          p=Path('audit-results/drive-candidate-tests.json')
+          r=json.loads(p.read_text())
+          b=Path('firmware/build/DeltaESC_G30D_v0_10_3_drive_candidate.bin').read_bytes()
+          r['arm_build']={'status':'PASS','size_bytes':len(b),'sha256':hashlib.sha256(b).hexdigest()}
+          p.write_text(json.dumps(r,indent=2)+'\n')
+          print(json.dumps(r['arm_build']))
+          PY
+      - name: Retain software test evidence only
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-drive-candidate-source-evidence
+          path: audit-results/drive-candidate-tests.json
+          if-no-files-found: error
