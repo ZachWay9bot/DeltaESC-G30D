@@ -1,0 +1,63 @@
+name: G30 clean branch drive and dashboard regression
+on:
+  push:
+    branches: [dev/g30-fahrbetrieb-clean-20261023]
+    paths:
+      - g30/**
+      - tools/test_g30_drive_main.py
+      - .github/workflows/g30-drive-regression.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  motor-drive:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install host and Cortex-M3 compilers
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y clang-18 llvm-18 gcc make unzip
+      - name: Require byte-identical existing IAP and linker
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 origin main
+          git show FETCH_HEAD:downloads/DeltaESC_G30D_v0_10_2_COMPLETE_SOURCE.zip > /tmp/g30-v102.zip
+          echo '3a7a4533c743df97f555a199ef603ff52efb34af752301a43ffb0497a3285f6f  /tmp/g30-v102.zip' | sha256sum -c -
+          mkdir -p /tmp/g30-reference
+          unzip -q /tmp/g30-v102.zip -d /tmp/g30-reference
+          for file in src/iap_update.c src/iap_update.h src/iap_proto.c src/iap_proto.h src/iap_control.c src/iap_control.h src/ninebot_link.c src/ninebot_link.h src/stm32f103_min.h linker.ld; do
+            cmp "/tmp/g30-reference/$file" "g30/$file"
+          done
+          echo 'PASS unchanged IAP/UART/STM32/linker sources'
+      - name: Native drive and dashboard regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd g30
+          gcc -std=c11 -Wall -Wextra -Werror -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -Isrc \
+            tools/drive_runtime_host_test.c src/drive_runtime.c -o /tmp/g30-drive-test
+          /tmp/g30-drive-test
+          gcc -std=c11 -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -DSENSORLESS_CLOSED_LOOP_ALLOWED=1 -Isrc \
+            tools/motor_pipeline_host_test.c src/motor_pipeline.c src/foc_adc_contract.c src/stock_current_frontend.c src/sensorless_control.c src/vesc_ebics_flux.c -lm -o /tmp/g30-pipeline-test
+          /tmp/g30-pipeline-test
+          gcc -std=c11 -O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined -Isrc \
+            tools/dashboard_runtime_host_test.c src/dashboard_runtime.c -o /tmp/g30-dash-test
+          /tmp/g30-dash-test
+          cd ..
+          python3 tools/test_g30_drive_main.py
+      - name: Build target Cortex-M3 source variants, no hardware access
+        working-directory: g30
+        shell: bash
+        run: |
+          set -euo pipefail
+          make safe id-bench drive-runtime CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+          test -s build/DeltaESC_G30D_v0_10_3_drive_candidate.bin
+          test "$(stat -c %s build/DeltaESC_G30D_v0_10_3_drive_candidate.bin)" -le 51200
+          llvm-nm-18 build/DeltaESC_G30D_v0_10_3_drive_candidate.elf > build/drive-symbols.txt
+          for symbol in iap_update_feed iap_update_poll iap_control_commit ninebot_link_irq; do
+            grep -q " $symbol$" build/drive-symbols.txt
+          done
+          sha256sum build/DeltaESC_G30D_v0_10_3_drive_candidate.bin
+          echo 'Built source-only drive candidate. Not hardware-approved or flash-tested.'
