@@ -18,3 +18,6 @@ uint8_t dashboard_is_status_request(const ninebot_frame_t *f);
 /* First-hardware-test status payload. Values are deliberately non-driving:
  * Drive icon, neutral 50% placeholder battery, lights/beep/speed/fault zero. */
 void dashboard_safe_status_payload(uint8_t out[G30_DASH_STATUS_BYTES]);
+/* Same six-byte ABI; caller supplies actual speed/fault and battery source. */
+void dashboard_drive_status_payload(uint8_t out[G30_DASH_STATUS_BYTES],
+    uint16_t speed_kmh10,uint8_t battery_percent,uint8_t fault);
