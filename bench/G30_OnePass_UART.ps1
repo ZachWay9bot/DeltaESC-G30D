@@ -54,10 +54,12 @@ try{
     $start=[DateTime]::UtcNow
     $end=$start.AddSeconds($Seconds)
     [byte[]]$buffer=New-Object byte[] 4096
+    $identitySent=$false
     while([DateTime]::UtcNow -lt $end){
         $elapsed=([DateTime]::UtcNow-$start).TotalMilliseconds
-        if($Mode -eq 'Identify' -and $elapsed -lt 200){
+        if($Mode -eq 'Identify' -and -not $identitySent){
             $s.Write($identity,0,$identity.Length)
+            $identitySent=$true
             Add-Content -Path $log -Value ("$(Get-Date -Format o) TX READ_ID " + (Hex $identity)) -Encoding UTF8
         }
         if($Mode -eq 'Neutral' -or $Mode -eq 'Pulse'){
