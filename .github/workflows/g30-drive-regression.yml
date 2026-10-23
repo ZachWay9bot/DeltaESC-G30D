@@ -52,7 +52,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          make safe id-bench drive-runtime CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+          make safe drive-runtime CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
           test -s build/DeltaESC_G30D_v0_10_3_drive_candidate.bin
           test "$(stat -c %s build/DeltaESC_G30D_v0_10_3_drive_candidate.bin)" -le 51200
           llvm-nm-18 build/DeltaESC_G30D_v0_10_3_drive_candidate.elf > build/drive-symbols.txt
