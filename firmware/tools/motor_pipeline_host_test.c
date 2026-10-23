@@ -102,6 +102,7 @@ int main(void){
         ensure(!p.powered && !p.fault_latched,
                "second normal coast remains reversible");
         ensure(p.neutral_seen,"one throttle-zero frame qualifies neutral after coast");
+        ensure(p.last_dashboard_ms==15u,"stopping neutral retains its own fresh timestamp");
         ensure(motor_pipeline_start_rolling(&p,offsets,1,1,80,0,1,16,
                                             1000u,-120),
                "single idle frame permits next fresh rolling throttle request");

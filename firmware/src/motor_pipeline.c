@@ -124,6 +124,7 @@ void motor_pipeline_input(motor_pipeline_t *p, uint8_t throttle,
     if (!dashboard_valid || brake) p->neutral_seen=0u;
     else if (!p->powered && throttle<=THROTTLE_IDLE_MAX)
         p->neutral_seen=1u;
+    if (dashboard_valid) p->last_dashboard_ms=now_ms;
     if (p->powered && (!dashboard_valid || brake || throttle<=THROTTLE_IDLE_MAX)) {
         motor_pipeline_stop(p,!dashboard_valid?MOTOR_STOP_DASH:
                            brake?MOTOR_STOP_BRAKE:MOTOR_STOP_THROTTLE);
@@ -134,7 +135,6 @@ void motor_pipeline_input(motor_pipeline_t *p, uint8_t throttle,
             p->neutral_seen=1u;
         return;
     }
-    if (dashboard_valid) p->last_dashboard_ms=now_ms;
 }
 
 void motor_pipeline_watchdog(motor_pipeline_t *p, uint32_t now_ms,

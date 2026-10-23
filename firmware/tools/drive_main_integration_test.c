@@ -182,6 +182,7 @@ static void test_peripheral_failure_returns(void) {
      * The actual init must return with gates off, so boot can reach IAP. */
     adc1_injected_init();
     assert(g_safety_latched==0xA014u && g_gate_kill_latched && !g_power_armed);
+    iap_update_init(); /* actual boot initializes IAP after this ADC failure */
     iap_begin_pending();assert(iap_update_pending());
     puts("PASS actual main.c: stuck debug UART and ADC calibration return without blocking unchanged IAP parser");
 }
