@@ -28,4 +28,6 @@
 
 ## Status
 
-23.10.2026: Sauberer Arbeitsbranch angelegt. Noch kein neuer Quellpatch, kein Build, kein Hardwaretest und kein Flash in diesem Branch ausgeführt. Historische Commits/Logs bleiben nur als Archivdaten bestehen und sind nicht Teil der gewählten aktiven Firmwaregrundlage.
+24.10.2026: Original-v0.10.2-Quellbaum unter `g30/` byteverifiziert importiert. Für den **reinen G30-Fahrpfad** wurden gezielt `main.c`, `motor_pipeline.[ch]`, `dashboard_runtime.[ch]` und `Makefile` sowie `drive_runtime.[ch]` und `g30_target_profile.h` mit den zuvor hostgetesteten Fahrkorrekturen übernommen. Keine IAP/Bootloader/UART/Linker-Änderung und kein SHU-Build. Validierte CI: [G30 clean drive and dashboard regression 40032651629](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/40032651629), **alle Schritte PASS**: unveränderte IAP/Linker-Bytes per `cmp`, native Gas-/Coast-/Rearm- und Dashboardtests, tatsächliche `main.c`-Integration einschließlich IAP-Parser, Cortex-M3 SAFE und DRIVE Link/BIN. SHA256 der erzeugten **unqualifizierten** Drive-BIN: `7b6a17d4df105ae3cf078dccb25ce926bce97fb46902317a812484e9b621bbb1`. Kein physischer Motor- oder Flash-Test. Das separate, nicht benötigte Motor-ID-CI-Ziel wird zur Fahr-CI nicht mitgebaut und in der Firmware selbst nicht verändert.
+
+**Nächster Schritt mit Hardware:** exakte G30-Gen1-Motor- und Sensorwerte und IAP-Zustand messen/prüfen. Die eingebauten G30-Profilwerte bleiben bewusst 0 (unbekannt), bis Daten existieren. Keine donor-derived Profile vortäuschen, keine bereits erfolgte Fahrfreigabe behaupten.
