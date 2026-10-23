@@ -1,11 +1,5 @@
 name: G30 clean branch drive and dashboard regression
 on:
-  push:
-    branches: [dev/g30-fahrbetrieb-clean-20261023]
-    paths:
-      - g30/**
-      - tools/test_g30_drive_main.py
-      - .github/workflows/g30-drive-regression.yml
   workflow_dispatch:
 permissions:
   contents: read
