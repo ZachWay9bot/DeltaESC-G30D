@@ -11,7 +11,7 @@ Build with the historical compiler family:
 make drive-runtime CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
 ```
 
-The candidate's identifier is `FW_BUILD=0x1030`. Native regression and
+The candidate's identifier is `FW_BUILD=0x1031` (23 October SOC/coast update). Native regression and
 actual-main integration checks run from the repository root:
 
 ```bash
@@ -51,6 +51,13 @@ candidate. Use the root test runner above.
   can request the existing zero-Iq verification and bounded torque ramp.
   Gas proportionally changes the request. Explicit E5 uses the same start
   decision. No ALIGN/open-loop fallback is added.
+- In the drive target, startup automatically requests the existing
+  512-sample E0 offset calibration after the boot delay, fresh zero gas,
+  released brake, fresh ADC data and 100 ms quiet passive BEMF with all six
+  gate outputs disconnected. It needs no phone/E0 command. Movement,
+  non-neutral input or IAP cancels a partial automatic calibration; existing
+  sample-quality/fault checks apply. This measures offsets only; it cannot
+  supply the unknown motor R/L/flux, phase frame or wheel geometry.
 - Throttle/brake normal stops disconnect all six gate outputs while
   preserving passive ADC triggering. Releasing the controls and acquiring
   a fresh roll can start again. E6, input loss, ADC/PWM/observer/overcurrent
@@ -58,10 +65,36 @@ candidate. Use the root test runner above.
 - Existing limits remain: 12-count rolling-Iq ceiling, 96-count raw hard
   trip and 10% modulation. These nominal low-current bench limits are not
   increased to vehicle power without target measurements.
-- Dashboard speed and fault state use live data. Battery remains the
-  explicitly documented historical 50% placeholder; BMS/SOC integration
-  is pending. Brake presently coasts; regenerative braking is pending
-  measured voltage/current constraints. This is not a ride-ready claim.
+- Dashboard speed and fault state use live data. Battery SOC is now read
+  from stock BMS register 0x32 over its separate USART3 PB10/PB11 full-duplex
+  link, 115200 8N1. Only checksum-valid 0x22 -> 0x20 READ_ACK responses with
+  a two-byte SOC of 0..100 renew the value. Poll interval is 500 ms; expiry
+  is 2000 ms. Before a valid response or after expiry, the dashboard gets 0,
+  and read-only B1 distinguishes missing/stale data from a genuine 0% SOC.
+  There is no voltage-based guess, BMS configuration write or activation
+  command. The stock battery's no-communication behavior is not changed.
+- **Owner requirement: no electrical braking and no recuperation.** Brake
+  input cancels torque and disconnects the six gate outputs (coast). These
+  features are excluded from the scope, not pending work. This software
+  result does not establish electrical behavior on the absent controller.
+
+## BMS diagnostics and scheduling
+
+Read **B1** returns 16 bytes: `BM13`, flags (bit0 SOC fresh, bit1 ever seen),
+SOC (0 when invalid), accepted replies LE16, age in milliseconds LE32
+(`0xFFFFFFFF` before any valid SOC), rejected packets LE16, UART errors LE16.
+Legacy B0 SOC and the stock 0x64 dashboard response use this same source.
+Existing DA-DF motor diagnostics are unchanged.
+
+USART3 uses a bounded RX ring with byte-arrival timestamps and interrupt TX.
+No UART wait loops are added. Partial packets expire after 25 ms; an RX
+overrun discards the partial packet. A stuck TX aborts after 20 ms. Its IRQ
+priority is below ADC and dashboard/IAP. Main services IAP before this
+background task and suspends BMS requests during updater ownership.
+BMS data never renew dashboard throttle freshness, arm the bridge or set
+an IAP eligibility condition. Protocol and pin mapping are derived from
+the existing [SmartESC G30 BMS source](https://github.com/ZachWay9bot/SmartESC_STM32_v21b/blob/b4e7bbb38c9738b0f58bdbd1ff28c61c5d0b279e/common_files/src/task_init.c)
+and its STM32 MSP pin setup. Physical verification remains target work.
 
 ## Rollback priority
 
@@ -71,6 +104,14 @@ after E6, motor faults and an IAP order error in native integration tests.
 Pending IAP blocks motor start. These tests do not erase/program flash or
 prove the physical rollback path. There is no new bootloader/CRC/flash-size
 or motor-state permission in IAP.
+
+ADC hardware calibration and debug-UART waits are now bounded. An ADC
+calibration timeout leaves the bridge latched off and returns to finish
+UART/IAP startup; a stuck debug transmitter mutes further debug output.
+USART1 is explicitly remapped to PB6/PB7 so it cannot inherit the default
+PA9/PA10 route shared with TIM1 gates. USART3 selects PB10/PB11; neither
+remap changes the USART2 selection. These application fixes preserve the
+existing IAP implementation and flash layout.
 
 The handler still lives in the replaceable app. A corrupt/non-starting app
 or early platform fault can prevent it running; unchanged protocol source

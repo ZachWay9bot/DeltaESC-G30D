@@ -38,8 +38,10 @@ static void dash(uint8_t throttle,uint8_t brake) {
 static void setup(void) {
     memset((void *)0x40000000,0,0x30000);
     g_gate_kill_latched=0;g_safety_latched=0;g_power_armed=0;
+    g_debug_uart_muted=0u;
     g_motor_id_vector_owner=0;g_id_bench_requested=0;g_poweroff_requested=0;
     g_offset_cal_active=0;g_offset_cal_valid=1;
+    g_drive_cal_quiet=0u;g_drive_cal_owned=0u;
     g_adc2_ch4_offset_valid=1;g_adc2_ch5_offset_valid=1;
     g_ms=4000;g_adc_last_ms=4000;g_vbus_last_ms=4000;g_last_abs_current=0;
     g_adc_raw[3]=2500;g_vbus_pending=0;
@@ -61,6 +63,7 @@ static void setup(void) {
     TIM_BDTR(TIM1_BASE)=DEADTIME_DTG|D_GUARD_OSSI|D_GUARD_OSSR|D_GUARD_MOE;
     TIM_CCER(TIM1_BASE)=STOCK_TIM1_GATE_ADC_CC4E;
     iap_update_init();
+    g30_bms_link_init(g_ms);
     dash(0,0);fresh_roll();dash(255,0);
 }
 static void iap_begin_pending(void) {
@@ -74,8 +77,166 @@ static void iap_begin_pending(void) {
     assert(iap_update_pending());
 }
 
+static void bms_soc_bytes(uint8_t soc) {
+    uint8_t f[]={0x5a,0xa5,2,0x22,0x20,4,0x32,soc,0,0,0};
+    unsigned sum=0;
+    for(unsigned i=2;i<sizeof f-2;i++)sum+=f[i];
+    f[9]=(uint8_t)~sum;f[10]=(uint8_t)((~sum)>>8);
+    for(unsigned i=0;i<sizeof f;i++) {
+        USART_SR_REG(G30_BMS_USART3_BASE)=USART_SR_RXNE;
+        USART_DR_REG(G30_BMS_USART3_BASE)=f[i];
+        USART3_IRQHandler();
+    }
+    USART_SR_REG(G30_BMS_USART3_BASE)=0u;
+}
+static void bms_soc_reply(uint8_t soc) {
+    bms_soc_bytes(soc);
+    g30_bms_link_poll(g_ms,0u);
+}
+
+static void test_battery_and_iap_isolation(void) {
+    setup();
+    REG32(0x40010004u)=0x80u|0x30u|0x08u;
+    USART_CR1_REG(USART2_BASE)=0x2044u;
+    uart1_debug_init();
+    assert(REG32(0x40010004u)==(0x80u|0x30u|0x08u|0x04u));
+    g30_bms_link_init(g_ms);
+    assert(REG32(0x40010004u)==(0x80u|0x08u|0x04u));
+    assert(USART_CR1_REG(USART2_BASE)==0x2044u);
+    uint8_t p[16],status[6],tx[10];
+    const uint32_t dashboard_at=g_dash_last_ms;
+    const uint32_t uart2=USART_CR1_REG(USART2_BASE);
+    const uint32_t gate=TIM_CCER(TIM1_BASE);
+    stock_dashboard_status(status);assert(status[1]==0u);
+    g30_bms_link_poll(g_ms,0u);
+    for(unsigned i=0;i<sizeof tx;i++) {
+        USART_SR_REG(G30_BMS_USART3_BASE)=USART_SR_TXE;
+        USART3_IRQHandler();tx[i]=(uint8_t)USART_DR_REG(G30_BMS_USART3_BASE);
+    }
+    const uint8_t read[]={0x5a,0xa5,1,0x20,0x22,1,0x32,2,0x87,0xff};
+    assert(!memcmp(tx,read,sizeof read));
+    assert(!(USART_CR1_REG(G30_BMS_USART3_BASE)&(1u<<7)));
+    bms_soc_reply(73u);stock_dashboard_status(status);
+    assert(status[1]==73u && g_dash_last_ms==dashboard_at);
+    assert(USART_CR1_REG(USART2_BASE)==uart2 && TIM_CCER(TIM1_BASE)==gate);
+    assert(!g_power_armed && !g_gate_kill_latched && !g_safety_latched);
+    /* SOC frames never count as drive commands or renew a gas heartbeat. */
+    g_ms+=G30_BMS_SOC_TIMEOUT_MS+1u;
+    stock_dashboard_status(status);assert(status[1]==0u);
+    g30_bms_link_status(g_ms,p);assert(p[4]==2u);
+
+    /* A delayed main loop uses byte arrival time, not its later drain time. */
+    bms_soc_bytes(99u);g_ms+=G30_BMS_SOC_TIMEOUT_MS+1u;
+    g30_bms_link_poll(g_ms,0u);stock_dashboard_status(status);
+    assert(status[1]==0u);
+
+    /* A missing UART TX interrupt times out, rather than blocking IAP. */
+    g30_bms_link_poll(g_ms,0u);g_ms+=21u;g30_bms_link_poll(g_ms,0u);
+    assert(!(USART_CR1_REG(G30_BMS_USART3_BASE)&(1u<<7)));
+    g30_bms_link_status(g_ms,p);assert(p[14]!=0u);
+    iap_begin_pending();
+    assert(!motor_request_rolling());
+    g30_bms_link_poll(g_ms,1u);
+    assert(iap_update_pending());
+    assert(!(USART_CR1_REG(G30_BMS_USART3_BASE)&(1u<<7)));
+    /* No queued background read is resumed during updater ownership. */
+    g_ms+=10000u;g30_bms_link_poll(g_ms,1u);
+    assert(iap_update_pending() && !(USART_CR1_REG(G30_BMS_USART3_BASE)&(1u<<7)));
+
+    setup();
+    /* UART framing/overrun and a saturated RX ring do not affect IAP or
+     * power state; the next clean battery packet is accepted again. */
+    for(unsigned i=0;i<80u;i++) {
+        USART_SR_REG(G30_BMS_USART3_BASE)=USART_SR_RXNE;
+        USART_DR_REG(G30_BMS_USART3_BASE)=0x5au;USART3_IRQHandler();
+    }
+    g30_bms_link_poll(g_ms,0u);
+    USART_SR_REG(G30_BMS_USART3_BASE)=USART_SR_ORE;USART3_IRQHandler();
+    g30_bms_link_poll(g_ms,0u);
+    bms_soc_reply(31);g30_bms_link_status(g_ms,p);
+    assert(p[4]==3u && p[5]==31u && p[14]!=0u);
+    assert(!g_power_armed && !g_gate_kill_latched && !g_safety_latched);
+    iap_begin_pending();assert(iap_update_pending());
+    puts("PASS actual main.c: BMS SOC -> dashboard, nonblocking UART, overflow recovery and unchanged IAP ownership");
+}
+
+static void quiet_startup(void) {
+    g_adc_samples=ARM_MIN_ADC_SAMPLES;
+    g_adc_last_ms=g_ms;
+    g30_rolling_bemf_sample(&g_rolling_bemf,2048,2048,2048,DWT_CYCCNT);
+    dash(0,0);
+}
+static void test_peripheral_failure_returns(void) {
+    setup();
+    USART_SR=0u;USART_DR=0x99u;
+    uart_putc('X');assert(g_debug_uart_muted && USART_DR==0x99u);
+    USART_SR=USART_SR_TXE;uart_putc('Y');assert(USART_DR==0x99u);
+    iap_begin_pending();assert(iap_update_pending());
+
+    setup();
+    volatile uint32_t flags=ADC_CR2_RSTCAL;
+    assert(!adc_wait_clear(&flags,ADC_CR2_RSTCAL));
+    flags=ADC_CR2_CAL;assert(!adc_wait_clear(&flags,ADC_CR2_CAL));
+    flags=0;assert(adc_wait_clear(&flags,ADC_CR2_CAL));
+    /* Allocated peripheral memory never autonomously clears RSTCAL.
+     * The actual init must return with gates off, so boot can reach IAP. */
+    adc1_injected_init();
+    assert(g_safety_latched==0xA014u && g_gate_kill_latched && !g_power_armed);
+    iap_begin_pending();assert(iap_update_pending());
+    puts("PASS actual main.c: stuck debug UART and ADC calibration return without blocking unchanged IAP parser");
+}
+static void test_automatic_offsets(void) {
+    setup();g_offset_cal_valid=0u;
+    const uint16_t zero[3]={2048,2048,2048};
+    g30_fixed_scan_init(&g_fixed_scan,zero);
+    quiet_startup();drive_startup_calibration_poll();
+    assert(!g_offset_cal_active && g_drive_cal_quiet && !g_power_armed);
+    g_ms+=99;quiet_startup();drive_startup_calibration_poll();
+    assert(!g_offset_cal_active);
+    g_ms++;quiet_startup();drive_startup_calibration_poll();
+    assert(g_offset_cal_active && g_drive_cal_owned && !g_power_armed);
+    assert(stock_tim1_gate_ccer_is_off((uint16_t)TIM_CCER(TIM1_BASE)));
+    /* Actual 512-sample calibration with explicit host ADC fixtures,
+     * then the same publishing helper used by the real ADC IRQ. */
+    for(unsigned i=0;i<G30_FIXED_OFFSET_SAMPLES;i++)
+        assert(!g30_fixed_scan_capture(&g_fixed_scan,G30_FIXED_JSQR_A,G30_FIXED_JSQR_B,
+            STOCK_ADC_MODE_REG_INJEC_SIMULT|ADC_CR1_SCAN,ADC_CR1_SCAN,
+            ADC_SR_JEOC,ADC_SR_JEOC,2048,2048,2048,2048));
+    finish_offset_calibration();drive_startup_calibration_poll();
+    assert(g_offset_cal_valid && !g_offset_cal_active && !g_drive_cal_owned);
+    fresh_roll();dash(180,0);drive_runtime_poll();
+    assert(g_power_armed && !g_gate_kill_latched);
+
+    setup();g_offset_cal_valid=0;g30_fixed_scan_init(&g_fixed_scan,zero);
+    quiet_startup();drive_startup_calibration_poll();
+    g_ms+=100;quiet_startup();dash(90,0);drive_startup_calibration_poll();
+    assert(!g_offset_cal_active && !g_drive_cal_quiet);
+    quiet_startup();drive_startup_calibration_poll();
+    g_ms+=100;quiet_startup();drive_startup_calibration_poll();
+    assert(g_offset_cal_active);
+    /* Movement during calibration discards partial offsets, never applies
+     * them as motor qualification, and never produces a motor command. */
+    fresh_roll();drive_startup_calibration_poll();
+    assert(!g_offset_cal_active && !g_offset_cal_valid && !g_fixed_scan.offset_valid);
+    assert(!g_power_armed && !g_gate_kill_latched);
+    quiet_startup();drive_startup_calibration_poll();
+    g_ms+=100;quiet_startup();drive_startup_calibration_poll();
+    assert(g_offset_cal_active);
+    iap_begin_pending();drive_startup_calibration_poll();
+    assert(iap_update_pending() && !g_offset_cal_active && !g_power_armed);
+
+    setup();g_offset_cal_valid=0;g30_fixed_scan_init(&g_fixed_scan,zero);
+    quiet_startup();g_safety_latched=0xA004;
+    drive_startup_calibration_poll();assert(!g_offset_cal_active && g_safety_latched==0xA004);
+    iap_begin_pending();assert(iap_update_pending());
+    puts("PASS actual main.c: automatic stationary startup offsets, real 512-sample helper, standalone rollstart and IAP/fault precedence");
+}
+
 int main(void) {
     registers();
+    test_battery_and_iap_isolation();
+    test_peripheral_failure_returns();
+    test_automatic_offsets();
     setup();
     assert(!drive_start_blockers(commissioning_guard_mask(),1));
     assert(motor_request_rolling());
@@ -85,12 +246,18 @@ int main(void) {
     dash(128,0);assert(ctrl.run_iq_counts>0 && ctrl.run_iq_counts<full);
     dash(0,0);
     assert(!g_power_armed && !g_motor_pipeline.powered && !ctrl.drive_request);
+    assert(g_motor_pipeline.neutral_seen); /* this single real release counts */
     assert(!g_gate_kill_latched && !g_safety_latched);
     assert(stock_tim1_gate_ccer_is_off((uint16_t)TIM_CCER(TIM1_BASE)));
-    dash(0,0);fresh_roll();dash(255,0);drive_runtime_poll();
+    fresh_roll();dash(255,0);drive_runtime_poll();
     assert(g_power_armed && gate_safety_check());
     dash(255,80);
     assert(!g_power_armed && !g_gate_kill_latched && ctrl.run_iq_counts==0);
+    assert(!ctrl.drive_request && !g_motor_pipeline.powered);
+    assert(stock_tim1_gate_ccer_is_off((uint16_t)TIM_CCER(TIM1_BASE)));
+    assert(tim1_bdtr_guard_gpio_down((uint16_t)gate_pin_mode_word_a(),
+        (uint16_t)gate_pin_mode_word_b(),(uint16_t)GPIO_ODR(GPIOA_BASE),
+        (uint16_t)GPIO_ODR(GPIOB_BASE)));
     drive_runtime_poll();assert(!g_power_armed);
     /* Releasing brake while still holding the old gas request cannot
      * restart. Fresh neutral -> rolling motion -> new gas must work. */

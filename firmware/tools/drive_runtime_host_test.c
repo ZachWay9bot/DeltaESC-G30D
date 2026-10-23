@@ -48,6 +48,14 @@ int main(void) {
     assert(drive_speed_kmh10(400,15,1801)==0);
     assert(drive_throttle_counts(255,0,3,12)==12);
     assert(drive_throttle_counts(255,1,3,12)==0);
-    puts("PASS: software closure: qualifiers, owner truth table, throttle/brake and speed domain edges");
+    /* Owner requested coast only, no electrical brake or recuperation.
+     * Exhaust the complete stock ADC input domain: brake never creates a
+     * torque demand, and the dashboard never requests negative torque. */
+    for(unsigned gas=0;gas<256u;gas++)for(unsigned brake=0;brake<256u;brake++) {
+        int16_t demand=drive_throttle_counts((uint8_t)gas,(uint8_t)brake,3,12);
+        assert(demand>=0 && demand<=12);
+        if(brake || gas<=3u)assert(demand==0);
+    }
+    puts("PASS: software closure: qualifiers, owner truth table, all 65536 gas/brake inputs coast-only and speed domain edges");
     return 0;
 }

@@ -101,6 +101,10 @@ int main(void){
         motor_pipeline_input(&p,0,0,1,15);
         ensure(!p.powered && !p.fault_latched,
                "second normal coast remains reversible");
+        ensure(p.neutral_seen,"one throttle-zero frame qualifies neutral after coast");
+        ensure(motor_pipeline_start_rolling(&p,offsets,1,1,80,0,1,16,
+                                            1000u,-120),
+               "single idle frame permits next fresh rolling throttle request");
     }
     /* Repeat start-permission edge cases without invoking motor power. */
     {

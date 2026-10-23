@@ -1,5 +1,21 @@
 # DeltaESC handoff — 21 October 2026
 
+## AKTUELL — Offline-Ausbau, Coast ohne E-Bremse/Reku (23.10.2026)
+
+Die neueste Nutzeranweisung schliesst elektrische Bremse und Rekuperation
+explizit aus. Bremseingang = Motormoment weg / Gates getrennt / Ausrollen.
+Diese Funktionen nicht mehr als fehlenden Entwicklungsblock verlangen.
+
+Neu: Stock-BMS-SOC samt gueltigkeitsabhaengiger Dash-/B0-Anzeige und B1-
+Diagnose; automatisches E0-Offsetverfahren bei frischer Neutralstellung
+und ruhendem Motor; Wiederanlauf nach einem einzigen Gas-null-Frame;
+explizite Debug-/BMS-UART-Pinrouten; begrenzte ADC-Kalibrierungs- und
+Debug-TX-Wartezeiten, damit Peripheriefehler den main/IAP-Service nicht
+endlos blockieren. IAP, ninebot_link, Linker und CPU-Header bytegleich.
+Kennung **0x1031**. Native **36 Gruppen PASS**; genaue ARM-CI-Evidenz folgt
+am Quellcommit. [Umfang und Hardware-Rest](OFFLINE_COMPLETION_20261023.md).
+Aeltere Angaben zur 50%-Akkuanzeige und geplanter Reku sind ueberholt.
+
 ## NEUSTER STAND – Watchdog-Neutral-Verfall und atomare Bremsverarbeitung (21.10.2026)
 
 - Letzter **Motorquellcode-Commit**: `26629227ad7cc882fb3f68426153c83767ce5e3e` auf `dev/drive-reversible-20261021`; Nachtrag nur Dokumentation. [Genauer Bericht](DRIVE_SOFTWARE_STATUS_20261021.md).
@@ -127,9 +143,8 @@ Gleiche Firmwarekennung beweist daher keine Bytegleichheit.
 4. Validate wheel-free takeover, normal gas response, release/restart and
    all existing terminal fault stops on the exact candidate, then controlled
    load. Current limits remain the original low-current RC envelope.
-5. Integrate genuine BMS/SOC and electrical braking after target battery
-   voltage/current constraints are established; current candidate coasts on
-   brake and is not ready for driving.
+5. Validate the new BMS/SOC integration on the target. Electrical braking
+   and recuperation are explicitly excluded by the owner; coast is intended.
 
 No further motor-development approval is missing. Actual physical setup,
 rollback evidence and target measurements are missing. Continue source work

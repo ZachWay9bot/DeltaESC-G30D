@@ -28,7 +28,7 @@ jobs:
           test "$(stat -c %s build/DeltaESC_G30D_v0_10_3_drive_candidate.bin)" -le 51200
           sha256sum build/DeltaESC_G30D_v0_10_3_drive_candidate.bin
           llvm-nm-18 build/DeltaESC_G30D_v0_10_3_drive_candidate.elf > build/drive-symbols.txt
-          for symbol in iap_update_feed iap_update_poll iap_control_commit ninebot_link_irq; do
+          for symbol in iap_update_feed iap_update_poll iap_control_commit ninebot_link_irq USART3_IRQHandler g30_bms_link_poll; do
             grep -q " $symbol$" build/drive-symbols.txt
           done
           # Compile the configured startup branch with TEST FIXTURE values

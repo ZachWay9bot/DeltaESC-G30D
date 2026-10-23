@@ -127,6 +127,11 @@ void motor_pipeline_input(motor_pipeline_t *p, uint8_t throttle,
     if (p->powered && (!dashboard_valid || brake || throttle<=THROTTLE_IDLE_MAX)) {
         motor_pipeline_stop(p,!dashboard_valid?MOTOR_STOP_DASH:
                            brake?MOTOR_STOP_BRAKE:MOTOR_STOP_THROTTLE);
+        /* This valid throttle-zero frame is itself fresh neutral. Do not
+         * require a redundant second idle frame after an ordinary release.
+         * Brake/invalid input still requires a later, separate neutral. */
+        if(dashboard_valid && !brake && !p->fault_latched)
+            p->neutral_seen=1u;
         return;
     }
     if (dashboard_valid) p->last_dashboard_ms=now_ms;

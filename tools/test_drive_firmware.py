@@ -41,6 +41,7 @@ for entry in [
     'iap_control_powercut_test.c iap_control.c',
     'test_stock_adc_correlated.c stock_adc_correlated.c stock_adc_timing.c stock_adc_quality.c stock_adc_snapshot.c stock_current_frontend.c',
     'drive_runtime_host_test.c drive_runtime.c',
+    'g30_bms_host_test.c g30_bms.c',
 ]:
     cases.append(entry.split())
 upstream = [
@@ -70,6 +71,7 @@ print(output, end='', flush=True)
 main = (FW / 'src/main.c').read_text()
 entry = main[main.index('int main(void){'):]
 assert entry.index('iap_update_poll();') < entry.index('drive_runtime_poll();')
+assert entry.index('iap_update_poll();') < entry.index('g30_bms_link_poll(')
 assert 'g_rolling_bemf.cfg.phase_offset_u16=v.phase_offset;' in main
 assert 'case 0xF6u: /* read-only offset calibration' in main
 assert 'case 0xFFu: /* measured motor geometry' in main

@@ -67,8 +67,8 @@ nicht eindeutig:
   oder auf DeltaESC v0.10.3 uebertragen werden.
 - Das verfuegbare FO76-Source-ZIP hat SHA256
   `298a6624d729e7b3a71ba8787c3b9da05196251d74488584a22992886f18f97c`.
-  Der konkrete 16-Byte-Unterschied zur damaligen Flashdatei ist noch zu
-  vergleichen; daraus folgt keine neue Runtime-Sperre.
+  Die Groessendifferenz von 16 Bytes ist keine Aussage, dass nur 16
+  Inhaltsbytes abweichen; siehe den folgenden Bytevergleich.
 
 Die Messungen bleiben wertvolle echte Referenz. Ihre damaligen
 Testmotor-/Benchbedingungen werden erhalten; daraus werden keine
@@ -83,3 +83,37 @@ Das ist kein Anlass, den historischen FO91-Lockout erneut als
 bleiben Teil der Basis fuer weitere Regressionen. Die konkrete
 Hardwarepruefung des neuen Controllers und des neuen Kandidaten steht
 noch aus; die frueheren Erfolge werden dadurch nicht ungeschehen.
+
+## Bytevergleich am 23.10.2026 abgeschlossen
+
+Die tatsaechlich geflashte Datei wurde aus dem historischen Candidate-Commit
+`10ff0a99cef2daf44c34ab3df78caa30480f26b4` erneut gelesen und gegen den
+Original-Flashlog gehasht. Das Source-ZIP wurde lokal materialisiert und
+gegen SHA256 `298a6624d729e7b3a71ba8787c3b9da05196251d74488584a22992886f18f97c`
+geprueft. Beide Ninebot-TEA-Dateien wurden mit dem originalen Packwerkzeug
+entschluesselt: beide Pruefsummen gueltig, beide Startvektoren
+SP `0x20005000`, Reset `0x080010ED`.
+
+- Historischer entschluesselter Payload: 21.712 Bytes, SHA256
+  `6787cdb58182821a0d6c19bd586a937a6334add3e3d7b8987c30984ff30ea58a`.
+- Archiv-Payload: 21.728 Bytes, SHA256
+  `70dc6c66db0f06291ce5934b85c3700ba5fb66757fcce911f8cd505e6d8224bb`.
+- Die anhand des originalen ELF abgegrenzten Funktionskoerper von
+  `iap_init` (32 B), `iap_begin` (132 B), `iap_write` (292 B),
+  `iap_finalize` (148 B), `control_write` (88 B) und
+  `ninebot_tea_decrypt_block` (204 B) sind im historischen Payload
+  **byteidentisch** vorhanden, jeweils um 16 Bytes frueher angeordnet.
+- `ninebot_tea_init` (44 B) hat genau einen abweichenden Literal-Bytewert:
+  der Zeiger wurde von `0x080064A6` nach `0x080064B6` verlagert. Die dort
+  liegenden 16 Bytes sind identisch. Das ist eine nachvollzogene
+  Adressverschiebung, kein anderer TEA-Schluessel.
+- Andere Maschinenbytes, unter anderem in `main` und `motor_wizard_step`,
+  unterscheiden sich. Die Gesamtdifferenz ist **kein reines Padding**.
+  Ihre genaue Source-/Compilerursache ist mit dem archivierten Bestand
+  nicht eindeutig belegt. Deshalb weiterhin keine Bytegleichheit oder
+  identische Hardwarequalifikation des gesamten Source-Pakets behaupten.
+
+Damit ist der IAP-Kern des vorhandenen FO76-Quellpakets direkt mit der
+historischen, erfolgreich geflashten Datei abgeglichen. Das ist kein
+Nachweis fuer alle Aufrufer, die gesamte Firmware oder den kommenden
+Controller. Original-BIN und private Rohlogs wurden nicht veroeffentlicht.
