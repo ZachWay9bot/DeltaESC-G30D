@@ -8,7 +8,7 @@ The script never sends flash, erase, reset, E5 or IAP commands.
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('DryRun','Listen','Neutral','Pulse')][string]$Mode = 'DryRun',
+    [ValidateSet('DryRun','Listen','Identify','Neutral','Pulse')][string]$Mode = 'DryRun',
     [string]$Port,
     [ValidateRange(4,100)][int]$Throttle = 35,
     [ValidateRange(1,20)][int]$Seconds = 3,
@@ -28,8 +28,10 @@ function Frame([byte]$gas, [byte]$brake) {
     return ,$b
 }
 function Hex([byte[]]$b) { return ([BitConverter]::ToString($b)) }
+[byte[]]$identity = @(0x5a,0xa5,1,0x3d,0x20,1,0x10,0x0e,0x82,0xff) # read-only identity query
 $neutral = [byte[]](Frame 0 0)
 $pulse = [byte[]](Frame ([byte]$Throttle) 0)
+Write-Host "Read-only identity query: $(Hex $identity)"
 Write-Host "Neutral dashboard 0x65: $(Hex $neutral)"
 Write-Host "Test throttle dashboard 0x65: $(Hex $pulse)"
 if($Mode -eq 'DryRun') {
@@ -54,6 +56,10 @@ try{
     [byte[]]$buffer=New-Object byte[] 4096
     while([DateTime]::UtcNow -lt $end){
         $elapsed=([DateTime]::UtcNow-$start).TotalMilliseconds
+        if($Mode -eq 'Identify' -and $elapsed -lt 200){
+            $s.Write($identity,0,$identity.Length)
+            Add-Content -Path $log -Value ("$(Get-Date -Format o) TX READ_ID " + (Hex $identity)) -Encoding UTF8
+        }
         if($Mode -eq 'Neutral' -or $Mode -eq 'Pulse'){
             # Pulse starts and finishes with fresh neutral 0x65 frames.
             if($Mode -eq 'Pulse' -and $elapsed -ge 800 -and $elapsed -le (($Seconds*1000)-350)){
