@@ -31,6 +31,10 @@ jobs:
           test ! -e g30/tools/test_shu_package.py
           ! grep -qi 'make_shu_zip' g30/Makefile
           echo 'PASS 10 byte-identical protected files; no active SHU packaging'
+      - name: Validate no-dashboard bench PowerShell dry-run (no COM opened)
+        shell: pwsh
+        run: |
+          ./bench/G30_OnePass_UART.ps1 -Mode DryRun
       - name: Full native firmware/command/edge acceptance
         shell: bash
         run: |
