@@ -1,0 +1,133 @@
+name: DeltaESC G30 one-time offline freeze
+on:
+  push:
+    branches: [dev/g30-fahrbetrieb-clean-20261023]
+    paths: ['.github/workflows/g30-offline-freeze.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-acceptance:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install compiler and archive tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y clang-18 llvm-18 gcc make unzip xz-utils
+      - name: Verify exact original IAP and APP layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 origin main
+          git show FETCH_HEAD:downloads/DeltaESC_G30D_v0_10_2_COMPLETE_SOURCE.zip > /tmp/deltaesc-orig.zip
+          echo '3a7a4533c743df97f555a199ef603ff52efb34af752301a43ffb0497a3285f6f  /tmp/deltaesc-orig.zip' | sha256sum -c -
+          mkdir -p /tmp/orig
+          unzip -q /tmp/deltaesc-orig.zip -d /tmp/orig
+          for file in src/iap_update.c src/iap_update.h src/iap_proto.c src/iap_proto.h src/iap_control.c src/iap_control.h src/ninebot_link.c src/ninebot_link.h src/stm32f103_min.h linker.ld; do
+            cmp "/tmp/orig/$file" "g30/$file"
+          done
+          test ! -e g30/tools/make_shu_zip.py
+          test ! -e g30/tools/test_shu_package.py
+          ! grep -qi 'make_shu_zip' g30/Makefile
+          echo 'PASS 10 byte-identical protected files; no active SHU packaging'
+      - name: Full native firmware/command/edge acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 bench/test_G30_Config_Packets.py
+          gcc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=undefined -Ig30/src \
+             g30/tools/g30_roll_edge_acceptance_test.c g30/src/g30_rolling_bemf.c g30/src/drive_runtime.c \
+             -o /tmp/g30-roll-edges
+          /tmp/g30-roll-edges
+          gcc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=undefined -Ig30/src \
+             g30/tools/drive_runtime_host_test.c g30/src/drive_runtime.c -o /tmp/g30-drive-unit
+          /tmp/g30-drive-unit
+          gcc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=undefined -DSENSORLESS_CLOSED_LOOP_ALLOWED=1 -Ig30/src \
+             g30/tools/motor_pipeline_host_test.c g30/src/motor_pipeline.c g30/src/foc_adc_contract.c \
+             g30/src/stock_current_frontend.c g30/src/sensorless_control.c g30/src/vesc_ebics_flux.c \
+             -lm -o /tmp/g30-drive-pipeline
+          /tmp/g30-drive-pipeline
+          gcc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=undefined -Ig30/src \
+             g30/tools/dashboard_runtime_host_test.c g30/src/dashboard_runtime.c -o /tmp/g30-stockdash
+          /tmp/g30-stockdash
+          python3 tools/test_g30_drive_main.py
+      - name: Freeze ARM builds (SAFE + DRIVE only)
+        working-directory: g30
+        shell: bash
+        run: |
+          set -euo pipefail
+          make clean
+          make safe drive-runtime CC=clang-18 OBJCOPY=llvm-objcopy-18 OBJDUMP=llvm-objdump-18
+          test -s build/DeltaESC_G30D_v0_10_3_drive_candidate.bin
+          test "$(stat -c %s build/DeltaESC_G30D_v0_10_3_drive_candidate.bin)" -le 51200
+          llvm-nm-18 build/DeltaESC_G30D_v0_10_3_drive_candidate.elf > build/drive-symbols.txt
+          for symbol in iap_update_feed iap_update_poll iap_control_commit ninebot_link_irq sensorless_control_start_rolling motor_pipeline_start_rolling; do
+            grep -q " $symbol$" build/drive-symbols.txt
+          done
+          sha256sum build/DeltaESC_G30D_v0_10_3_*.bin
+      - name: Verify APP address/memory and write source-test manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p offline-freeze
+          python3 - <<'PY'
+          import hashlib,json,struct,subprocess
+          from pathlib import Path
+          root=Path('g30')
+          img=root/'build/DeltaESC_G30D_v0_10_3_drive_candidate.bin'
+          raw=img.read_bytes()
+          sp,pc=struct.unpack_from('<II',raw,0)
+          assert sp==0x20005000, f'Stack vector unexpected: {sp:#x}'
+          assert pc&1 and 0x08001000<=pc-1<0x0800D800,f'Reset vector unexpected: {pc:#x}'
+          assert len(raw)<=51200, 'Exceeds agreed conservative image size'
+          source_hashes={}
+          for p in sorted(root.glob('src/*')):
+              if p.is_file():source_hashes[p.relative_to(root).as_posix()]=hashlib.sha256(p.read_bytes()).hexdigest()
+          record={
+              'type':'DeltaESC G30 Gen1 offline software freeze',
+              'result':'PASS',
+              'app_base':'0x08001000',
+              'sp_vector':hex(sp),'reset_vector':hex(pc),
+              'image_size_bytes':len(raw),'image_sha256':hashlib.sha256(raw).hexdigest(),
+              'source_file_hashes':source_hashes,
+              'source_iap_linker_matches_original':True,
+              'tested':[
+                 'motor/ADC/sensorless integration host fixtures',
+                 'dashboard gas/brake/null/rearm/watchdog/timeout',
+                 'rolling speed/direction/staleness/wraparound/bad-jump',
+                 'RAM-only Ninebot F0-F5/FF frame generation',
+                 'ARM Cortex-M3 safe and drive firmware builds'
+              ],
+              'not_yet_tested':[
+                 'physical ESC IAP install/restore and stock firmware compatibility',
+                 'real ADC offsets/scale/timing/G30 phase and motor constants',
+                 'real MOSFET temperatures/commutation/handover/ride'
+              ],
+              'no_dash_bench_tool':'bench/G30_OnePass_UART.ps1',
+              'physical_hardware_tested':False,
+              'stock_rollback_verified_on_new_controller':False,
+              'flash_qualified':False,'shu_artifact':False
+          }
+          Path('offline-freeze/manifest.json').write_text(json.dumps(record,indent=2)+'\n')
+          print('PASS SP/reset/image size + firmware source hash manifest')
+          PY
+      - name: Package developer deliverables without SHU and without flash
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p offline-freeze/binary
+          cp g30/build/DeltaESC_G30D_v0_10_3_drive_candidate.bin offline-freeze/binary/
+          cp g30/build/v0_10_3_drive_candidate.map offline-freeze/binary/
+          cp g30/build/drive-symbols.txt offline-freeze/binary/
+          cp g30/build/DeltaESC_G30D_v0_10_3_ble_syncsafe.bin offline-freeze/binary/
+          echo 'SOFTWARE ONLY. NO HARDWARE-QUALIFIED FLASH/RECOVERY. DO NOT FLASH UNCHECKED.' > offline-freeze/READ_BEFORE_FLASHING.txt
+          tar -cJf offline-freeze/DeltaESC_G30D_OFFLINE_FREEZE.tar.xz g30/src g30/Makefile g30/linker.ld g30/tools bench tools/test_g30_drive_main.py docs/G30_HARDWARE_ONE_PASS.md NEUSTART_FAHRTBETRIEB.md
+          (cd offline-freeze && sha256sum binary/* DeltaESC_G30D_OFFLINE_FREEZE.tar.xz > SHA256SUMS.txt)
+      - name: Save one-time immutable offline freeze evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-G30-one-time-offline-freeze
+          retention-days: 90
+          if-no-files-found: error
+          path: offline-freeze/
