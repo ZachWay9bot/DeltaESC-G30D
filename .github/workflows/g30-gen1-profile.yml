@@ -1,0 +1,51 @@
+name: G30 Gen1 measured-drive builder (offline only)
+on:
+  push:
+    branches: [dev/g30-fahrbetrieb-clean-20261023]
+    paths:
+      - '.github/workflows/g30-gen1-profile.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  builder-unit-and-fixture-compile:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Profile validation (no hardware)
+        run: python3 -m unittest discover -s bench -p 'test_G30_Gen1_Measured_Build.py' -v
+      - name: Install existing ARM toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y clang-18 llvm-18 make
+      - name: Validate isolated build and output vectors using fixture only
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/g30_fake_fixture.json <<'EOF'
+          {
+            "motor":"G30 Gen1",
+            "measurement_evidence":"CI SYNTHETIC FIXTURE - not physical G30 measurements",
+            "r_uohm":120000,
+            "l_nh":180000,
+            "flux_uwb":10000,
+            "phase_offset_u16":-2500,
+            "pole_pairs":15,
+            "wheel_circumference_mm":760,
+            "test_current_ma":500
+          }
+          EOF
+          python3 bench/G30_Gen1_Measured_Build.py --profile /tmp/g30_fake_fixture.json --validate-only
+          python3 bench/G30_Gen1_Measured_Build.py --profile /tmp/g30_fake_fixture.json --out /tmp/fixture_only
+          python3 - <<'PY'
+          import json, pathlib, hashlib
+          out=pathlib.Path('/tmp/fixture_only')
+          data=json.loads((out/'manifest.json').read_text())
+          image=(out/data['image']).read_bytes()
+          assert data['sha256']==hashlib.sha256(image).hexdigest()
+          assert data['measurements']['pole_pairs']==15
+          assert data['measurements']['phase_offset_u16']==-2500
+          assert data['app_base']=='0x08001000'
+          assert data['iap_source_modified'] is False
+          print('PASS isolated G30 target build; synthetic fixture image deliberately NOT uploaded')
+          PY
