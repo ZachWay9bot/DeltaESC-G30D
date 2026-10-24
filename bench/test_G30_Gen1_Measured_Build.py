@@ -3,7 +3,7 @@ import importlib.util
 from pathlib import Path
 import unittest
 
-SCRIPT = Path(__file__).resolve().parents[1] / "G30_Gen1_Measured_Build.py"
+SCRIPT = Path(__file__).resolve().parent / "G30_Gen1_Measured_Build.py"
 SPEC = importlib.util.spec_from_file_location("g30gen1build", SCRIPT)
 MOD = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MOD)
