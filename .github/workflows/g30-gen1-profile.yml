@@ -4,6 +4,8 @@ on:
     branches: [dev/g30-fahrbetrieb-clean-20261023]
     paths:
       - '.github/workflows/g30-gen1-profile.yml'
+      - 'bench/G30_Gen1_Measured_Build.py'
+      - 'bench/test_G30_Gen1_Measured_Build.py'
   workflow_dispatch:
 permissions:
   contents: read
