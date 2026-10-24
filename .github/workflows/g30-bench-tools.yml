@@ -1,0 +1,45 @@
+name: DeltaESC G30 one-time bench tools acceptance
+on:
+  push:
+    branches: [dev/g30-fahrbetrieb-clean-20261023]
+    paths: ['.github/workflows/g30-bench-tools.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  bench-tools:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate packet generators and saved-frame parser
+        run: |
+          python3 bench/test_G30_Config_Packets.py
+          python3 bench/test_G30_Decode_Log.py
+      - name: Validate PowerShell transport dry run, no serial port opened
+        shell: pwsh
+        run: |
+          ./bench/G30_OnePass_UART.ps1 -Mode DryRun
+      - name: Confirm read-only snapshot commands; no flash operations
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          ps=Path('bench/G30_OnePass_UART.ps1').read_text()
+          assert "ValidateSet('DryRun','Listen','Identify','Snapshot','Neutral','Pulse')" in ps
+          assert '@(0x10,0xD0,0xD1,0xD2,0xD3,0xD4,0xD5,0xD7,0xD9,0xE8,0xEB,0xFC,0xFD,0xFE,0xFF)' in ps
+          for token in ['0x07,', '0x08,', '0x09,', '0x0a,', '0xE5,']:
+              assert token not in ps.lower(), token
+          assert 'ReadFrame' in ps
+          print('PASS known read-only diagnostic registers, no flash/IAP commands')
+          PY
+      - name: Freeze only newly added bench extras (software, no binaries)
+        run: |
+          mkdir -p g30-bench-extras
+          cp bench/G30_OnePass_UART.ps1 bench/G30_Config_Packets.py bench/G30_Decode_Log.py bench/test_G30_Config_Packets.py bench/test_G30_Decode_Log.py g30-bench-extras/
+          cp docs/G30_HARDWARE_ONE_PASS.md g30-bench-extras/
+          (cd g30-bench-extras && sha256sum * > SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeltaESC-G30-read-only-bench-tools
+          retention-days: 90
+          if-no-files-found: error
+          path: g30-bench-extras/
