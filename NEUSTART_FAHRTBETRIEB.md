@@ -31,3 +31,17 @@
 24.10.2026: Original-v0.10.2-Quellbaum unter `g30/` byteverifiziert importiert. Für den **reinen G30-Fahrpfad** wurden gezielt `main.c`, `motor_pipeline.[ch]`, `dashboard_runtime.[ch]` und `Makefile` sowie `drive_runtime.[ch]` und `g30_target_profile.h` mit den zuvor hostgetesteten Fahrkorrekturen übernommen. Keine IAP/Bootloader/UART/Linker-Änderung und kein SHU-Build. Validierte CI: [G30 clean drive and dashboard regression 40032651629](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/40032651629), **alle Schritte PASS**: unveränderte IAP/Linker-Bytes per `cmp`, native Gas-/Coast-/Rearm- und Dashboardtests, tatsächliche `main.c`-Integration einschließlich IAP-Parser, Cortex-M3 SAFE und DRIVE Link/BIN. SHA256 der erzeugten **unqualifizierten** Drive-BIN: `7b6a17d4df105ae3cf078dccb25ce926bce97fb46902317a812484e9b621bbb1`. Kein physischer Motor- oder Flash-Test. Das separate, nicht benötigte Motor-ID-CI-Ziel wird zur Fahr-CI nicht mitgebaut und in der Firmware selbst nicht verändert.
 
 **Nächster Schritt mit Hardware:** exakte G30-Gen1-Motor- und Sensorwerte und IAP-Zustand messen/prüfen. Die eingebauten G30-Profilwerte bleiben bewusst 0 (unbekannt), bis Daten existieren. Keine donor-derived Profile vortäuschen, keine bereits erfolgte Fahrfreigabe behaupten.
+
+
+## VERBINDLICHE OFFLINE-ABNAHME 24.10.2026
+
+**Firmware/Baseline-Freeze: PASS** — GitHub Actions [Run 40036462792](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/40036462792), gesamter Workflow inkl. Schutzdateivergleich, Cortex-M3 safe/drive, realer main.c-Hosttests, Rolling-Edge-Cases, PowerShell-Dry-Run und Quell-/BIN-SHA-Manifest erfolgreich. Persistentes CI-Artefakt **DeltaESC-G30-one-time-offline-freeze** (ID `12537435969`, Ablauf GitHub 2027-01-21). Enthält Quellarchiv, `g30/`-Firmware-BIN, SAFE-BIN, Symbol-/Map-Dateien, `manifest.json`, `SHA256SUMS.txt`, `READ_BEFORE_FLASHING.txt`. **DRIVE-BIN SHA256** `7b6a17d4df105ae3cf078dccb25ce926bce97fb46902317a812484e9b621bbb1`; **SAFE-BIN SHA256** `5190ceb011a8cbd4cd8e461985ecefbeaa47a745f00ba38f41863429ee248eac`. Die DRIVE-BIN ist **softwaregebaut, nicht freigegeben zum unprueften Flashen**.
+
+**One-pass BENCH EXTRAS: PASS** — GitHub Actions [Run 40044128202](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/40044128202), Tests der neuen RX-Diagnosedekodierung, fragmentierter Frames, CRC, G30-Konfigurationsframes und PowerShell DryRun. CI-Artefakt **DeltaESC-G30-read-only-bench-tools** (ID `12540790876`, Ablauf GitHub 2027-01-22). Liegt unter `bench/`; wurde nach dem Firmware-Freeze ergänzt, der zuvor bestandene Motor-Build wurde deshalb **nicht neu gestartet**.
+
+**Nur physisch zu klaeren (nicht erneut offline testen):**
+1. Istidentitaet und tatsaechlicher IAP-Rueckweg des ankommenden Controllers, **keine ST-Link-Annahme**.
+2. G30-Gen1-Motorprofil: 15 bestaetigte Polpaare, echte R/L/Flux- und Phasenlage, Stromwandler/ADC/TIM1-Hardware, korrekte BEMF-Richtung.
+3. Ein kontrollierter Wheel-Free-Motorlauf mit der gemessenen Konfiguration und dokumentiertem Coast/Restart/IAP-Zugriff.
+
+**Kein weiteren Software-Testlauf ohne geaenderten Motorcode oder konkreten Fehlerbefund ansetzen.** G30-Diagnose bei Ankunft: erst `Identify`, bei nachgewiesener DeltaESC-App `Snapshot`, danach `G30_Decode_Log.py`. Motorstart ausschliesslich nach konkreter Freigabe und erfuellten Hardwarevoraussetzungen. Kein neuer Flash-/Recovery-/SHU-Mechanismus.
