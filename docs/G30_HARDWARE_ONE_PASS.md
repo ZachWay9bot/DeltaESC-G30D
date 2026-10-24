@@ -6,7 +6,7 @@
 
 - **G30D Gen1** als Ziel; 15 Polpaare sind fuer unsere Gen1-Variante bestaetigt. Umfang, R, L, Flux, elektrischer Phasenbezug und Messverstaerkung sind am neuen ESC noch nicht verifiziert. Kein FO70-Donorprofil in die aktive G30-Fahr-Firmware einschleusen.
 - Ohne angeschlossenes Dashboard am Bench: `bench/G30_OnePass_UART.ps1` bildet beim spaeteren Test **ausschliesslich** die normalen G30-`0x65`-Dashboardframes ueber bereits vorhandene UART-Schnittstelle nach. Kein SHU-Build, keine extra Flashschnittstelle.
-- Nur bisheriger **IAP**-Pfad; keine erreichbaren SWD/ST-Link-Punkte. Stock **DRV 1.8.7** ist erwartete Lieferfirmware, **nicht** bereits ausgelesen. **DRV126** bleibt geplante Referenzbasis.
+- Nur bisheriger **IAP**-Pfad; keine erreichbaren SWD/ST-Link-Punkte. **DRV 1.8.7 am 24.10.2026 durch UART READ 0x1A echt bestätigt** (`87 01` / `0x0187`, COM9); Seriennummer bewusst nicht öffentlich archiviert. **DRV126** bleibt geplante Referenzbasis, ist aber NICHT installiert. Die Recovery-/Downgrade-Kompatibilität ist weiterhin **NICHT** belegt.
 - Bremse = Coast; keine Rekuperation, kein negatives Motormoment, keine ungefragte Leistungsanhebung. Keine Modifikation an Loader/IAP/Flashlayout, keine zusaetzliche Update-Sperre.
 - ACHTUNG: USB-UART nicht direkt mit push-pull-TX auf die single-wire, open-drain-G30-UART-Leitung legen. Physikalisch passende Halbduplex-/Pegelbeschaltung ist Voraussetzung. RemoteLab/andere COM-Besitzer vorher beenden.
 
@@ -58,3 +58,11 @@ Einmal pro realem Motorlauf nur das Log `0xFD/0xFE`, Iststrom-/ADC-Rohwerte, Sta
 - IAP-Zugang besteht nach dem Test weiter, Stock-Rueckweg ist tatsaechlich belegt.
 
 Ab dann keine weiteren ritualisierten Wiederholungstests ohne konkrete Regression.
+
+## Hardware-Befund 24.10.2026: DRV187 vorgefunden
+
+**ECHT GEMESSEN**, G30D-Controller mit Gen1-Motor angeschlossen: Original-Ninebot-Identitätsantwort auf READ 0x10; Versionsregister READ 0x1A antwortet `87 01`, also DRV **1.8.7 (0x0187)**; COM9/115200 und Halbduplex-READ funktionieren. Keine Flash-/Motoraktion ausgeführt, keine private Seriennummer im öffentlichen Repository. Der alte Plan "DRV126 auf Stock als gegeben annehmen" ist damit ausdrücklich widerlegt.
+
+**RELEASE-HOLD**: Die offizielle DRV187 hat laut externer ScooterHacking-Dokumentation Downgrade-Schutz; historische Werkzeuge versagen typischerweise. Trotz einzelner aktueller Community-Anleitungen (2026) ist für **diesen konkreten Controller** weder eine unverändert erhaltene UART-Recovery noch ein passender DRV126-/DeltaESC-Upload belegt. Kein IAP-BEGIN (0x07), ERASE, CRC, RESET und kein SHU-Flashversuch auf Verdacht. Ein erfolgreicher READ beweist nur UART-App-Kommunikation, **nicht** IAP- oder Bootloader-Recovery. Bei fehlender unabhängiger Recovery-Möglichkeit das bestehende DRV187 belassen und kompatiblen Rückflashpfad zuerst nachweisen. Die DeltaESC-DRIVE-BIN bleibt SOFTWARE ONLY / NICHT FLASHEN.
+
+Quelle zum bekannten DRV187-Flashschutz: https://joeybabcock.me/wiki/Ninebot_Max_G30_DRV_1.8.7 und https://joeybabcock.me/wiki/Ninebot_Max_G30/G2_Update_Failed_-_Data_Format_Error. Neuere gegenteilige Community-Aussagen nicht automatisch als Hardwarequalifikation ansehen.
