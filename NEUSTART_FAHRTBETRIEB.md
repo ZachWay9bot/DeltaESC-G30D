@@ -45,3 +45,13 @@
 3. Ein kontrollierter Wheel-Free-Motorlauf mit der gemessenen Konfiguration und dokumentiertem Coast/Restart/IAP-Zugriff.
 
 **Kein weiteren Software-Testlauf ohne geaenderten Motorcode oder konkreten Fehlerbefund ansetzen.** G30-Diagnose bei Ankunft: erst `Identify`, bei nachgewiesener DeltaESC-App `Snapshot`, danach `G30_Decode_Log.py`. Motorstart ausschliesslich nach konkreter Freigabe und erfuellten Hardwarevoraussetzungen. Kein neuer Flash-/Recovery-/SHU-Mechanismus.
+
+## Hardware angekommen / Arbeitsauftrag weitergeführt (24.10.2026)
+
+**Benutzer bestätigt ausdrücklich denselben G30D-Gen1-Controllertyp wie im bisherigen Firmware-/IAP-Aufbau.** Keine neuen hypothetischen Hardwarevarianten oder ST-Link-Erfordernisse einführen. Die bisherigen FO72–FO76-IAP-/Motor-Bench-Erfolge sind real und werden NICHT nochmals offline simuliert. Bei der Beweiszuordnung muss jedoch unterschieden werden: Die alten FO7x-Motorparameter gehören zum 250-W-Donormotor; der jetzt angeschlossene Motor ist der echte **G30 Gen1**.
+
+**ECHTE neuen Targetdaten:** UART COM9, Ninebot READ 0x10 antwortet mit Werks-Identität, READ 0x1A = `87 01` = **DRV 1.8.7**. Nicht als bereits installierte DRV126 oder DeltaESC ausgeben. Kein Flash bisher.
+
+**Konkrete Softwarearbeit seit Ankunft:** Im Branch ist der **einmalige gemessene G30-Gen1-DRIVE-Build** unter `bench/G30_Gen1_Measured_Build.py` implementiert; der nimmt nur reale G30-Werte entgegen, ruft isoliert den vorhandenen `g30/Makefile drive-runtime` mit C-Profilmakros auf und erzeugt BIN/ELF/SHA-Manifest. Keine Firmware-/IAP-/Linker-/Flash-/Gate-Codeänderung. CI-Test und **tatsächlicher Cortex-M3-Firmwarebuild mit rein synthetischem Fixture** erfolgreich: [GitHub Actions 40124672586](https://github.com/ZachWay9bot/DeltaESC-G30D/actions/runs/40124672586); **Testimage wurde nicht veröffentlicht** und ist kein echter Fahrbeleg.
+
+**Noch konkret zu tun, ohne Protokolle zu wiederholen:** G30-spezifische `R/L/Flux/phase_offset/wheel_circumference` einmalig aus geeigneten realen Messungen gewinnen oder aus einem klar G30 zugeordneten bestehenden Messlog importieren; danach exakt einen profilierten DRIVE-Build produzieren und den überwachten Motorlauf auf tatsächlicher Hardware auswerten. 15 Polpaare sind bekannt. Der Default-Drive-BIN mit Nullprofil fährt **absichtlich nicht**. Keine FO70-/FO76-Donorkonstanten als G30-Messungen ausgeben; keine unqualifizierte, kopierte BIN als „fahrbereit“ deklarieren.
