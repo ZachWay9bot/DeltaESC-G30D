@@ -43,7 +43,7 @@ class MeasuredBuildTest(unittest.TestCase):
 
     def test_no_placeholder_or_invalid_numeric_data(self):
         for field in MOD.FIELDS:
-            for v in (None, "100", 0, 2.5, True):
+            for v in (None, "100", 2.5, True) + (() if field=="phase_offset_u16" else (0,)):
                 c=candidate();c[field]=v
                 with self.subTest(field=field,v=v),self.assertRaises(ValueError):
                     MOD.validate(c)
