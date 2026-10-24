@@ -21,8 +21,9 @@ Die CI-Tests fuer G30-Gassteuerung, Nullgas, Brake-Coast, Restart, Dashboard-Tim
 1. Controller elektrisch pruefen, Rad frei, strombegrenzte Benchversorgung; UART wie vorher physisch korrekt anschliessen.
 2. `powershell -ExecutionPolicy Bypass -File .\bench\G30_OnePass_UART.ps1 -Mode DryRun` bestaetigt lokal die vorbereiteten Frames und schreibt **nichts**.
 3. `powershell -ExecutionPolicy Bypass -File .\bench\G30_OnePass_UART.ps1 -Mode Identify -Port COMx -Seconds 3` gibt **einmal** die vorhandene, read-only Identitaetsanfrage aus und speichert die Rohantwort mit SHA256. `COMx` ist der tatsaechliche neue Port, nicht blind COM9.
-4. Falls stock nicht antwortet, **nicht** mit irgendeinem naechstbesten Flash- oder Recovery-Experiment fortfahren. Das Rohlog genuegt fuer die Zuordnung. Kein extra Dauertest.
-5. Kontrollieren, ob existierender IAP-Weg von diesem *tatsaechlichen* Stockzustand aus akzeptiert wird und der bekannte Rueckweg real moeglich ist. Ein Softwaretest kann die fehlende bootloader-unabhaengige UART-Recovery nicht ersetzen. Deshalb vor Bilduebertragung kein ungeprueftes Upgrade.
+4. **Erst wenn die Firmware tatsaechlich DeltaESC meldet**, eine einmalige READ-ONLY-Sammelabfrage durchfuehren: `powershell -ExecutionPolicy Bypass -File .\\bench\\G30_OnePass_UART.ps1 -Mode Snapshot -Port COMx -Seconds 4`. Das ruft D0/D1/D2/D3/D4/D5/D7/D9/E8/EB/FC/FD/FE/FF in einem Durchlauf ab. Auf einer fremden Stock-Firmware diese spezifischen App-Abfragen nicht als gueltige Diagnostik interpretieren. Das Skript fuehrt weder Motorstart noch Flash/Erase/Reset aus. Die RX-Bytes werden roh aufgezeichnet. **Einmal danach offline auswerten**: `python bench/G30_Decode_Log.py --log G30_BENCH_YYYYMMDD_HHMMSS.log --output G30_EINMALSTATUS.json`. Die Rueckmeldungen enthalten die Fehlerursache, Blocker, Motorprofil, ADC-Schnappschuss, Rollrichtung und FOC-Zustand, soweit tatsaechlich vom Controller beantwortet. Fehlen Felder oder Antworten, werden sie NICHT als bestanden markiert.
+5. Falls stock nicht antwortet, **nicht** mit irgendeinem naechstbesten Flash- oder Recovery-Experiment fortfahren. Das Rohlog genuegt fuer die Zuordnung. Kein extra Dauertest.
+6. Kontrollieren, ob existierender IAP-Weg von diesem *tatsaechlichen* Stockzustand aus akzeptiert wird und der bekannte Rueckweg real moeglich ist. Ein Softwaretest kann die fehlende bootloader-unabhaengige UART-Recovery nicht ersetzen. Deshalb vor Bilduebertragung kein ungeprueftes Upgrade.
 
 ### B. G30-Hardwarekennwerte EINMAL erfassen
 
@@ -38,7 +39,7 @@ Erst nach kompatibel nachgewiesenem IAP-Flash-/Rueckweg und korrektem Motorprofi
 - `-Mode Pulse -Port COMx -Throttle 35 -Seconds 3 -WheelFreeConfirmed -CurrentLimitedPSUConfirmed -FirmwareIdentityConfirmed` sendet erst Nullgas, dann einen kleinen begrenzten Gasimpuls, dann Nullgas. Der Benutzer startet es **nur** nach der physischen Verifikation; niemals automatisch. Ein manuell gedrehtes Rad oberhalb der konfigurierten Rollschwelle ist Voraussetzung.
 - Drei (!) Schalter im PowerShell-Tool sind **nur lokale Bedienbestätigungen** fuer einen aktiven Test und veraendern weder Firmware noch Bootloader.
 
-Einmal pro realem Motorlauf nur das Log `0xFD/0xFE`, Iststrom-/ADC-Rohwerte, Statefolge, und IAP-Erreichbarkeit nach dem Lauf sichern. Nach Bedarf gezielt **einen** Fehler beheben, statt das ganze Projekt wieder zu testen.
+Einmal pro realem Motorlauf nur das Log `0xFD/0xFE`, Iststrom-/ADC-Rohwerte, Statefolge, und IAP-Erreichbarkeit nach dem Lauf sichern. Die `Snapshot`-Funktion erfasst diese Felder in einer Sitzung, und der Decoder erzeugt anschliessend ein reproduzierbares JSON ohne erneute Hardwareabfrage. Nach Bedarf gezielt **einen** Fehler beheben, statt das ganze Projekt wieder zu testen.
 
 ## Was ohne reale Hardware prinzipiell NICHT bestaetigt werden kann
 
